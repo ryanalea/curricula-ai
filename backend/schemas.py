@@ -1,0 +1,30 @@
+from pydantic import BaseModel
+from typing import List, Optional
+
+class KeywordInput(BaseModel):
+    keyword: str
+
+class GroundingInput(BaseModel):
+    tech_tags: List[str]
+    prerequisites: List[str]
+    out_of_scope: List[str]
+    learning_outcomes: List[str]
+    target_audience: str
+
+class CourseConfigUpdate(BaseModel):
+    lessons_count: int
+    duration: int
+    difficulty: str
+    target_audience: str
+    subject_context: str
+
+class ProposalSelect(BaseModel):
+    selected_proposal_id: int
+
+class LessonUpdate(BaseModel):
+    id: int
+    title: str
+    order: int
+
+class StructureUpdate(BaseModel):
+    lessons: List[LessonUpdate]
