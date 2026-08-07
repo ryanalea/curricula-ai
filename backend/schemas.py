@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 
 class KeywordInput(BaseModel):
     keyword: str
@@ -28,3 +28,17 @@ class LessonUpdate(BaseModel):
 
 class StructureUpdate(BaseModel):
     lessons: List[LessonUpdate]
+
+class AIActionRequest(BaseModel):
+    role: str
+    section_type: str
+    action: str
+    params: Optional[dict] = None
+
+class SaveSectionRequest(BaseModel):
+    role: str
+    section_type: str
+    content: Optional[Any] = None
+
+
+

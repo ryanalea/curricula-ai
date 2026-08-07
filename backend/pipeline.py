@@ -336,3 +336,117 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
         )
     )
     return json.loads(response.choices[0].message.content)
+
+async def run_section_action(section_type: str, content: str, action: str, params: dict = None):
+    # Action modifiers: rewrite, expand, shorten, simplify, translate, improve, fact_check
+    if not client:
+        await asyncio.sleep(0.5)
+        if action == "translate":
+            lang = (params or {}).get("target_language", "Indonesian")
+            return f"[Action: Translated to {lang}] {content}"
+        return f"[Action: {action.upper()}] {content}"
+    
+    prompt = f"""
+    [TASK]
+    Perform the action '{action}' on the following section content of type '{section_type}'.
+    
+    [CONTENT]
+    {content}
+    
+    [ADDITIONAL_PARAMETERS]
+    {json.dumps(params or {})}
+    
+    [CONSTRAINTS]
+    - Keep formatting intact. If it is markdown, keep it as markdown.
+    - Respond only with the updated content text. Do not add intro or outro.
+    """
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(
+        None,
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}]
+        )
+    )
+    return response.choices[0].message.content.strip()
+
+async def generate_more_quiz(lesson_title: str, core_content: str, count: int = 3):
+    if not client:
+        await asyncio.sleep(0.5)
+        return [
+            {
+                "question": f"Which of the following is a key aspect of {lesson_title}?",
+                "options": ["Option A", "Option B", "Option C", "Option D"],
+                "answer": "Option A",
+                "explanation": "Option A is correct because of fundamental principles discussed."
+            }
+        ] * count
+    
+    prompt = f"""
+    Based on the following content for lesson '{lesson_title}', generate exactly {count} multiple choice quiz questions.
+    
+    [CONTENT]
+    {core_content}
+    
+    [FORMAT]
+    Return JSON only with format:
+    {{
+      "quizzes": [
+        {{
+          "question": "Question text?",
+          "options": ["A", "B", "C", "D"],
+          "answer": "Exact matching string of correct option",
+          "explanation": "Why correct"
+        }}
+      ]
+    }}
+    """
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(
+        None,
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+    )
+    return json.loads(response.choices[0].message.content).get("quizzes", [])
+
+async def generate_more_exercises(lesson_title: str, core_content: str, count: int = 1):
+    if not client:
+        await asyncio.sleep(0.5)
+        return [
+            {
+                "title": f"Hands-on Exercise for {lesson_title}",
+                "instruction": "Extend the code template to support parsing multiple records sequentially."
+            }
+        ] * count
+    
+    prompt = f"""
+    Based on the following content for lesson '{lesson_title}', generate exactly {count} student exercises/tasks.
+    
+    [CONTENT]
+    {core_content}
+    
+    [FORMAT]
+    Return JSON only with format:
+    {{
+      "exercises": [
+        {{
+          "title": "Exercise Name",
+          "instruction": "Detailed task instructions..."
+        }}
+      ]
+    }}
+    """
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(
+        None,
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+    )
+    return json.loads(response.choices[0].message.content).get("exercises", [])
+

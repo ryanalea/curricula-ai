@@ -1,14 +1,18 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, StreamingResponse, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uuid
 import json
 import asyncio
 from typing import List
+import datetime
+import io
 
-from models import SessionLocal, init_db, Session as DbSession, Course, Lesson, Section
+from models import SessionLocal, init_db, Session as DbSession, Course, Lesson, Section, History
 import schemas
 import pipeline
+import exporter
+import document_parser
 
 init_db()
 
@@ -351,3 +355,274 @@ def trigger_generation(session_id: str, background_tasks: BackgroundTasks, db: S
     
     background_tasks.add_task(generate_course_content_task, session_id)
     return {"message": "Generation started", "status": "queued"}
+
+@app.post("/api/v1/lessons/{lesson_id}/sections/ai-action")
+async def run_section_action_endpoint(lesson_id: int, req: schemas.AIActionRequest, db: Session = Depends(get_db)):
+    section = db.query(Section).filter(
+        Section.lesson_id == lesson_id,
+        Section.role == req.role,
+        Section.section_type == req.section_type
+    ).first()
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+    
+    # Process modifications
+    original_text = section.content_text
+    # Parse json if it's stored as JSON string
+    try:
+        content_to_process = json.loads(original_text)
+    except:
+        content_to_process = original_text
+
+    if isinstance(content_to_process, str):
+        processed = await pipeline.run_section_action(section.section_type, content_to_process, req.action, req.params)
+        section.content_text = json.dumps(processed)
+    else:
+        # If it's a structured dictionary (e.g. lesson plans, rubrics)
+        # We perform action on keys or values
+        processed = await pipeline.run_section_action(section.section_type, str(content_to_process), req.action, req.params)
+        section.content_text = json.dumps(processed)
+        
+    db.commit()
+    save_history_snapshot(db, section.lesson.course_id, section.lesson_id, section.role, section.section_type, section.content_text, f"AI {req.action.capitalize()}: {req.section_type.replace('_', ' ').capitalize()}")
+    return {"status": "success", "content": section.content_text}
+
+
+@app.post("/api/v1/lessons/{lesson_id}/quiz/generate")
+async def generate_more_quizzes_endpoint(lesson_id: int, count: int = 3, db: Session = Depends(get_db)):
+    lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+        
+    # Find Creator POV core_content Section
+    core_sec = db.query(Section).filter(Section.lesson_id == lesson_id, Section.role == "creator", Section.section_type == "core_content").first()
+    core_text = json.loads(core_sec.content_text) if core_sec else ""
+    
+    new_quizzes = await pipeline.generate_more_quiz(lesson.title, core_text, count)
+    
+    # Append to existing Quiz section
+    quiz_sec = db.query(Section).filter(Section.lesson_id == lesson_id, Section.role == "creator", Section.section_type == "quiz").first()
+    if quiz_sec:
+        try:
+            curr = json.loads(quiz_sec.content_text)
+            if not isinstance(curr, list):
+                curr = [curr]
+        except:
+            curr = []
+        curr.extend(new_quizzes)
+        quiz_sec.content_text = json.dumps(curr)
+    else:
+        quiz_sec = Section(lesson_id=lesson_id, role="creator", section_type="quiz", content_text=json.dumps(new_quizzes))
+        db.add(quiz_sec)
+        
+    db.commit()
+    save_history_snapshot(db, lesson.course_id, lesson_id, "creator", "quiz", quiz_sec.content_text, "AI Generate More Quizzes")
+    return {"status": "success", "quizzes": new_quizzes}
+
+@app.post("/api/v1/lessons/{lesson_id}/exercises/generate")
+async def generate_more_exercises_endpoint(lesson_id: int, count: int = 1, db: Session = Depends(get_db)):
+    lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+        
+    core_sec = db.query(Section).filter(Section.lesson_id == lesson_id, Section.role == "creator", Section.section_type == "core_content").first()
+    core_text = json.loads(core_sec.content_text) if core_sec else ""
+    
+    new_exercises = await pipeline.generate_more_exercises(lesson.title, core_text, count)
+    
+    # Append to Creator POV Exercises
+    ex_sec = db.query(Section).filter(Section.lesson_id == lesson_id, Section.role == "creator", Section.section_type == "exercises").first()
+    if ex_sec:
+        try:
+            curr = json.loads(ex_sec.content_text)
+            if not isinstance(curr, list):
+                curr = [curr]
+        except:
+            curr = []
+        curr.extend(new_exercises)
+        ex_sec.content_text = json.dumps(curr)
+    else:
+        ex_sec = Section(lesson_id=lesson_id, role="creator", section_type="exercises", content_text=json.dumps(new_exercises))
+        db.add(ex_sec)
+        
+    db.commit()
+    save_history_snapshot(db, lesson.course_id, lesson_id, "creator", "exercises", ex_sec.content_text, "AI Generate More Exercises")
+    return {"status": "success", "exercises": new_exercises}
+
+@app.post("/api/v1/lessons/{lesson_id}/sections/save")
+def save_section_endpoint(lesson_id: int, req: schemas.SaveSectionRequest, db: Session = Depends(get_db)):
+    section = db.query(Section).filter(
+        Section.lesson_id == lesson_id,
+        Section.role == req.role,
+        Section.section_type == req.section_type
+    ).first()
+    if not section:
+        section = Section(
+            lesson_id=lesson_id,
+            role=req.role,
+            section_type=req.section_type,
+            content_text=json.dumps(req.content)
+        )
+        db.add(section)
+    else:
+        section.content_text = json.dumps(req.content)
+    db.commit()
+    
+    lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
+    session_id = lesson.course_id if lesson else ""
+    save_history_snapshot(db, session_id, lesson_id, req.role, req.section_type, section.content_text, f"Manual Edit: {req.section_type.replace('_', ' ').capitalize()}")
+    
+    return {"status": "success", "content": section.content_text}
+
+def save_history_snapshot(db: Session, session_id: str, lesson_id: int, role: str, section_type: str, content_text: str, label: str = None):
+    history_entry = History(
+        session_id=session_id,
+        lesson_id=lesson_id,
+        role=role,
+        section_type=section_type,
+        content_snapshot=content_text,
+        label=label or f"Update {section_type.replace('_', ' ').capitalize()}",
+        created_at=datetime.datetime.now().isoformat()
+    )
+    db.add(history_entry)
+    db.commit()
+
+@app.get("/api/v1/courses/{session_id}/export")
+def export_course(session_id: str, format: str = "markdown", role: str = "all", db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    lessons_data = []
+    course = db.query(Course).filter(Course.id == session_id).first()
+    if course:
+        for lesson in sorted(course.lessons, key=lambda l: l.order):
+            sections_data = {}
+            for sec in lesson.sections:
+                if sec.role not in sections_data:
+                    sections_data[sec.role] = {}
+                try:
+                    sections_data[sec.role][sec.section_type] = json.loads(sec.content_text)
+                except Exception:
+                    sections_data[sec.role][sec.section_type] = sec.content_text
+            lessons_data.append({
+                "id": lesson.id,
+                "title": lesson.title,
+                "order": lesson.order,
+                "sections": sections_data
+            })
+            
+    course_title = course.title if course else (db_session.prompt or "Untitled Course")
+    course_data = {
+        "title": course_title,
+        "config": {
+            "lessons_count": db_session.config_lessons,
+            "duration": db_session.config_duration,
+            "difficulty": db_session.config_difficulty,
+            "target_audience": db_session.config_audience,
+        },
+        "lessons": lessons_data
+    }
+    
+    filename_title = "".join([c if c.isalnum() else "_" for c in course_title])
+    
+    if format == "zip":
+        stream = exporter.export_all_zip(course_data)
+        return StreamingResponse(
+            stream, 
+            media_type="application/x-zip-compressed",
+            headers={"Content-Disposition": f"attachment; filename={filename_title}_export.zip"}
+        )
+    elif format == "docx":
+        stream = exporter.export_to_docx(course_data, role)
+        return StreamingResponse(
+            stream,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.docx"}
+        )
+    elif format == "html":
+        html_str = exporter.export_to_html(course_data, role)
+        stream = io.BytesIO(html_str.encode('utf-8'))
+        return StreamingResponse(
+            stream,
+            media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.html"}
+        )
+    elif format == "pdf":
+        stream = exporter.export_to_pdf(course_data, role)
+        return StreamingResponse(
+            stream,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.pdf"}
+        )
+    else: # markdown
+        md_str = exporter.export_to_markdown(course_data, role)
+        stream = io.BytesIO(md_str.encode('utf-8'))
+        return StreamingResponse(
+            stream,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.md"}
+        )
+
+@app.get("/api/v1/courses/{session_id}/history")
+def get_course_history(session_id: str, db: Session = Depends(get_db)):
+    history_list = db.query(History).filter(History.session_id == session_id).order_by(History.created_at.desc()).all()
+    return [{
+        "id": h.id,
+        "lesson_id": h.lesson_id,
+        "role": h.role,
+        "section_type": h.section_type,
+        "label": h.label,
+        "created_at": h.created_at
+    } for h in history_list]
+
+@app.post("/api/v1/history/{history_id}/restore")
+def restore_course_history(history_id: int, db: Session = Depends(get_db)):
+    h = db.query(History).filter(History.id == history_id).first()
+    if not h:
+        raise HTTPException(status_code=404, detail="History entry not found")
+        
+    section = db.query(Section).filter(
+        Section.lesson_id == h.lesson_id,
+        Section.role == h.role,
+        Section.section_type == h.section_type
+    ).first()
+    
+    if not section:
+        section = Section(
+            lesson_id=h.lesson_id,
+            role=h.role,
+            section_type=h.section_type,
+            content_text=h.content_snapshot
+        )
+        db.add(section)
+    else:
+        section.content_text = h.content_snapshot
+        
+    db.commit()
+    return {"status": "success", "content": section.content_text}
+
+@app.post("/api/v1/sessions/{session_id}/documents/upload")
+async def upload_document_endpoint(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    contents = await file.read()
+    try:
+        parsed_text = document_parser.parse_document(file.filename, contents)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
+        
+    current_context = db_session.subject_context or ""
+    if current_context:
+        db_session.subject_context = current_context + "\n\n=== Additional Context from Uploaded File (" + file.filename + ") ===\n" + parsed_text
+    else:
+        db_session.subject_context = "=== Context from Uploaded File (" + file.filename + ") ===\n" + parsed_text
+        
+    db.commit()
+    return {"status": "success", "filename": file.filename, "subject_context": db_session.subject_context}
+
+
+
+
