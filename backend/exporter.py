@@ -71,19 +71,19 @@ def export_to_html(course_data: dict, role: str) -> str:
     html_lines = []
     for line in md_content.split("\n"):
         if line.startswith("# "):
-            html_lines.append(f"<h1 style='color:#081231;font-family:sans-serif;'>{line[2:]}</h1>")
+            html_lines.append(f"<h1 style='color:#2D3561;font-family:sans-serif;'>{line[2:]}</h1>")
         elif line.startswith("## "):
-            html_lines.append(f"<h2 style='color:#486BF5;font-family:sans-serif;margin-top:24px;'>{line[3:]}</h2>")
+            html_lines.append(f"<h2 style='color:#2D3561;font-family:sans-serif;margin-top:24px;'>{line[3:]}</h2>")
         elif line.startswith("### "):
             html_lines.append(f"<h3 style='color:#E9B259;font-family:sans-serif;margin-top:18px;'>{line[4:]}</h3>")
         elif line.startswith("#### "):
-            html_lines.append(f"<h4 style='color:#081231;font-family:sans-serif;'>{line[5:]}</h4>")
+            html_lines.append(f"<h4 style='color:#2D3561;font-family:sans-serif;'>{line[5:]}</h4>")
         elif line.startswith("- "):
             html_lines.append(f"<li style='font-family:sans-serif;'>{line[2:]}</li>")
         elif line.startswith("  - "):
             html_lines.append(f"<li style='margin-left:20px;font-family:sans-serif;'>{line[4:]}</li>")
         elif line.strip() == "---":
-            html_lines.append("<hr style='border: 1px solid #eee; margin: 30px 0;'>")
+            html_lines.append("<hr style='border: 1px solid #E8EAF0; margin: 30px 0;'>")
         elif line.strip() == "":
             html_lines.append("<br/>")
         else:
@@ -101,8 +101,8 @@ def export_to_html(course_data: dict, role: str) -> str:
                 padding: 40px;
                 max-width: 800px;
                 margin: auto;
-                color: #333;
-                background-color: #FDFEFE;
+                color: #2D3561;
+                background-color: #FFFFFF;
             }}
         </style>
     </head>
