@@ -908,6 +908,32 @@ export default function App() {
     }
   };
 
+  const handleAutoSuggestGrounding = async (fieldType, currentList, setter) => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          field_type: fieldType,
+          existing_items: currentList.filter(Boolean)
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.suggestion) {
+          setter([...currentList, data.suggestion]);
+        }
+      } else {
+        alert('Failed to generate suggestions.');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // ── Step 4: Select Proposal ──
   const handleSelectProposal = async (propId) => {
     setIsLoading(true);
@@ -1609,11 +1635,18 @@ export default function App() {
                       </button>
                     </div>
                   ))}
-                  <button className="file-upload-btn" style={{ marginTop: '8px', fontSize: '0.85rem' }} onClick={() => {
-                    setPrerequisites([...prerequisites, '']);
-                  }}>
-                    + Add Prerequisite
-                  </button>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                    <button className="file-upload-btn" style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center' }} onClick={() => {
+                      setPrerequisites([...prerequisites, '']);
+                    }}>
+                      + Add Item
+                    </button>
+                    <button className="action-btn" style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', boxShadow: 'none', justifyContent: 'center' }} onClick={() => {
+                      handleAutoSuggestGrounding('prerequisites', prerequisites, setPrerequisites);
+                    }} disabled={isLoading}>
+                      {isLoading ? <IconSpinner /> : '🤖 AI Suggest'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1644,11 +1677,18 @@ export default function App() {
                       </button>
                     </div>
                   ))}
-                  <button className="file-upload-btn" style={{ marginTop: '8px', fontSize: '0.85rem' }} onClick={() => {
-                    setBoundaries([...boundaries, '']);
-                  }}>
-                    + Add Boundary
-                  </button>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                    <button className="file-upload-btn" style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center' }} onClick={() => {
+                      setBoundaries([...boundaries, '']);
+                    }}>
+                      + Add Item
+                    </button>
+                    <button className="action-btn" style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', boxShadow: 'none', justifyContent: 'center' }} onClick={() => {
+                      handleAutoSuggestGrounding('boundaries', boundaries, setBoundaries);
+                    }} disabled={isLoading}>
+                      {isLoading ? <IconSpinner /> : '🤖 AI Suggest'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1680,11 +1720,18 @@ export default function App() {
                       </button>
                     </div>
                   ))}
-                  <button className="file-upload-btn" style={{ marginTop: '8px', fontSize: '0.85rem', maxWidth: '200px' }} onClick={() => {
-                    setLearningOutcomes([...learningOutcomes, '']);
-                  }}>
-                    + Add Learning Outcome
-                  </button>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '8px', maxWidth: '400px' }}>
+                    <button className="file-upload-btn" style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center' }} onClick={() => {
+                      setLearningOutcomes([...learningOutcomes, '']);
+                    }}>
+                      + Add Item
+                    </button>
+                    <button className="action-btn" style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', boxShadow: 'none', justifyContent: 'center' }} onClick={() => {
+                      handleAutoSuggestGrounding('learning_outcomes', learningOutcomes, setLearningOutcomes);
+                    }} disabled={isLoading}>
+                      {isLoading ? <IconSpinner /> : '🤖 AI Suggest'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

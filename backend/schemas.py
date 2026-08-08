@@ -40,5 +40,6 @@ class SaveSectionRequest(BaseModel):
     section_type: str
     content: Optional[Any] = None
 
-
-
+class GroundingSuggestRequest(BaseModel):
+    field_type: str
+    existing_items: List[str]

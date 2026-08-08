@@ -460,3 +460,38 @@ async def generate_more_exercises(lesson_title: str, core_content: str, count: i
         )
     )
     return safe_load_json(response.choices[0].message.content).get("exercises", [])
+
+async def generate_single_grounding_item(keyword: str, field_type: str, existing_items: list):
+    """Generates a single relevant grounding item (prerequisite, boundary, or outcome) using AI."""
+    if not client:
+        await asyncio.sleep(0.5)
+        fallback = {
+            "prerequisites": "Familiarity with clean code concepts",
+            "boundaries": "Advanced cloud infrastructure scaling",
+            "learning_outcomes": "Demonstrate practical deployment skills"
+        }
+        return fallback.get(field_type, "New grounding point")
+
+    prompt = f"""
+    Based on the course topic: '{keyword}', suggest one new, distinct, and highly relevant item for the grounding field '{field_type}'.
+    Existing items in this field are: {json.dumps(existing_items)}
+    
+    Make the suggestion short (1 sentence), actionable, and do not repeat any existing items.
+    
+    Return output as JSON only with format:
+    {{
+      "suggestion": "One sentence suggestion text"
+    }}
+    """
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(
+        None,
+        lambda: client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+    )
+    data = safe_load_json(response.choices[0].message.content)
+    return data.get("suggestion", f"Understanding of {keyword} concepts")
+

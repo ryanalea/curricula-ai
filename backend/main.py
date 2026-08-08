@@ -175,6 +175,19 @@ def save_grounding(session_id: str, grounding_data: schemas.GroundingInput, db: 
     
     return {"message": "Grounding saved successfully", "step": db_session.step}
 
+@app.post("/api/v1/courses/sessions/{session_id}/grounding/suggest")
+async def suggest_grounding_item(session_id: str, req: schemas.GroundingSuggestRequest, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    suggestion = await pipeline.generate_single_grounding_item(
+        db_session.prompt,
+        req.field_type,
+        req.existing_items
+    )
+    return {"suggestion": suggestion}
+
 @app.post("/api/v1/courses/sessions/{session_id}/config")
 def update_config(session_id: str, config_data: schemas.CourseConfigUpdate, db: Session = Depends(get_db)):
     db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
