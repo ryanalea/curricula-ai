@@ -13,6 +13,20 @@ client = None
 if api_key and api_key != "MOCK_KEY_FOR_DEVELOPMENT":
     client = OpenAI(api_key=api_key)
 
+def safe_load_json(raw_text: str):
+    """Safely cleans and loads JSON strings, ignoring markdown code blocks if present."""
+    if not raw_text:
+        return {}
+    cleaned = raw_text.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+    return json.loads(cleaned)
+
 # Mock generation data for offline demo fallback
 MOCK_GROUNDING = {
     "tech_tags": ["Python", "Data Science", "Pandas", "NumPy"],
@@ -83,7 +97,7 @@ def generate_concept_and_grounding(keyword: str):
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        data = json.loads(response.choices[0].message.content)
+        data = safe_load_json(response.choices[0].message.content)
         # Normalize: if AI returned flat structure (no 'grounding' key), wrap it
         if "grounding" not in data:
             data = {
@@ -121,7 +135,7 @@ def generate_proposals(keyword: str, grounding_data: dict):
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        data = json.loads(response.choices[0].message.content)
+        data = safe_load_json(response.choices[0].message.content)
         # Ensure it returns list
         if "proposals" in data:
             return data["proposals"]
@@ -151,7 +165,7 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        data = json.loads(response.choices[0].message.content)
+        data = safe_load_json(response.choices[0].message.content)
         if "lessons" in data:
             return data["lessons"]
         return list(data.values())[0] if isinstance(data, dict) else data
@@ -212,7 +226,6 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     - Fokus pada kelengkapan materi induk dan struktur latihan/kuis.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
-    loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
@@ -221,7 +234,7 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
             response_format={"type": "json_object"}
         )
     )
-    return json.loads(response.choices[0].message.content)
+    return safe_load_json(response.choices[0].message.content)
 
 async def generate_student_content(lesson_title: str, core_content_creator: str):
     if not client:
@@ -266,7 +279,6 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
     - Sediakan blok *debugging* dan *ethics* yang relevan.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
-    loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
@@ -275,7 +287,7 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
             response_format={"type": "json_object"}
         )
     )
-    return json.loads(response.choices[0].message.content)
+    return safe_load_json(response.choices[0].message.content)
 
 async def generate_educator_content(lesson_title: str, core_content_creator: str):
     if not client:
@@ -326,7 +338,6 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
     - Hindari mengulang teks materi pelajaran panjang milik siswa.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
-    loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
@@ -335,7 +346,7 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
             response_format={"type": "json_object"}
         )
     )
-    return json.loads(response.choices[0].message.content)
+    return safe_load_json(response.choices[0].message.content)
 
 async def run_section_action(section_type: str, content: str, action: str, params: dict = None):
     # Action modifiers: rewrite, expand, shorten, simplify, translate, improve, fact_check
@@ -410,7 +421,7 @@ async def generate_more_quiz(lesson_title: str, core_content: str, count: int = 
             response_format={"type": "json_object"}
         )
     )
-    return json.loads(response.choices[0].message.content).get("quizzes", [])
+    return safe_load_json(response.choices[0].message.content).get("quizzes", [])
 
 async def generate_more_exercises(lesson_title: str, core_content: str, count: int = 1):
     if not client:
@@ -448,5 +459,4 @@ async def generate_more_exercises(lesson_title: str, core_content: str, count: i
             response_format={"type": "json_object"}
         )
     )
-    return json.loads(response.choices[0].message.content).get("exercises", [])
-
+    return safe_load_json(response.choices[0].message.content).get("exercises", [])
