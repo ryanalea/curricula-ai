@@ -23,9 +23,9 @@ The platform follows an **8-step AI-guided workflow** (RTFC pipeline) to ensure 
 
 ## 🖼️ Screenshots
 
-> Dark navy sidebar · Light content area · Gold CTA buttons · Blue interactive elements
+> Maxy brand layout: Deep Navy sidebar · Light Gray content background · Gold CTA buttons & interactive elements
 
-*Design palette: `#081231` · `#486BF5` · `#E9B259` · `#EFC568` · `#FDFEFE`*
+*Design palette: Navy `#2D3561` · Gold `#E9B259` · Light Background `#E8EAF0` · White `#FFFFFF`*
 
 ---
 
@@ -219,11 +219,10 @@ Content Generator
 ## 🎨 Design System
 
 **Color Palette** (Maxy Academy brand):
-- `#081231` — Navy (sidebar, text, code blocks)
-- `#486BF5` — Blue (primary interactive, active states, tags)
-- `#E9B259` — Gold (CTA buttons, highlights)
-- `#EFC568` — Gold Alt (sidebar bylines, secondary accents)
-- `#FDFEFE` — White (background, card surfaces)
+- `#2D3561` — Navy (sidebar background, primary text)
+- `#E9B259` — Gold (CTA buttons, active step icons, highlights)
+- `#E8EAF0` — Light Gray (base workspace background)
+- `#FFFFFF` — White (card background, main content area)
 
 **Typography:**
 - Headings: [Outfit](https://fonts.google.com/specimen/Outfit) (700–900)

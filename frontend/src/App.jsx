@@ -110,25 +110,40 @@ function ContentRenderer({ text }) {
 
 export default function App() {
   // ── Navigation ──
+  const [currentView, setCurrentView] = useState('home'); // 'home', 'courses', 'wizard'
   const [currentStep, setCurrentStep] = useState('dashboard');
   const [sessionId, setSessionId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [agentProgressStage, setAgentProgressStage] = useState(1); // 1: Tech, 2: Grounding, 3: Proposals, 4: Structure
   const [activeSidebarNav, setActiveSidebarNav] = useState('create'); // 'create', 'my_courses', 'drafts', 'docs', 'assets', 'templates', 'settings'
 
   // Greeting Logic
   const getGreeting = () => {
     const hr = new Date().getHours();
-    if (hr < 12) return 'Good Morning, Lea';
-    if (hr < 17) return 'Good Afternoon, Lea';
-    return 'Good Evening, Lea';
+    if (hr < 12) return 'Good morning, user3';
+    if (hr < 17) return 'Good afternoon, user3';
+    return 'Good evening, user3';
   };
   const greeting = getGreeting();
 
-  // ── Dashboard ──
   const [promptText, setPromptText] = useState('');
   const [isAgentMode, setIsAgentMode] = useState('agent');
   const [sessionsList, setSessionsList] = useState([]);
   const [showMyCourses, setShowMyCourses] = useState(false);
+
+  const [selectedTopicCategory, setSelectedTopicCategory] = useState('All Categories');
+
+  const trendingTopics = [
+    { category: 'Artificial Intelligence', title: 'Generative AI in Education', desc: 'Implement LLMs in classrooms safely and effectively.', prompt: 'Generative AI integration in modern school education systems' },
+    { category: 'Artificial Intelligence', title: 'Deep Learning Basics', desc: 'Neural networks, backpropagation, and CNN structures.', prompt: 'Deep learning neural networks and convolutional model designs' },
+    { category: 'Data Science', title: 'Data Analysis with Pandas', desc: 'Wrangle, clean, and visualize complex datasets in Python.', prompt: 'Python Pandas data science and wrangling pipelines' },
+    { category: 'Data Science', title: 'Statistical Inference', desc: 'Hypothesis testing, confidence intervals, and regression.', prompt: 'Statistical inference and data analysis principles' },
+    { category: 'Digital Transformation', title: 'Cloud Computing Migration', desc: 'Shift legacy infrastructure to AWS and Azure securely.', prompt: 'Enterprise cloud computing migration strategies' },
+    { category: 'Digital Transformation', title: 'Agile Leadership', desc: 'Modern software delivery frameworks and team dynamics.', prompt: 'Agile project management and engineering leadership' },
+    { category: 'Education Technology', title: 'Gamified Learning Design', desc: 'Design interactive rewards and pathways for student retention.', prompt: 'Gamification design for student learning systems' },
+    { category: 'Software Engineering', title: 'Go Microservices Architecture', desc: 'Build scalable concurrent backend services in Go.', prompt: 'Go microservices concurrent backend pipeline design' },
+    { category: 'Software Engineering', title: 'Next.js 15 Foundations', desc: 'Server components, server actions, and layout routing.', prompt: 'Next.js 15 App router and server actions development' }
+  ];
 
   const suggestedPrompts = [
     { title: 'Machine Learning Essentials', desc: 'Training models, feature engineering, and neural network basics.', prompt: 'Machine Learning Essentials with Python' },
@@ -708,6 +723,80 @@ export default function App() {
     return () => clearInterval(interval);
   }, [currentStep, sessionId, fetchSessions]);
 
+  // ── Agent Auto-Workflow Orchestrator ──
+  const runAgentPipeline = async (sessId) => {
+    try {
+      // 1. Technical Foundations completed. Move to Stage 2: Educational Grounding.
+      setAgentProgressStage(2);
+
+      // Save Config & Generate proposals
+      await fetch(`${API_BASE}/courses/sessions/${sessId}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lessons_count: 5,
+          duration: 60,
+          difficulty: 'Beginner',
+          target_audience: 'Student',
+          subject_context: ''
+        })
+      });
+
+      const propRes = await fetch(`${API_BASE}/courses/sessions/${sessId}/proposals/generate`, {
+        method: 'POST'
+      });
+      if (!propRes.ok) throw new Error('Failed to generate proposals');
+      const propData = await propRes.json();
+      setProposals(propData.proposals || []);
+
+      // 2. Grounding is done. Move to Stage 3: Directional Proposals.
+      setAgentProgressStage(3);
+
+      // Select proposal (ID 2 is recommended/default)
+      const selRes = await fetch(`${API_BASE}/courses/sessions/${sessId}/proposals/select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected_proposal_id: 2 })
+      });
+      if (!selRes.ok) throw new Error('Failed to select proposal');
+      const selData = await selRes.json();
+      setSelectedProposalId(2);
+      setPrerequisites(selData.prerequisites || []);
+      setBoundaries(selData.out_of_scope || []);
+      setLearningOutcomes(selData.learning_outcomes || []);
+
+      // 3. Proposals selected. Move to Stage 4: Curriculum Structure.
+      setAgentProgressStage(4);
+
+      // Save structure (using generated structure outline from proposal)
+      const structRes = await fetch(`${API_BASE}/courses/sessions/${sessId}/structure/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lessons: selData.structure || [] })
+      });
+      if (!structRes.ok) throw new Error('Failed to save structure');
+      const structData = await structRes.json();
+      const newStruct = (structData.structure || []).map(lesson => ({
+        ...lesson,
+        sections: lesson.sections || defaultSections
+      }));
+      setStructure(newStruct);
+      if (newStruct.length > 0) {
+        setSelectedStructureLessonId(newStruct[0].id);
+      }
+
+      // 4. Completed all steps. Jump to step 6 (review).
+      setCurrentStep('review');
+      fetchSessions();
+    } catch (err) {
+      console.error(err);
+      alert('Agent pipeline failed: ' + err.message);
+      setCurrentStep('context'); // Fallback to manual if agent fails
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // ── Step 1: Create Session ──
   const handleStartSession = async (promptVal) => {
     const textToSubmit = promptVal || promptText;
@@ -716,6 +805,7 @@ export default function App() {
       return;
     }
     setIsLoading(true);
+    setAgentProgressStage(1);
     try {
       const res = await fetch(`${API_BASE}/courses/sessions`, {
         method: 'POST',
@@ -732,14 +822,21 @@ export default function App() {
         setConfigDifficulty(data.config?.difficulty || 'Beginner');
         setConfigAudience(data.config?.target_audience || 'Student');
         setSubjectContext(data.subject_context || '');
-        setCurrentStep('context');
+        setCurrentView('wizard');
         fetchSessions();
+
+        if (isAgentMode === 'agent') {
+          await runAgentPipeline(data.session_id);
+        } else {
+          setCurrentStep('context');
+          setIsLoading(false);
+        }
       } else {
         alert('Failed to start session.');
+        setIsLoading(false);
       }
     } catch {
       alert('Error contacting API server. Is the backend running?');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -879,6 +976,7 @@ export default function App() {
   // ── Resume a session ──
   const handleResumeSession = async (sess) => {
     setIsLoading(true);
+    setCurrentView('wizard');
     try {
       const res = await fetch(`${API_BASE}/courses/sessions/${sess.session_id}`);
       if (res.ok) {
@@ -996,6 +1094,7 @@ export default function App() {
   const activeLessonContent = courseData?.lessons?.find(l => l.id === activeLessonId)?.sections?.[activeRole] || {};
 
   const goToDashboard = () => {
+    setCurrentView('home');
     setCurrentStep('dashboard');
     setShowMyCourses(false);
     setSessionId(null);
@@ -1008,166 +1107,191 @@ export default function App() {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app-container">
-
-      {/* ── Sidebar ── */}
-      <div className="sidebar">
-        {/* Logo */}
-        <div className="sidebar-logo-area">
-          <div className="sidebar-logo" onClick={goToDashboard}>
-            <div className="sidebar-logo-mark">
-              <img src="/m-logo.png" alt="Maxy" width="36" height="36" style={{ borderRadius: '10px', display: 'block' }} />
-            </div>
-            <div className="sidebar-logo-text">
-              <span className="sidebar-logo-name">Curricula AI</span>
-              <span className="sidebar-logo-byline">by Maxy Academy</span>
-            </div>
+      {/* ── Top Header Navigation ── */}
+      <div className="top-header">
+        <div className="header-logo-area" onClick={goToDashboard}>
+          <div className="header-logo-mark" style={{ background: 'var(--navy)' }}>
+            <img src="/m-logo.png" alt="Maxy" width="36" height="36" style={{ borderRadius: '10px', display: 'block' }} />
+          </div>
+          <div className="sidebar-logo-text">
+            <span className="sidebar-logo-name" style={{ color: 'var(--navy)' }}>Curricula AI</span>
+            <span className="sidebar-logo-byline" style={{ color: 'var(--blue)' }}>by Maxy Academy</span>
           </div>
         </div>
 
-        {/* Navigation */}
-        <div className="nav-links">
-          <span className="nav-section-label">Main</span>
-          <div
-            className={`nav-item ${activeSidebarNav === 'create' ? 'active' : ''}`}
-            onClick={() => { setActiveSidebarNav('create'); setShowMyCourses(false); goToDashboard(); }}
+        <div className="header-tabs">
+          <button 
+            className={`header-tab-btn ${currentView === 'home' ? 'active' : ''}`}
+            onClick={() => { setCurrentView('home'); setShowMyCourses(false); }}
           >
-            <IconGrid />
-            <span>Dashboard</span>
-          </div>
-          <div
-            className={`nav-item ${activeSidebarNav === 'my_courses' ? 'active' : ''}`}
-            onClick={() => { setActiveSidebarNav('my_courses'); setShowMyCourses(true); fetchSessions(); }}
+            Home
+          </button>
+          <button 
+            className={`header-tab-btn ${currentView === 'courses' ? 'active' : ''}`}
+            onClick={() => { setCurrentView('courses'); setShowMyCourses(true); fetchSessions(); }}
           >
-            <IconBook />
-            <span>My Courses</span>
-            {sessionsList.length > 0 && (
-              <span className="nav-badge">{sessionsList.length}</span>
-            )}
-          </div>
-
-          <span className="nav-section-label" style={{ marginTop: '8px' }}>Workspace</span>
-          <div
-            className={`nav-item ${activeSidebarNav === 'drafts' ? 'active' : ''}`}
-            onClick={() => setActiveSidebarNav('drafts')}
-          >
-            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            <span>Drafts</span>
-          </div>
-          <div
-            className={`nav-item ${activeSidebarNav === 'docs' ? 'active' : ''}`}
-            onClick={() => setActiveSidebarNav('docs')}
-          >
-            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 002-2v-4M17 9l-5 5-5-5M12 12.8V2.5"/></svg>
-            <span>Generated Docs</span>
-          </div>
-          <div
-            className={`nav-item ${activeSidebarNav === 'assets' ? 'active' : ''}`}
-            onClick={() => setActiveSidebarNav('assets')}
-          >
-            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            <span>AI Assets</span>
-          </div>
-          <div
-            className={`nav-item ${activeSidebarNav === 'templates' ? 'active' : ''}`}
-            onClick={() => setActiveSidebarNav('templates')}
-          >
-            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-            <span>Templates</span>
-          </div>
-
-          <span className="nav-section-label" style={{ marginTop: '8px' }}>Account</span>
-          <div
-            className={`nav-item ${activeSidebarNav === 'settings' ? 'active' : ''}`}
-            onClick={() => setActiveSidebarNav('settings')}
-          >
-            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            <span>Settings</span>
-          </div>
+            Courses
+          </button>
         </div>
 
-        {/* Session indicator */}
-        {sessionId && activeSidebarNav === 'create' && (
-          <div className="sidebar-session-info">
-            <div className="session-info-label">Active Session</div>
-            <div className="session-info-prompt">{promptText?.slice(0, 60)}{promptText?.length > 60 ? '…' : ''}</div>
-            <div className="session-steps">
-              {STEPS.slice(1).map((step, i) => {
-                const idx = i + 1;
-                const curIdx = WORKFLOW_STEPS.indexOf(currentStep);
-                return (
-                  <div
-                    key={step.key}
-                    className={`session-step-dot ${curIdx > idx ? 'done' : ''} ${curIdx === idx ? 'active' : ''}`}
-                    title={step.label}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <div className="header-actions">
+          <button 
+            className="header-create-btn"
+            onClick={() => { setCurrentView('wizard'); setCurrentStep('dashboard'); setShowMyCourses(false); setSessionId(null); setPromptText(''); setProposals([]); setStructure([]); setCourseData(null); }}
+          >
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span>Create</span>
+          </button>
+          <div className="profile-avatar-circle" title="user3">U</div>
+        </div>
       </div>
 
       {/* ── Main Content ── */}
-      <div className="main-content">
+      <div className="main-content" style={{ paddingTop: '90px' }}>
 
-        {/* Topbar Header */}
-        <div className="top-bar">
-          <div className="top-bar-search">
-            <svg width="16" height="16" fill="none" stroke="var(--text-secondary)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" placeholder="Search courses, assets, templates..." />
-          </div>
-          <div className="top-bar-actions">
-            <button className="top-bar-btn" title="Notifications">
-              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
-              <span className="top-bar-badge" />
-            </button>
-            <button className="top-bar-btn" title="Settings" onClick={() => setActiveSidebarNav('settings')}>
-              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            </button>
-            <div className="profile-section">
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--navy)' }}>Lea</span>
-              <div className="profile-avatar">L</div>
+        {/* ── Home Page View ── */}
+        {currentView === 'home' && (
+          <div className="elice-home-page">
+            {/* Hero Section */}
+            <div className="elice-hero">
+              <h1 className="elice-greeting">{greeting}</h1>
+              <p className="elice-subtext">Ready to create something extraordinary today?</p>
+            </div>
+
+            {/* Quick Resume Card */}
+            {sessionsList.find(s => s.status !== 'completed') ? (() => {
+              const activeDraft = sessionsList.find(s => s.status !== 'completed');
+              return (
+                <div className="quick-resume-container">
+                  <div className="quick-resume-card">
+                    <div className="quick-resume-content">
+                      <span className="quick-resume-label">From where you left off...</span>
+                      <h3 className="quick-resume-title">{activeDraft.title || activeDraft.prompt}</h3>
+                      <span className="quick-resume-meta">
+                        Difficulty: <strong>{activeDraft.difficulty || 'Beginner'}</strong> &middot; Audience: <strong>{activeDraft.audience || 'Student'}</strong> &middot; Step: <strong>{activeDraft.step?.toUpperCase() || 'PROMPT'}</strong>
+                      </span>
+                    </div>
+                    <button className="header-create-btn" onClick={() => handleResumeSession(activeDraft)}>
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              );
+            })() : null}
+
+            {/* Trending Topics Section */}
+            <h2 className="elice-section-title">Trending Topics</h2>
+            <div className="trending-pills">
+              {['All Categories', 'Artificial Intelligence', 'Data Science', 'Digital Transformation', 'Education Technology', 'Software Engineering'].map(cat => (
+                <button
+                  key={cat}
+                  className={`trending-pill ${selectedTopicCategory === cat ? 'active' : ''}`}
+                  onClick={() => setSelectedTopicCategory(cat)}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div className="trending-grid">
+              {trendingTopics
+                .filter(t => selectedTopicCategory === 'All Categories' || t.category === selectedTopicCategory)
+                .map((topic, idx) => (
+                  <div key={idx} className="topic-card" onClick={() => {
+                    setPromptText(topic.prompt);
+                    setCurrentView('wizard');
+                    setCurrentStep('dashboard');
+                  }}>
+                    <div className="topic-card-icon">
+                      <IconLayers />
+                    </div>
+                    <h3 className="topic-card-title">{topic.title}</h3>
+                    <p className="topic-card-desc">{topic.desc}</p>
+                  </div>
+                ))}
+            </div>
+
+            {/* Work in Progress Section */}
+            {sessionsList.filter(s => s.status !== 'completed').length > 0 && (
+              <>
+                <h2 className="elice-section-title">Work in Progress</h2>
+                <div className="elice-course-grid">
+                  {sessionsList.filter(s => s.status !== 'completed').map((sess) => (
+                    <div key={sess.session_id} className="elice-course-card" onClick={() => handleResumeSession(sess)}>
+                      <div className="card-top">
+                        <span className="card-tag">Draft &middot; {sess.step}</span>
+                        <h3 className="card-title">{sess.title || sess.prompt}</h3>
+                        <p className="card-desc" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{sess.prompt}</p>
+                      </div>
+                      <div className="card-bottom">
+                        <span className="card-time">
+                          <IconClock /> Updated recently
+                        </span>
+                        <button className="ai-pill-btn edit" style={{ fontSize: '0.75rem', padding: '4px 10px' }} onClick={(e) => { e.stopPropagation(); handleResumeSession(sess); }}>
+                          Resume
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Recent Activity Section */}
+            <h2 className="elice-section-title">Recent Activity</h2>
+            {sessionsList.length === 0 ? (
+              <div className="empty-state" style={{ padding: '40px 20px' }}>
+                <p>No recent activity found. Click "Create" to start a new course.</p>
+              </div>
+            ) : (
+              <div className="elice-course-grid">
+                {sessionsList.slice(0, 6).map((sess) => (
+                  <div key={sess.session_id} className="elice-course-card" onClick={() => handleResumeSession(sess)}>
+                    <div className="card-top">
+                      <span className="card-tag">{sess.difficulty} &middot; {sess.audience}</span>
+                      <h3 className="card-title">{sess.title || sess.prompt}</h3>
+                      <p className="card-desc" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{sess.prompt?.slice(0, 100)}{sess.prompt?.length > 100 ? '...' : ''}</p>
+                    </div>
+                    <div className="card-bottom">
+                      <span className="card-time">
+                        <IconClock /> Status: {sess.status}
+                      </span>
+                      <button className="ai-pill-btn edit" style={{ fontSize: '0.75rem', padding: '4px 10px' }} onClick={(e) => { e.stopPropagation(); handleResumeSession(sess); }}>
+                        {sess.status === 'completed' ? 'View' : 'Resume'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="elice-footer">
+              <span>&copy; {new Date().getFullYear()} Curricula AI. All rights reserved. Powered by Maxy Academy.</span>
+              <button className="feedback-btn" onClick={() => alert('Thank you for your feedback!')}>Send Feedback</button>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* ── Route Switcher ── */}
-        {activeSidebarNav === 'drafts' || activeSidebarNav === 'docs' || activeSidebarNav === 'assets' || activeSidebarNav === 'templates' || activeSidebarNav === 'settings' ? (
-          <div className="coming-soon-page">
-            <span className="coming-soon-badge">Coming Soon</span>
-            <h2>{activeSidebarNav.charAt(0).toUpperCase() + activeSidebarNav.slice(1).replace('_', ' ')} Workspace</h2>
-            <p style={{ color: 'var(--text-secondary)' }}>This module is currently being finalized. Check back soon!</p>
-            <button className="action-btn" onClick={() => { setActiveSidebarNav('create'); setShowMyCourses(false); }} style={{ marginTop: '16px' }}>
-              Back to Dashboard
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* ── Step Progress Bar ── */}
-            <StepProgressBar currentStep={currentStep} />
-
-            {/* ══════════════════════════════════════════════ */}
-            {/* MY COURSES PAGE */}
-            {/* ══════════════════════════════════════════════ */}
-            {showMyCourses && (
+        {/* ── Courses Page View ── */}
+        {currentView === 'courses' && (
+          <div>
+            <div className="header">
               <div>
-                <div className="header">
-                  <div>
-                    <h2>My Courses</h2>
-                    <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Resume or review your past generation sessions.</p>
-                  </div>
-                  <button className="action-btn" onClick={() => { setActiveSidebarNav('create'); setShowMyCourses(false); goToDashboard(); }}>
-                    <IconPlus /> New Course
-                  </button>
-                </div>
-
+                <h2>My Courses</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Resume or review your past generation sessions.</p>
+              </div>
+              <button className="action-btn" onClick={() => { setCurrentView('wizard'); setCurrentStep('dashboard'); setShowMyCourses(false); setSessionId(null); setPromptText(''); setProposals([]); setStructure([]); setCourseData(null); }}>
+                <IconPlus /> New Course
+              </button>
+            </div>
 
             {sessionsList.length === 0 ? (
               <div className="empty-state">
                 <IconBook />
                 <h3>No courses yet</h3>
                 <p>Start a new course from the Dashboard to see it here.</p>
-                <button className="action-btn" onClick={goToDashboard} style={{ marginTop: '20px' }}>
+                <button className="action-btn" onClick={() => { setCurrentView('wizard'); setCurrentStep('dashboard'); }} style={{ marginTop: '20px' }}>
                   Create First Course <IconArrow />
                 </button>
               </div>
@@ -1201,75 +1325,129 @@ export default function App() {
                 ))}
               </div>
             )}
+
+            {/* Footer */}
+            <div className="elice-footer">
+              <span>&copy; {new Date().getFullYear()} Curricula AI. All rights reserved. Powered by Maxy Academy.</span>
+              <button className="feedback-btn" onClick={() => alert('Thank you for your feedback!')}>Send Feedback</button>
+            </div>
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════ */}
-        {/* STEP 1: DASHBOARD */}
-        {/* ══════════════════════════════════════════════ */}
-        {!showMyCourses && currentStep === 'dashboard' && (
-          <div>
-            <div className="hero-section">
-              <div className="hero-eyebrow">
-                <span className="hero-eyebrow-dot" />
-                AI Course Generator — Powered by Maxy Academy
-              </div>
-              <p style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--navy)', marginBottom: '8px' }}>{greeting}</p>
-              <h1 className="hero-title">
-                Build Courses that <mark>Actually</mark> Teach.
-              </h1>
-              <p className="hero-subtitle">
-                Design multi-role learning experiences using the RTFC instructional pipeline — Creator, Student, and Educator views, all generated by AI.
-              </p>
-            </div>
+        {/* ── Wizard Flow View ── */}
+        {currentView === 'wizard' && (
+          <>
+            {/* Step Progress Bar */}
+            <StepProgressBar currentStep={currentStep} />
 
-            <div className="prompt-card">
-              <textarea
-                className="prompt-textarea"
-                placeholder="Create a course about..."
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-                onKeyDown={(e) => { if (e.ctrlKey && e.key === 'Enter') handleStartSession(); }}
-              />
-              <div className="prompt-controls">
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleFileUpload} 
-                    style={{ display: 'none' }} 
-                    accept=".pdf,.docx,.txt" 
+            {isLoading && currentStep === 'dashboard' ? (
+              <div className="magic-progress-container">
+                <div className="floating-magic-box">
+                  <svg width="36" height="36" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                  </svg>
+                </div>
+                <h1 className="magic-title">Magic in Progress...</h1>
+                <p className="magic-subtext">
+                  We're orchestrating the complete technical and educational foundations for your course.
+                </p>
+
+                <div className="progress-step-list">
+                  <div className={`progress-step-item ${agentProgressStage === 1 ? 'active' : ''}`}>
+                    <span className="progress-step-name">TECHNICAL FOUNDATIONS</span>
+                    <span className={`progress-step-status ${agentProgressStage === 1 ? 'active' : 'pending'}`}>
+                      {agentProgressStage === 1 ? <><IconSpinner /> Processing</> : (agentProgressStage > 1 ? 'Completed' : 'Pending')}
+                    </span>
+                  </div>
+                  <div className={`progress-step-item ${agentProgressStage === 2 ? 'active' : ''}`}>
+                    <span className="progress-step-name">EDUCATIONAL GROUNDING</span>
+                    <span className={`progress-step-status ${agentProgressStage === 2 ? 'active' : 'pending'}`}>
+                      {agentProgressStage === 2 ? <><IconSpinner /> Processing</> : (agentProgressStage > 2 ? 'Completed' : 'Pending')}
+                    </span>
+                  </div>
+                  <div className={`progress-step-item ${agentProgressStage === 3 ? 'active' : ''}`}>
+                    <span className="progress-step-name">DIRECTIONAL PROPOSALS</span>
+                    <span className={`progress-step-status ${agentProgressStage === 3 ? 'active' : 'pending'}`}>
+                      {agentProgressStage === 3 ? <><IconSpinner /> Processing</> : (agentProgressStage > 3 ? 'Completed' : 'Pending')}
+                    </span>
+                  </div>
+                  <div className={`progress-step-item ${agentProgressStage === 4 ? 'active' : ''}`}>
+                    <span className="progress-step-name">CURRICULUM STRUCTURE</span>
+                    <span className={`progress-step-status ${agentProgressStage === 4 ? 'active' : 'pending'}`}>
+                      {agentProgressStage === 4 ? <><IconSpinner /> Processing</> : 'Pending'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="elice-footer" style={{ width: '100%', maxWidth: '460px', marginTop: '40px' }}>
+                  <span>&copy; {new Date().getFullYear()} Curricula AI. All rights reserved.</span>
+                  <button className="feedback-btn" onClick={() => alert('Thank you for your feedback!')}>Send Feedback</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* ══════════════════════════════════════════════ */}
+                {/* STEP 1: DASHBOARD */}
+                {/* ══════════════════════════════════════════════ */}
+                {currentStep === 'dashboard' && (
+              <div>
+                {/* Content Type Tabs */}
+                <div className="content-type-tabs">
+                  <button className="content-type-tab active">Course</button>
+                </div>
+
+                <div className="prompt-card">
+                  <textarea
+                    className="prompt-textarea"
+                    placeholder="Create a course about..."
+                    value={promptText}
+                    onChange={(e) => setPromptText(e.target.value)}
+                    onKeyDown={(e) => { if (e.ctrlKey && e.key === 'Enter') handleStartSession(); }}
                   />
-                  <button className="file-upload-btn" onClick={handleFileUploadClick} disabled={isLoading}>
-                    <IconUpload /> Upload Knowledge Base (PDF, DOCX)
-                  </button>
-                  <select
-                    className="file-upload-btn"
-                    value={isAgentMode}
-                    onChange={(e) => setIsAgentMode(e.target.value)}
-                    style={{ background: 'var(--surface-2)', color: 'var(--navy)' }}
-                  >
-                    <option value="agent">Agent Planning (Auto Workflow)</option>
-                    <option value="outline">Planning Only (Outline Only)</option>
-                  </select>
+                  <div className="prompt-controls">
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleFileUpload} 
+                        style={{ display: 'none' }} 
+                        accept=".pdf,.docx,.txt" 
+                      />
+                      <button className="file-upload-btn" onClick={handleFileUploadClick} disabled={isLoading} title="Upload Reference Document">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        <span>Reference File</span>
+                      </button>
+                      <select
+                        className="file-upload-btn"
+                        value={isAgentMode}
+                        onChange={(e) => setIsAgentMode(e.target.value)}
+                        style={{ background: 'var(--surface-2)', color: 'var(--navy)' }}
+                      >
+                        <option value="agent">Agent Planning (Auto Workflow)</option>
+                        <option value="outline">Planning Only (Outline Only)</option>
+                      </select>
+                    </div>
+                    <button className="action-btn" onClick={() => handleStartSession()} disabled={isLoading} title="Start Generation">
+                      {isLoading ? <IconSpinner /> : <><span style={{ marginRight: '6px' }}>Start</span><IconArrow /></>}
+                    </button>
+                  </div>
                 </div>
-                <button className="action-btn" onClick={() => handleStartSession()} disabled={isLoading}>
-                  {isLoading ? <><IconSpinner /> Initializing…</> : <>Start Generation <IconArrow /></>}
-                </button>
-              </div>
-            </div>
 
-            <h2 style={{ marginTop: '40px', marginBottom: '24px' }}>Suggested Prompts</h2>
-            <div className="suggested-grid">
-              {suggestedPrompts.map((card, idx) => (
-                <div key={idx} className="suggested-card" onClick={() => !isLoading && handleStartSession(card.prompt)}>
-                  <h3>{card.title}</h3>
-                  <p>{card.desc}</p>
+                <h2 style={{ marginTop: '40px', marginBottom: '20px', fontSize: '1.25rem', fontWeight: 800 }}>Try these examples</h2>
+                <div className="suggested-grid">
+                  {[
+                    { title: 'Software Engineering', desc: 'Build scalable concurrent backend systems and concurrent channel structures in Go.', prompt: 'Go Concurrent pipelines and microservice architectural patterns' },
+                    { title: 'Artificial Intelligence', desc: 'Introduction to neural networks, backpropagation, and machine learning models.', prompt: 'Machine Learning Essentials with Python' },
+                    { title: 'Education Technology', desc: 'Designing interactive gamified learning systems and virtual classroom platforms.', prompt: 'Gamification design for student learning systems' }
+                  ].map((card, idx) => (
+                    <div key={idx} className="suggested-card" onClick={() => setPromptText(card.prompt)} style={{ cursor: 'pointer' }}>
+                      <h3>{card.title}</h3>
+                      <p>{card.desc}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              </div>
+            )}
 
         {/* ══════════════════════════════════════════════ */}
         {/* STEP 2: CONTEXT CONFIG */}
@@ -1278,82 +1456,93 @@ export default function App() {
           <div>
             <div className="header">
               <div>
-                <h2>Course Context Config</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Set parameters — we'll use these to generate AI grounding proposals.</p>
+                <h2>Configure your Course</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Provide specific details or guidelines for this course.</p>
               </div>
-              <span className="step-chip">Step 1 of 7</span>
+              <span className="step-chip">Step 2 of 8</span>
             </div>
 
-            <div className="prompt-card">
-              <h3 style={{ marginBottom: '20px' }}>Configure Parameters</h3>
-              <div className="config-grid">
-                <div className="config-item">
-                  <label>Number of Lessons</label>
-                  <div className="stepper">
-                    <button onClick={() => setConfigLessons(Math.max(1, configLessons - 1))}>−</button>
-                    <span>{configLessons}</span>
-                    <button onClick={() => setConfigLessons(configLessons + 1)}>+</button>
+            {/* Concept Card */}
+            <div className="prompt-card" style={{ marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '1.05rem', color: 'var(--navy)', marginBottom: '8px' }}>Course Concept</h3>
+              <p style={{ fontStyle: 'italic', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+                "{promptText || 'No concept prompt entered yet.'}"
+              </p>
+            </div>
+
+            <div className="review-summary-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '24px', marginTop: 0 }}>
+              {/* Technical Tags & Topics Card */}
+              <div className="review-card">
+                <div className="review-card-header" style={{ marginBottom: '12px' }}>
+                  <h4 className="review-card-title">Technical Tags &amp; Topics</h4>
+                </div>
+                <div className="review-card-body">
+                  <div className="tags-container" style={{ marginBottom: '16px' }}>
+                    {techTags.map((tag, idx) => (
+                      <span key={idx} className="tag-badge" style={{ margin: '2px' }}>
+                        {tag}
+                        <span className="tag-close" onClick={() => removeTag(tag)}>×</span>
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      className="prompt-textarea"
+                      style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, fontSize: '0.85rem' }}
+                      placeholder="+ Add custom tech stack..."
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      onKeyDown={addTag}
+                    />
+                    <button className="file-upload-btn" onClick={addTag} style={{ fontSize: '0.85rem' }}>+ Add</button>
                   </div>
                 </div>
-
-                <div className="config-item">
-                  <label>Average Duration (Minutes)</label>
-                  <select className="prompt-textarea" value={configDuration} onChange={(e) => setConfigDuration(Number(e.target.value))} style={{ minHeight: 'auto', padding: '10px' }}>
-                    <option value="30">30 Minutes</option>
-                    <option value="60">60 Minutes</option>
-                    <option value="90">90 Minutes</option>
-                    <option value="120">120 Minutes</option>
-                  </select>
-                </div>
-
-                <div className="config-item">
-                  <label>Difficulty Level</label>
-                  <select className="prompt-textarea" value={configDifficulty} onChange={(e) => setConfigDifficulty(e.target.value)} style={{ minHeight: 'auto', padding: '10px' }}>
-                    <option value="Beginner">Beginner</option>
-                    <option value="Intermediate">Intermediate</option>
-                    <option value="Advanced">Advanced</option>
-                  </select>
-                </div>
-
-                <div className="config-item">
-                  <label>Target Audience</label>
-                  <select className="prompt-textarea" value={configAudience} onChange={(e) => setConfigAudience(e.target.value)} style={{ minHeight: 'auto', padding: '10px' }}>
-                    <option value="Student">Student</option>
-                    <option value="Employee">Employee</option>
-                    <option value="Teacher">Teacher</option>
-                    <option value="Professional">Professional</option>
-                  </select>
-                </div>
               </div>
 
-              <h3 style={{ marginBottom: '12px' }}>Technical Stack Tags</h3>
-              <div className="tags-container">
-                {techTags.map((tag, idx) => (
-                  <span key={idx} className="tag-badge">
-                    {tag}
-                    <span className="tag-close" onClick={() => removeTag(tag)}>×</span>
-                  </span>
-                ))}
+              {/* Course Configuration Card */}
+              <div className="review-card">
+                <div className="review-card-header" style={{ marginBottom: '12px' }}>
+                  <h4 className="review-card-title">Course Configuration</h4>
+                </div>
+                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Target Number of Lessons</span>
+                    <div className="stepper" style={{ margin: 0 }}>
+                      <button onClick={() => setConfigLessons(Math.max(1, configLessons - 1))}>−</button>
+                      <span style={{ minWidth: '24px', textAlign: 'center' }}>{configLessons}</span>
+                      <button onClick={() => setConfigLessons(configLessons + 1)}>+</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Avg. Duration (Min)</span>
+                    <select className="prompt-textarea" value={configDuration} onChange={(e) => setConfigDuration(Number(e.target.value))} style={{ minHeight: 'auto', padding: '6px 10px', maxWidth: '120px', marginBottom: 0 }}>
+                      <option value="30">30 Min</option>
+                      <option value="60">60 Min</option>
+                      <option value="90">90 Min</option>
+                      <option value="120">120 Min</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '30px' }}>
-                <input
-                  type="text"
-                  className="prompt-textarea"
-                  style={{ minHeight: 'auto', padding: '10px', maxWidth: '300px', marginBottom: 0 }}
-                  placeholder="Add tech tag and press Enter…"
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                  onKeyDown={addTag}
-                />
-                <button className="file-upload-btn" onClick={addTag}>Add Tag</button>
-              </div>
+            </div>
 
-              <h3 style={{ marginBottom: '12px' }}>Subject Matter Context</h3>
-              <div className="rich-editor-toolbar" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button className="toolbar-btn">B</button>
-                <button className="toolbar-btn">I</button>
-                <button className="toolbar-btn">List</button>
+            {/* Subject Matter Context Card */}
+            <div className="prompt-card">
+              <h3 style={{ marginBottom: '14px', fontSize: '1.05rem', color: 'var(--navy)' }}>Subject Matter Context</h3>
+              <div className="rich-editor-toolbar" style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+                <button className="toolbar-btn" style={{ fontWeight: 'bold' }}>B</button>
+                <button className="toolbar-btn" style={{ fontStyle: 'italic' }}>I</button>
+                <button className="toolbar-btn" style={{ textDecoration: 'line-through' }}>S</button>
+                <button className="toolbar-btn">H</button>
+                <button className="toolbar-btn">x₂</button>
+                <button className="toolbar-btn">x²</button>
+                <button className="toolbar-btn">”</button>
+                <button className="toolbar-btn">• List</button>
+                <button className="toolbar-btn">1. List</button>
                 <button className="toolbar-btn">Link</button>
+                <button className="toolbar-btn">Code</button>
+                <button className="toolbar-btn">Table</button>
                 <button className="toolbar-btn" style={{ marginLeft: 'auto', background: 'var(--blue-light)', color: 'var(--blue)', fontWeight: 600, padding: '4px 10px' }} onClick={handleFileUploadClick}>
                   Upload DOCX/PDF 📤
                 </button>
@@ -1366,10 +1555,13 @@ export default function App() {
                 placeholder="Add any extra context about this subject matter to improve AI quality…"
               />
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
-                <button className="file-upload-btn" onClick={() => setCurrentStep('dashboard')}>← Back</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="file-upload-btn" onClick={() => setCurrentStep('dashboard')}>← Back</button>
+                  <button className="file-upload-btn" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }} onClick={() => setCurrentStep('review')}>Jump to Review</button>
+                </div>
                 <button className="action-btn" onClick={handleGenerateProposals} disabled={isLoading}>
-                  {isLoading ? <><IconSpinner /> Generating Grounding…</> : <>Generate Grounding &amp; Proposals <IconArrow /></>}
+                  {isLoading ? <><IconSpinner /> Generating…</> : <>Save &amp; Continue <IconArrow /></>}
                 </button>
               </div>
             </div>
@@ -1383,93 +1575,126 @@ export default function App() {
           <div>
             <div className="header">
               <div>
-                <h2>Define Grounding &amp; Boundaries</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Review and edit the AI-generated grounding parameters for your course.</p>
+                <h2>Ground your Course</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Define the knowledge boundaries and learning objectives.</p>
               </div>
-              <span className="step-chip">Step 2 of 7</span>
+              <span className="step-chip">Step 3 of 8</span>
             </div>
 
-            <div className="prompt-card">
-              {[
-                { label: 'Prerequisites', items: prerequisites, setter: setPrerequisites, newVal: newPrereq, setNew: setNewPrereq, placeholder: 'Add prerequisite knowledge…' },
-                { label: 'Boundaries (Out of Scope)', items: boundaries, setter: setBoundaries, newVal: newBoundary, setNew: setNewBoundary, placeholder: 'Add out-of-scope topic…' },
-                { label: 'Learning Outcomes', items: learningOutcomes, setter: setLearningOutcomes, newVal: newOutcome, setNew: setNewOutcome, placeholder: 'Add learning outcome…' },
-              ].map(({ label, items, setter, newVal, setNew, placeholder }) => (
-                <div key={label} style={{ marginBottom: '32px' }}>
-                  <h3 style={{ marginBottom: '14px' }}>{label}</h3>
-                  {items.length === 0 && (
-                    <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: '12px' }}>None added yet.</p>
-                  )}
-                  <ul className="grounding-list">
-                    {items.map((item, idx) => {
-                      const isEditing = groundingEditIdx.type === label && groundingEditIdx.idx === idx;
-                      return (
-                        <li key={idx} className="grounding-list-item" style={{ cursor: 'pointer' }}>
-                          {isEditing ? (
-                            <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
-                              <input
-                                type="text"
-                                className="prompt-textarea"
-                                style={{ minHeight: 'auto', padding: '6px 12px', marginBottom: 0, flex: 1 }}
-                                value={groundingEditText}
-                                onChange={(e) => setGroundingEditText(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    const updated = [...items];
-                                    updated[idx] = groundingEditText;
-                                    setter(updated);
-                                    setGroundingEditIdx({ type: null, idx: -1 });
-                                  } else if (e.key === 'Escape') {
-                                    setGroundingEditIdx({ type: null, idx: -1 });
-                                  }
-                                }}
-                                autoFocus
-                              />
-                              <button className="icon-btn" onClick={() => {
-                                const updated = [...items];
-                                updated[idx] = groundingEditText;
-                                setter(updated);
-                                setGroundingEditIdx({ type: null, idx: -1 });
-                              }}>✓</button>
-                            </div>
-                          ) : (
-                            <span 
-                              style={{ flex: 1 }} 
-                              onClick={() => {
-                                setGroundingEditIdx({ type: label, idx });
-                                setGroundingEditText(item);
-                              }}
-                              title="Click to edit inline"
-                            >
-                              {item}
-                            </span>
-                          )}
-                          <button className="icon-btn danger" onClick={() => removeListItem(setter, idx)}><IconTrash /></button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <input
-                      type="text"
-                      className="prompt-textarea"
-                      style={{ minHeight: 'auto', padding: '10px', marginBottom: 0 }}
-                      placeholder={placeholder}
-                      value={newVal}
-                      onChange={(e) => setNew(e.target.value)}
-                      onKeyDown={(e) => addListItem(setter, newVal, setNew, e)}
-                    />
-                    <button className="file-upload-btn" onClick={() => addListItem(setter, newVal, setNew)}>Add</button>
-                  </div>
+            <div className="review-summary-grid">
+              {/* Card 1: Prerequisites */}
+              <div className="review-card">
+                <div className="review-card-header">
+                  <h4 className="review-card-title">What they should know (Prerequisites)</h4>
                 </div>
-              ))}
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
-                <button className="file-upload-btn" onClick={() => setCurrentStep('context')}>← Back</button>
-                <button className="action-btn" onClick={handleSaveGrounding} disabled={isLoading}>
-                  {isLoading ? <><IconSpinner /> Saving…</> : <>Confirm Grounding &amp; View Proposals <IconArrow /></>}
-                </button>
+                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {prerequisites.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        className="prompt-textarea"
+                        style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1 }}
+                        value={item}
+                        onChange={(e) => {
+                          const updated = [...prerequisites];
+                          updated[idx] = e.target.value;
+                          setPrerequisites(updated);
+                        }}
+                      />
+                      <button className="icon-btn danger" style={{ padding: '8px' }} onClick={() => {
+                        const updated = prerequisites.filter((_, i) => i !== idx);
+                        setPrerequisites(updated);
+                      }}>
+                        <IconTrash />
+                      </button>
+                    </div>
+                  ))}
+                  <button className="file-upload-btn" style={{ marginTop: '8px', fontSize: '0.85rem' }} onClick={() => {
+                    setPrerequisites([...prerequisites, '']);
+                  }}>
+                    + Add Prerequisite
+                  </button>
+                </div>
               </div>
+
+              {/* Card 2: Boundaries */}
+              <div className="review-card">
+                <div className="review-card-header">
+                  <h4 className="review-card-title">Topics they will not be learning about (Boundaries)</h4>
+                </div>
+                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {boundaries.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        className="prompt-textarea"
+                        style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1 }}
+                        value={item}
+                        onChange={(e) => {
+                          const updated = [...boundaries];
+                          updated[idx] = e.target.value;
+                          setBoundaries(updated);
+                        }}
+                      />
+                      <button className="icon-btn danger" style={{ padding: '8px' }} onClick={() => {
+                        const updated = boundaries.filter((_, i) => i !== idx);
+                        setBoundaries(updated);
+                      }}>
+                        <IconTrash />
+                      </button>
+                    </div>
+                  ))}
+                  <button className="file-upload-btn" style={{ marginTop: '8px', fontSize: '0.85rem' }} onClick={() => {
+                    setBoundaries([...boundaries, '']);
+                  }}>
+                    + Add Boundary
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 3: Learning Outcomes */}
+              <div className="review-card" style={{ gridColumn: 'span 2' }}>
+                <div className="review-card-header">
+                  <h4 className="review-card-title">Learning Outcomes</h4>
+                </div>
+                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {learningOutcomes.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700, minWidth: '24px', color: 'var(--blue)' }}>{idx + 1}.</span>
+                      <input
+                        type="text"
+                        className="prompt-textarea"
+                        style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1 }}
+                        value={item}
+                        onChange={(e) => {
+                          const updated = [...learningOutcomes];
+                          updated[idx] = e.target.value;
+                          setLearningOutcomes(updated);
+                        }}
+                      />
+                      <button className="icon-btn danger" style={{ padding: '8px' }} onClick={() => {
+                        const updated = learningOutcomes.filter((_, i) => i !== idx);
+                        setLearningOutcomes(updated);
+                      }}>
+                        <IconTrash />
+                      </button>
+                    </div>
+                  ))}
+                  <button className="file-upload-btn" style={{ marginTop: '8px', fontSize: '0.85rem', maxWidth: '200px' }} onClick={() => {
+                    setLearningOutcomes([...learningOutcomes, '']);
+                  }}>
+                    + Add Learning Outcome
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '40px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+              <button className="file-upload-btn" onClick={() => setCurrentStep('context')}>← Back</button>
+              <button className="action-btn" onClick={handleSaveGrounding} disabled={isLoading}>
+                {isLoading ? <><IconSpinner /> Generating Proposals…</> : <>Generate Proposals <IconArrow /></>}
+              </button>
             </div>
           </div>
         )}
@@ -1481,39 +1706,72 @@ export default function App() {
           <div>
             <div className="header">
               <div>
-                <h2>Select Course Proposal</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Choose one of the AI-generated curriculum approaches below.</p>
+                <h2>Choose a Direction for your Course</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Select one of the proposed directions to proceed.</p>
               </div>
-              <span className="step-chip">Step 3 of 7</span>
+              <span className="step-chip">Step 4 of 8</span>
             </div>
 
             <div className="proposal-grid">
-              {proposals.map((prop) => (
-                <div
-                  key={prop.id}
-                  className={`proposal-card ${prop.id === 2 ? 'recommended' : ''} ${selectedProposalId === prop.id ? 'selected' : ''} ${isLoading ? 'disabled' : ''}`}
-                  onClick={() => !isLoading && handleSelectProposal(prop.id)}
-                >
-                  {prop.id === 2 && <span className="badge-badge">Recommended</span>}
-                  <h3>{prop.title}</h3>
-                  <p style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}>{prop.description}</p>
-                  <div className="proposal-meta">
-                    <div><strong>Focus:</strong> {prop.differentiators}</div>
-                    <div><strong>Difficulty:</strong> {prop.difficulty}</div>
-                    <div><strong>Est. Duration:</strong> {prop.estimated_hours} hrs</div>
-                    <div><strong>For:</strong> {prop.target_user}</div>
-                  </div>
-                  <button
-                    className="action-btn"
-                    style={{ marginTop: 'auto', width: '100%', justifyContent: 'center' }}
-                    disabled={isLoading}
+              {proposals.map((prop) => {
+                const isRec = prop.id === 2 || prop.title.toLowerCase().includes('practical');
+                const diffList = prop.differentiators ? prop.differentiators.split(',').map(s => s.trim()).filter(Boolean) : [];
+                return (
+                  <div
+                    key={prop.id}
+                    className={`proposal-card ${isRec ? 'recommended' : ''} ${selectedProposalId === prop.id ? 'selected' : ''} ${isLoading ? 'disabled' : ''}`}
+                    onClick={() => !isLoading && handleSelectProposal(prop.id)}
+                    style={{ border: isRec ? '2px solid #7C3AED' : '', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
                   >
-                    {isLoading && selectedProposalId === prop.id ? <><IconSpinner /> Loading…</> : 'Select This Proposal'}
-                  </button>
-                </div>
-              ))}
+                    <div>
+                      {isRec && (
+                        <span className="tag-badge" style={{ background: '#7C3AED', color: '#fff', fontSize: '0.75rem', padding: '3px 8px', marginBottom: '12px', display: 'inline-block' }}>
+                          Recommended
+                        </span>
+                      )}
+                      <h3>{prop.title}</h3>
+                      <p style={{ color: 'var(--text-secondary)', lineHeight: '1.6', fontSize: '0.9rem', marginBottom: '20px' }}>
+                        {prop.description}
+                      </p>
+
+                      {diffList.length > 0 && (
+                        <div style={{ marginTop: '16px' }}>
+                          <h4 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--navy)', marginBottom: '8px' }}>
+                            Key Differentiating Factors
+                          </h4>
+                          <ul style={{ listStyle: 'none', paddingLeft: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {diffList.map((diff, idx) => (
+                              <li key={idx} style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)' }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isRec ? "#7C3AED" : "var(--blue)"} strokeWidth="3">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                {diff}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      className={isRec ? "purple-start-btn" : "file-upload-btn"}
+                      style={{ marginTop: '24px', width: '100%', justifyContent: 'center' }}
+                      disabled={isLoading}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isLoading) handleSelectProposal(prop.id);
+                      }}
+                    >
+                      {isLoading && selectedProposalId === prop.id ? <><IconSpinner /> Selecting…</> : 'Select This Option'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            <button className="file-upload-btn" onClick={() => setCurrentStep('grounding')}>← Back</button>
+            
+            <div style={{ marginTop: '30px' }}>
+              <button className="file-upload-btn" onClick={() => setCurrentStep('grounding')}>← Back</button>
+            </div>
           </div>
         )}
 
@@ -1524,62 +1782,97 @@ export default function App() {
           <div>
             <div className="header">
               <div>
-                <h2>Edit Curriculum Outline</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Reorder, rename, add or remove lesson modules.</p>
+                <h2>Curriculum Structure</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Review and refine the course curriculum blueprint.</p>
               </div>
-              <span className="step-chip">Step 4 of 7</span>
+              <span className="step-chip">Step 5 of 8</span>
             </div>
 
-            <div className="structure-split-layout">
+            <div className="structure-split-layout" style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: '30px', alignItems: 'start' }}>
               {/* Left Column: Lesson Modules List */}
-              <div className="lesson-list-panel">
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
-                  <h3 style={{ fontSize: '1.05rem', color: 'var(--navy)' }}>Lesson Sequence</h3>
-                  <button className="file-upload-btn" onClick={addLesson} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
-                    <IconPlus /> Add
-                  </button>
+              <div className="lesson-list-panel" style={{ background: 'var(--white)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: '24px', boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.1rem', color: 'var(--navy)', marginBottom: '6px' }}>Course Curriculum Overview</h3>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    Approach: <strong style={{ color: 'var(--blue)' }}>{promptText || 'Practical AI and Regulatory Foundations'}</strong>
+                  </span>
                 </div>
 
-                {structure.map((item, idx) => (
-                  <div 
-                    key={item.id} 
-                    className={`structure-item ${selectedStructureLessonId === item.id ? 'active' : ''}`}
-                    onClick={() => setSelectedStructureLessonId(item.id)}
-                    style={{ padding: '10px 12px', marginBottom: '8px' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
-                      <span className="structure-order" style={{ width: '22px', height: '22px', fontSize: '0.7rem' }}>{item.order}</span>
-                      <input
-                        type="text"
-                        value={item.title}
-                        onChange={(e) => {
-                          const updated = [...structure];
-                          updated[idx].title = e.target.value;
-                          setStructure(updated);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="structure-title-input"
-                        style={{ fontSize: '0.875rem' }}
-                      />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {structure.map((item, idx) => (
+                    <div 
+                      key={item.id} 
+                      className={`structure-item ${selectedStructureLessonId === item.id ? 'active' : ''}`}
+                      onClick={() => setSelectedStructureLessonId(item.id)}
+                      style={{ 
+                        padding: '12px', 
+                        borderRadius: 'var(--radius-md)', 
+                        background: selectedStructureLessonId === item.id ? 'var(--blue-light)' : 'var(--surface-2)',
+                        border: selectedStructureLessonId === item.id ? '1px solid rgba(72, 107, 245, 0.25)' : '1px solid var(--border-color)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        transition: 'var(--transition-smooth)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                        <span style={{ cursor: 'grab', color: 'var(--text-muted)', fontSize: '1.1rem', userSelect: 'none' }} title="Drag to reorder">⋮⋮</span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', background: 'var(--white)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                          {item.order < 10 ? `0${item.order}` : item.order}
+                        </span>
+                        <input
+                          type="text"
+                          value={item.title}
+                          onChange={(e) => {
+                            const updated = [...structure];
+                            updated[idx].title = e.target.value;
+                            setStructure(updated);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="structure-title-input"
+                          style={{ 
+                            fontSize: '0.9rem', 
+                            fontWeight: 600, 
+                            border: 'none', 
+                            background: 'transparent', 
+                            flex: 1, 
+                            color: 'var(--navy)',
+                            padding: '4px'
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <button className="icon-btn" style={{ padding: '4px 6px', fontSize: '0.75rem' }} onClick={() => moveLesson(idx, -1)} title="Move Up">▲</button>
+                        <button className="icon-btn" style={{ padding: '4px 6px', fontSize: '0.75rem' }} onClick={() => moveLesson(idx, 1)} title="Move Down">▼</button>
+                        <button className="icon-btn danger" style={{ padding: '4px 6px', fontSize: '0.75rem' }} onClick={() => deleteLesson(idx)} title="Delete Lesson"><IconTrash /></button>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
-                      <button className="icon-btn" style={{ padding: '4px 6px', fontSize: '0.7rem' }} onClick={() => moveLesson(idx, -1)}>▲</button>
-                      <button className="icon-btn" style={{ padding: '4px 6px', fontSize: '0.7rem' }} onClick={() => moveLesson(idx, 1)}>▼</button>
-                      <button className="icon-btn danger" style={{ padding: '4px 6px', fontSize: '0.7rem' }} onClick={() => deleteLesson(idx)}><IconTrash /></button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
+                <button 
+                  className="file-upload-btn" 
+                  onClick={addLesson} 
+                  style={{ width: '100%', justifyContent: 'center', marginTop: '16px', fontSize: '0.875rem' }}
+                >
+                  + Add Lesson
+                </button>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                   <button className="file-upload-btn" onClick={() => setCurrentStep('proposal')}>← Back</button>
-                  <button className="action-btn" onClick={handleSaveStructure} disabled={isLoading}>
-                    {isLoading ? <><IconSpinner /> Saving…</> : <>Review <IconArrow /></>}
-                  </button>
                 </div>
               </div>
 
               {/* Right Column: Detailed Section Editor & Role Tabs */}
-              <div className="lesson-detail-panel">
+              <div className="lesson-detail-panel" style={{ background: 'var(--white)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: '24px', boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '20px' }}>
+                  <h3 style={{ fontSize: '1.1rem', color: 'var(--navy)', marginBottom: '4px' }}>Lesson Structure by Role</h3>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    Choose which lesson sections are generated and shown for Creator, Educator, and Student.
+                  </span>
+                </div>
+
                 {selectedStructureLessonId ? (
                   (() => {
                     const lIdx = structure.findIndex(l => l.id === selectedStructureLessonId);
@@ -1587,42 +1880,53 @@ export default function App() {
                     if (!lesson) return null;
                     const sections = lesson.sections?.[activeStructureRole] || [];
 
+                    const roleDetails = {
+                      creator: {
+                        desc: "Focuses on content depth, technical accuracy, and andragogical alignment for high-quality curriculum design.",
+                        label: "Creator View"
+                      },
+                      student: {
+                        desc: "Optimized for learning outcomes, student engagement, and compelling value propositions.",
+                        label: "Student View"
+                      },
+                      educator: {
+                        desc: "Designed for seamless facilitation, classroom management, and effective student engagement strategies.",
+                        label: "Educator View"
+                      }
+                    };
+
                     return (
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
-                          <div>
-                            <span className="step-chip" style={{ background: 'var(--gold-light)', color: 'var(--gold)' }}>Lesson {lesson.order}</span>
-                            <h3 style={{ marginTop: '8px', fontSize: '1.25rem', color: 'var(--navy)' }}>{lesson.title} Detail Outline</h3>
-                          </div>
-                          <button className="btn-blue" onClick={() => setIsAddSectionModalOpen(true)}>
-                            <IconPlus /> Custom Section
-                          </button>
-                        </div>
-
-                        {/* Role Tabs inside detail editor */}
-                        <div className="tab-row" style={{ marginBottom: '18px' }}>
-                          {[
-                            { key: 'creator', label: 'Creator Sections' },
-                            { key: 'student', label: 'Student Sections' },
-                            { key: 'educator', label: 'Educator Sections' }
-                          ].map(t => (
+                        {/* Role Tabs */}
+                        <div className="tab-row" style={{ marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '0' }}>
+                          {['creator', 'student', 'educator'].map(role => (
                             <button
-                              key={t.key}
-                              className={`tab-btn ${activeStructureRole === t.key ? 'active' : ''}`}
-                              onClick={() => setActiveStructureRole(t.key)}
+                              key={role}
+                              className={`tab-btn ${activeStructureRole === role ? 'active' : ''}`}
+                              onClick={() => setActiveStructureRole(role)}
+                              style={{ 
+                                padding: '10px 16px', 
+                                borderBottom: activeStructureRole === role ? '2px solid var(--blue)' : 'none',
+                                fontWeight: activeStructureRole === role ? 'bold' : 'normal',
+                                color: activeStructureRole === role ? 'var(--blue)' : 'var(--text-secondary)'
+                              }}
                             >
-                              {t.label}
+                              {roleDetails[role].label}
                             </button>
                           ))}
                         </div>
 
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '14px' }}>
-                          Configure prompts and structure for this role. Drag/Reorder sections to customize AI generation.
-                        </p>
+                        {/* Active Role Description */}
+                        <div style={{ background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: '20px', borderLeft: '3px solid var(--blue)' }}>
+                          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                            {roleDetails[activeStructureRole].desc}
+                          </p>
+                        </div>
 
-                        <div className="sections-container">
+                        {/* Sections List */}
+                        <div className="sections-container" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                           {sections.length === 0 ? (
-                            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No sections added yet.</p>
+                            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '20px 0' }}>No sections added yet.</p>
                           ) : (
                             sections.map((sec, sIdx) => (
                               <div
@@ -1638,21 +1942,36 @@ export default function App() {
                                   const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
                                   moveSection(lesson.id, activeStructureRole, fromIdx, sIdx);
                                 }}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '12px 16px',
+                                  background: 'var(--white)',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: 'var(--radius-md)',
+                                  gap: '12px'
+                                }}
                               >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-                                  <span className="section-drag-handle" title="Drag to reorder">☰</span>
+                                  <span style={{ cursor: 'grab', color: 'var(--text-muted)', fontSize: '1.1rem', userSelect: 'none' }} title="Drag to reorder">⋮⋮</span>
                                   <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                                    <input
-                                      type="text"
-                                      value={sec.title}
-                                      onChange={(e) => {
-                                        const updated = [...structure];
-                                        updated[lIdx].sections[activeStructureRole][sIdx].title = e.target.value;
-                                        setStructure(updated);
-                                      }}
-                                      className="structure-title-input"
-                                      style={{ fontWeight: 600, fontSize: '0.9rem' }}
-                                    />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <input
+                                        type="text"
+                                        value={sec.title}
+                                        onChange={(e) => {
+                                          const updated = [...structure];
+                                          updated[lIdx].sections[activeStructureRole][sIdx].title = e.target.value;
+                                          setStructure(updated);
+                                        }}
+                                        className="structure-title-input"
+                                        style={{ fontWeight: 700, fontSize: '0.9rem', border: 'none', background: 'transparent', color: 'var(--navy)', flex: 1, padding: 0 }}
+                                      />
+                                      {sec.locked && (
+                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }} title="Core Section">🔒</span>
+                                      )}
+                                    </div>
                                     <input
                                       type="text"
                                       value={sec.instruction}
@@ -1663,7 +1982,7 @@ export default function App() {
                                       }}
                                       placeholder="AI instructions for this section..."
                                       className="structure-title-input"
-                                      style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}
+                                      style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px', border: 'none', background: 'transparent', padding: 0 }}
                                     />
                                   </div>
                                 </div>
@@ -1704,7 +2023,7 @@ export default function App() {
             {isAddSectionModalOpen && (
               <div className="modal-overlay">
                 <div className="add-section-modal">
-                  <h3 style={{ color: 'var(--navy)', marginBottom: '8px' }}>Add Custom Section</h3>
+                  <h3 style={{ color: 'var(--navy)', marginBottom: '8px' }}>Define a new structural requirement for the {newSectionRole === 'creator' ? 'Creator' : newSectionRole === 'student' ? 'Student' : 'Educator'} view.</h3>
                   <div className="config-item">
                     <label>Section Title</label>
                     <input
@@ -1792,61 +2111,164 @@ export default function App() {
             <div className="header">
               <div>
                 <h2>Final Review</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Confirm everything before starting AI content generation.</p>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Check everything before the AI starts generating your course.</p>
               </div>
-              <span className="step-chip">Step 5 of 7</span>
+              <span className="step-chip">Step 6 of 8</span>
             </div>
 
-            <div className="prompt-card">
-              <h3 style={{ marginBottom: '20px' }}>Summary Configuration</h3>
-              <div className="review-grid">
-                <div className="review-item">
-                  <span className="review-label">Topic / Prompt</span>
-                  <span className="review-value">{promptText}</span>
+            <div className="review-summary-grid">
+              {/* Concept Card */}
+              <div className="review-card">
+                <div className="review-card-header">
+                  <h4 className="review-card-title">
+                    <svg width="18" height="18" fill="none" stroke="var(--blue)" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                    Course Concept
+                  </h4>
+                  <button className="ai-pill-btn edit" style={{ fontSize: '0.75rem', padding: '2px 8px' }} onClick={() => {
+                    const newConcept = prompt("Edit Course Concept / Prompt:", promptText);
+                    if (newConcept !== null) setPromptText(newConcept);
+                  }}>Edit</button>
                 </div>
-                <div className="review-item">
-                  <span className="review-label">Audience</span>
-                  <span className="review-value">{configAudience}</span>
-                </div>
-                <div className="review-item">
-                  <span className="review-label">Difficulty</span>
-                  <span className="review-value">{configDifficulty}</span>
-                </div>
-                <div className="review-item">
-                  <span className="review-label">Lessons</span>
-                  <span className="review-value">{structure.length} modules</span>
-                </div>
-                <div className="review-item">
-                  <span className="review-label">Duration</span>
-                  <span className="review-value">{configDuration} min/lesson</span>
-                </div>
-                <div className="review-item">
-                  <span className="review-label">Tech Tags</span>
-                  <span className="review-value">{techTags.join(', ') || '—'}</span>
+                <div className="review-card-body">
+                  <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '8px' }}>Course Focus:</p>
+                  <p style={{ fontStyle: 'italic' }}>"{promptText || 'Practical AI and Regulatory Foundations'}"</p>
                 </div>
               </div>
 
-              <h3 style={{ margin: '28px 0 16px' }}>Course Outline ({structure.length} lessons)</h3>
-              <ol className="review-outline">
-                {structure.map((item) => (
-                  <li key={item.id}>{item.title}</li>
-                ))}
-              </ol>
-
-              <div className="generation-cta">
-                <div>
-                  <h4>Ready to Generate</h4>
-                  <p style={{ color: 'var(--text-secondary)', marginTop: '6px', fontSize: '0.9rem' }}>
-                    The AI pipeline will generate Creator, Student, and Educator content for each of the {structure.length} lessons.
+              {/* Duration & Metadata Card */}
+              <div className="review-card">
+                <div className="review-card-header">
+                  <h4 className="review-card-title">
+                    <svg width="18" height="18" fill="none" stroke="var(--blue)" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Duration & Metadata
+                  </h4>
+                </div>
+                <div className="review-card-body">
+                  <p style={{ marginBottom: '12px' }}>
+                    Total: <strong style={{ color: 'var(--navy)' }}>{structure.length} Lesson(s) &times; {configDuration} Minute(s)</strong>
                   </p>
-                </div>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button className="file-upload-btn" onClick={() => setCurrentStep('structure')}>← Back</button>
-                  <button className="action-btn" onClick={handleTriggerGeneration} disabled={isLoading}>
-                    {isLoading ? <><IconSpinner /> Starting…</> : <>🚀 Start Core Generation <IconArrow /></>}
-                  </button>
+                  <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '6px' }}>Category Tags:</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {techTags.length > 0 ? techTags.map(tag => (
+                      <span key={tag} className="tag-badge" style={{ margin: 0, fontSize: '0.75rem', padding: '3px 8px' }}>{tag}</span>
+                    )) : (
+                      ['Healthcare AI', 'Clinical Trial Design', 'Regulatory Compliance'].map(tag => (
+                        <span key={tag} className="tag-badge" style={{ margin: 0, fontSize: '0.75rem', padding: '3px 8px' }}>{tag}</span>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {/* Curriculum Outline & POV Card */}
+              <div className="review-card" style={{ gridColumn: 'span 2' }}>
+                <div className="review-card-header">
+                  <h4 className="review-card-title">
+                    <svg width="18" height="18" fill="none" stroke="var(--blue)" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+                    Curriculum Structure & POV Personas
+                  </h4>
+                </div>
+                <div className="review-card-body">
+                  <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '8px' }}>Generated Outline ({structure.length} Lessons):</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '20px' }}>
+                    <ol style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {structure.map((item) => (
+                        <li key={item.id} style={{ fontWeight: 600 }}>{item.title}</li>
+                      ))}
+                    </ol>
+                    <div className="pov-structures">
+                      <div className="pov-role-block">
+                        <div className="pov-role-header">
+                          <span>🎨 Creator POV</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--blue)' }}>8 Sections</span>
+                        </div>
+                        <div className="pov-sections-pills">
+                          {['Overview', 'Learning Outcome', 'Core Content', 'Exercises', 'Quizzes', 'Regulatory Scenario Builder', 'Python Script Repository', 'Ethics Case Curator'].map(s => (
+                            <span key={s} className="pov-section-pill">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="pov-role-block">
+                        <div className="pov-role-header">
+                          <span>📚 Student POV</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--blue)' }}>7 Sections</span>
+                        </div>
+                        <div className="pov-sections-pills">
+                          {['Why This Matters', 'What You Will Learn', 'Learning Journey', 'Interactive Practice', 'Regulatory Simulator', 'Self-Assessment', 'Glossary'].map(s => (
+                            <span key={s} className="pov-section-pill">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="pov-role-block">
+                        <div className="pov-role-header">
+                          <span>👩‍🏫 Educator POV</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--blue)' }}>7 Sections</span>
+                        </div>
+                        <div className="pov-sections-pills">
+                          {['Facilitator Guide', 'Engagement Strategies', 'Classroom Management', 'Discussion Questions', 'Grading Rubric', 'Additional Readings', 'Keys & Explanations'].map(s => (
+                            <span key={s} className="pov-section-pill">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Instructional Alignment Card */}
+              <div className="review-card" style={{ gridColumn: 'span 2' }}>
+                <div className="review-card-header">
+                  <h4 className="review-card-title">
+                    <svg width="18" height="18" fill="none" stroke="var(--blue)" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    Instructional Alignment
+                  </h4>
+                </div>
+                <div className="review-card-body review-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', display: 'grid' }}>
+                  <div className="alignment-item">
+                    <h5>Prerequisites</h5>
+                    <ul>
+                      {prerequisites.length > 0 ? prerequisites.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      )) : (
+                        <li>Basic understanding of machine learning principles.</li>
+                      )}
+                    </ul>
+                  </div>
+                  <div className="alignment-item">
+                    <h5>Topics Not Covered (Out of Scope)</h5>
+                    <ul>
+                      {boundaries.length > 0 ? boundaries.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      )) : (
+                        <li>Low-level hardware/GPU optimization scripts.</li>
+                      )}
+                    </ul>
+                  </div>
+                  <div className="alignment-item">
+                    <h5>Learning Outcomes</h5>
+                    <ul>
+                      {learningOutcomes.length > 0 ? learningOutcomes.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      )) : (
+                        <li>Analyze regulatory compliance matrices.</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '40px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+              <button className="file-upload-btn" onClick={() => setCurrentStep('structure')}>← Back to Outline</button>
+              <button className="purple-start-btn" onClick={handleTriggerGeneration} disabled={isLoading}>
+                {isLoading ? <><IconSpinner /> Starting…</> : (
+                  <>
+                    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    Start Generation
+                  </>
+                )}
+              </button>
             </div>
           </div>
         )}
@@ -1855,19 +2277,145 @@ export default function App() {
         {/* STEP 7: GENERATING */}
         {/* ══════════════════════════════════════════════ */}
         {!showMyCourses && currentStep === 'generating' && (
-          <div className="progress-container">
-            <div className="progress-glow-ring">
-              <div className="progress-percent">{generationProgress}%</div>
+          <div>
+            <div className="header">
+              <div>
+                <h2>AI Pipeline Generation</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Live generation process of your multi-role course content.</p>
+              </div>
+              <span className="step-chip">Step 7 of 8</span>
             </div>
-            <h2 className="pulse" style={{ fontSize: '1.75rem', marginTop: '24px' }}>Assembling Course Content…</h2>
-            <p style={{ color: 'var(--text-secondary)', textAlign: 'center', maxWidth: '500px' }}>{generationStatusText}</p>
-            <div className="progress-bar-outer" style={{ width: '100%', maxWidth: '560px' }}>
-              <div className="progress-bar-inner" style={{ width: `${generationProgress}%` }} />
+
+            {/* Live Status Box */}
+            <div className="live-status-box">
+              <div className="live-status-header">
+                <div className="live-status-title">
+                  <IconSpinner />
+                  <span>Assembling Course Content...</span>
+                </div>
+                <div className="live-status-text">
+                  {generationStatusText}
+                </div>
+              </div>
+              
+              <div className="progress-bar-container">
+                <div className="progress-bar-outer" style={{ flex: 1, margin: 0 }}>
+                  <div className="progress-bar-inner" style={{ width: `${generationProgress}%` }} />
+                </div>
+                <span style={{ fontWeight: 700, minWidth: '40px', textAlign: 'right' }}>{generationProgress}%</span>
+                <button 
+                  className="cancel-gen-btn" 
+                  onClick={() => {
+                    if (confirm('Are you sure you want to cancel the generation?')) {
+                      setCurrentStep('review');
+                    }
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-            <div className="generation-roles">
-              {['Creator POV', 'Student POV', 'Educator POV'].map((role, i) => (
-                <span key={role} className={`role-chip ${generationProgress > (i + 1) * 25 ? 'active' : ''}`}>{role}</span>
-              ))}
+
+            {/* Workspace Preview Panel */}
+            <div className="workspace-preview-panel">
+              {/* Header Info */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '20px' }}>
+                <div>
+                  <span className="tag-badge" style={{ background: 'var(--blue)', color: '#fff', fontSize: '0.75rem', padding: '3px 8px', marginBottom: '8px', display: 'inline-block' }}>
+                    PREVIEW WORKSPACE
+                  </span>
+                  <h3 style={{ color: 'var(--navy)', fontSize: '1.25rem', marginTop: '4px' }}>{promptText || 'Practical AI and Regulatory Foundations'}</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px' }}>
+                    {structure.length} Lessons &middot; Est. 12 hours &middot; Created: {new Date().toLocaleDateString()}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button className="icon-btn" disabled style={{ opacity: 0.5 }}>◀</button>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Lesson Navigator</span>
+                  <button className="icon-btn" disabled style={{ opacity: 0.5 }}>▶</button>
+                </div>
+              </div>
+
+              {/* Workspace Split Layout */}
+              <div className="structure-split-layout" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
+                {/* Left Side: Lessons Navigator */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {structure.map((item, idx) => {
+                    const threshold = (idx + 1) * (100 / structure.length);
+                    const prevThreshold = idx * (100 / structure.length);
+                    const isDone = generationProgress >= threshold;
+                    const isProcessing = generationProgress >= prevThreshold && generationProgress < threshold;
+                    return (
+                      <div 
+                        key={item.id} 
+                        style={{ 
+                          padding: '12px', 
+                          borderRadius: 'var(--radius-md)', 
+                          background: isProcessing ? 'var(--blue-light)' : 'var(--surface-2)',
+                          border: isProcessing ? '1px solid rgba(72, 107, 245, 0.25)' : '1px solid var(--border-color)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          opacity: isDone || isProcessing ? 1 : 0.5
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>0{idx + 1}</span>
+                          <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>{item.title}</span>
+                        </div>
+                        <div>
+                          {isDone ? (
+                            <span style={{ color: 'var(--accent-green)', fontWeight: 'bold' }}>✓ Done</span>
+                          ) : isProcessing ? (
+                            <span style={{ color: 'var(--blue)', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <IconSpinner /> Writing
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Pending</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Right Side: Role Content Preview */}
+                <div style={{ background: 'var(--white)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '20px' }}>
+                  <div className="tab-row" style={{ marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '0' }}>
+                    <button className="tab-btn active">Creator POV</button>
+                    <button className="tab-btn">Student POV</button>
+                    <button className="tab-btn">Educator POV</button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {['Overview', 'Learning Outcome', 'Core Content'].map((secName, sIdx) => {
+                      const isSecDone = generationProgress > (sIdx + 1) * 30;
+                      return (
+                        <div key={secName} style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '16px', background: isSecDone ? 'var(--white)' : 'var(--surface-2)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--navy)' }}>{secName}</h4>
+                            {isSecDone ? (
+                              <span style={{ color: 'var(--accent-green)', fontSize: '0.75rem', fontWeight: 600 }}>Completed</span>
+                            ) : (
+                              <span className="pulse" style={{ color: 'var(--blue)', fontSize: '0.75rem', fontWeight: 600 }}>Generating...</span>
+                            )}
+                          </div>
+                          {isSecDone ? (
+                            <div style={{ height: '32px', background: 'var(--surface-3)', borderRadius: '4px', opacity: 0.5, display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '0.75rem' }}>
+                              Content writing completed for this section.
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div className="skeleton-bar" style={{ width: '80%', height: '10px' }} />
+                              <div className="skeleton-bar" style={{ width: '50%', height: '10px' }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1877,59 +2425,116 @@ export default function App() {
         {/* ══════════════════════════════════════════════ */}
         {!showMyCourses && currentStep === 'generated' && courseData && (
           <div>
-            <div className="header">
+            <div className="header" style={{ marginBottom: '24px' }}>
               <div>
-                <h2>{courseData.title || courseData.prompt || 'Generated Course'}</h2>
+                <h2 style={{ color: 'var(--navy)', fontWeight: 800 }}>Your Course is Ready!</h2>
                 <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  {courseData.lessons?.length} lessons · {configDifficulty} · {configAudience}
+                  Generation complete. All content units and assets are ready for download.
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <button className="file-upload-btn" onClick={() => { setExportFormat('docx'); setIsExportModalOpen(true); }}>Export DOCX</button>
-                <button className="file-upload-btn" onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }}>Export PDF</button>
-                <button className="file-upload-btn" onClick={() => setIsExportModalOpen(true)}>Export Hub 📥</button>
+              <div style={{ display: 'flex', gap: '10px' }}>
                 <button className="action-btn" onClick={goToDashboard}><IconPlus /> New Course</button>
               </div>
             </div>
 
-            {/* Role Switcher */}
-            <div className="tab-row">
-              {[
-                { id: 'creator', label: '🎨 Creator POV' },
-                { id: 'student', label: '📚 Student POV' },
-                { id: 'educator', label: '👩‍🏫 Educator POV' },
-              ].map(({ id, label }) => (
-                <button
-                  key={id}
-                  className={`tab-btn ${activeRole === id ? 'active' : ''}`}
-                  onClick={() => setActiveRole(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <div className="structure-split-layout" style={{ display: 'grid', gridTemplateColumns: '1.1fr 2.5fr', gap: '30px', alignItems: 'start' }}>
+              {/* Left Column: Assets Checklist Sidebar */}
+              <div className="assets-checklist-sidebar">
+                <h3 style={{ fontSize: '1.05rem', color: 'var(--navy)', marginBottom: '4px' }}>Assets Checklist</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                  Preview and download generated documents.
+                </p>
 
-            <div className="course-viewport">
-              {/* TOC Sidebar */}
-              <div className="toc-sidebar">
-                <h4 style={{ marginBottom: '16px', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-muted)' }}>
-                  Course Lessons
-                </h4>
-                {courseData.lessons?.map((lesson, idx) => (
-                  <button
-                    key={lesson.id}
-                    className={`toc-item ${activeLessonId === lesson.id ? 'active' : ''}`}
-                    onClick={() => setActiveLessonId(lesson.id)}
-                    style={{ background: 'transparent', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}
-                  >
-                    <span className="toc-num">{idx + 1}</span>
-                    {lesson.title}
-                  </button>
-                ))}
+                <div className="assets-menu-group">
+                  <div className="assets-group-title">Creator PDF</div>
+                  {courseData.lessons?.map((lesson, idx) => (
+                    <button
+                      key={`creator-${lesson.id}`}
+                      className={`assets-lesson-btn ${activeRole === 'creator' && activeLessonId === lesson.id ? 'active' : ''}`}
+                      onClick={() => {
+                        setActiveRole('creator');
+                        setActiveLessonId(lesson.id);
+                      }}
+                    >
+                      <span style={{ fontWeight: 700 }}>L0{idx + 1}</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lesson.title}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="assets-menu-group">
+                  <div className="assets-group-title">Student PDF</div>
+                  {courseData.lessons?.map((lesson, idx) => (
+                    <button
+                      key={`student-${lesson.id}`}
+                      className={`assets-lesson-btn ${activeRole === 'student' && activeLessonId === lesson.id ? 'active' : ''}`}
+                      onClick={() => {
+                        setActiveRole('student');
+                        setActiveLessonId(lesson.id);
+                      }}
+                    >
+                      <span style={{ fontWeight: 700 }}>L0{idx + 1}</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lesson.title}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="assets-menu-group">
+                  <div className="assets-group-title">Educator PDF</div>
+                  {courseData.lessons?.map((lesson, idx) => (
+                    <button
+                      key={`educator-${lesson.id}`}
+                      className={`assets-lesson-btn ${activeRole === 'educator' && activeLessonId === lesson.id ? 'active' : ''}`}
+                      onClick={() => {
+                        setActiveRole('educator');
+                        setActiveLessonId(lesson.id);
+                      }}
+                    >
+                      <span style={{ fontWeight: 700 }}>L0{idx + 1}</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lesson.title}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Content Panel */}
-              <div className="editor-panel">
+              {/* Right Column: Document Viewer */}
+              <div>
+                {/* Document Viewer Toolbar */}
+                <div className="viewer-toolbar">
+                  <div className="toolbar-zoom-group">
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginRight: '8px' }}>Page Indicator: 1 of 11</span>
+                    <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom Out">−</button>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>100%</span>
+                    <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom In">+</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => alert('Opening search...')} title="Search document">🔍 Search</button>
+                    <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => window.print()} title="Print document">Print</button>
+                    <button className="purple-start-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', gap: '4px', boxShadow: 'none' }} onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }} title="Save/Download Document">Download PDF</button>
+                  </div>
+                </div>
+
+                {/* PDF Paper Canvas */}
+                <div className="pdf-paper-canvas" style={{ position: 'relative' }}>
+                  {/* PDF Header Watermark */}
+                  <div className="pdf-header-watermark">
+                    <span>Maxy Academy &middot; Curricula AI</span>
+                    <span>{courseData.title || 'Practical AI and Regulatory Foundations'}</span>
+                  </div>
+
+                  {/* Document Content */}
+                  <div className="pdf-body">
+                    {/* Title Header */}
+                    <div style={{ marginBottom: '30px' }}>
+                      <span style={{ color: 'var(--blue)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {activeRole.toUpperCase()} POV MATERIALS
+                      </span>
+                      <h1 style={{ fontSize: '1.65rem', color: 'var(--navy)', marginTop: '4px', fontWeight: 800 }}>
+                        Lesson {courseData.lessons?.findIndex(l => l.id === activeLessonId) + 1}: {courseData.lessons?.find(l => l.id === activeLessonId)?.title}
+                      </h1>
+                    </div>
+
+                    <div className="editor-panel" style={{ border: 'none', background: 'transparent', padding: 0, boxShadow: 'none', minHeight: 'auto' }}>
                 <div className="rich-editor-toolbar" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <button className="toolbar-btn">B</button>
                   <button className="toolbar-btn">I</button>
@@ -2209,6 +2814,15 @@ export default function App() {
               </div>
             </div>
 
+            {/* PDF Footer Page */}
+            <div className="pdf-footer-page">
+              <span>Confidential &middot; For Educational Use Only</span>
+              <span>Page {courseData.lessons?.findIndex(l => l.id === activeLessonId) + 1} of {courseData.lessons?.length}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
             {/* Export Hub Modal */}
             {isExportModalOpen && (
               <div className="modal-overlay" onClick={() => setIsExportModalOpen(false)}>
@@ -2302,6 +2916,8 @@ export default function App() {
         )}
           </>
         )}
+      </>
+    )}
       </div>
     </div>
   );
