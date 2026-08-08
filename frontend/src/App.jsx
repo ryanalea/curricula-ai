@@ -1761,18 +1761,18 @@ export default function App() {
 
             <div className="proposal-grid">
               {proposals.map((prop) => {
-                const isRec = prop.id === 2 || prop.title.toLowerCase().includes('practical');
+                const isRec = prop.id === 2;
                 const diffList = prop.differentiators ? prop.differentiators.split(',').map(s => s.trim()).filter(Boolean) : [];
                 return (
                   <div
                     key={prop.id}
                     className={`proposal-card ${isRec ? 'recommended' : ''} ${selectedProposalId === prop.id ? 'selected' : ''} ${isLoading ? 'disabled' : ''}`}
                     onClick={() => !isLoading && handleSelectProposal(prop.id)}
-                    style={{ border: isRec ? '2px solid #7C3AED' : '', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+                    style={{ border: isRec ? '2px solid var(--gold)' : '', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
                   >
                     <div>
                       {isRec && (
-                        <span className="tag-badge" style={{ background: '#7C3AED', color: '#fff', fontSize: '0.75rem', padding: '3px 8px', marginBottom: '12px', display: 'inline-block' }}>
+                        <span className="tag-badge" style={{ background: 'var(--navy)', color: 'var(--gold)', border: '1.5px solid var(--gold)', fontSize: '0.75rem', padding: '3px 10px', marginBottom: '12px', display: 'inline-block' }}>
                           Recommended
                         </span>
                       )}
@@ -1789,7 +1789,7 @@ export default function App() {
                           <ul style={{ listStyle: 'none', paddingLeft: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {diffList.map((diff, idx) => (
                               <li key={idx} style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)' }}>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isRec ? "#7C3AED" : "var(--blue)"} strokeWidth="3">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isRec ? "var(--gold-deep)" : "var(--navy)"} strokeWidth="3">
                                   <polyline points="20 6 9 17 4 12" />
                                 </svg>
                                 {diff}
