@@ -181,14 +181,14 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
         parent=styles['Title'],
         fontName='Helvetica-Bold',
         fontSize=24,
-        textColor=colors.HexColor('#081231')
+        textColor=colors.HexColor('#2D3561')
     )
     h1_style = ParagraphStyle(
         'Heading1',
         parent=styles['Heading1'],
         fontName='Helvetica-Bold',
         fontSize=18,
-        textColor=colors.HexColor('#486BF5')
+        textColor=colors.HexColor('#E9B259')
     )
     
     story.append(Paragraph(course_data.get('title', 'Untitled Course'), title_style))
