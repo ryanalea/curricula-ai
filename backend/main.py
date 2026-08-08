@@ -295,36 +295,83 @@ async def generate_course_content_task(session_id: str):
             db.commit()
             
             # Check or create Lesson
-            lesson = db.query(Lesson).filter(Lesson.course_id == session_id, Lesson.order == item["order"]).first()
+            lesson = db.query(Lesson).filter(Lesson.course_id == session_id, Lesson.order == idx + 1).first()
             if not lesson:
                 lesson = Lesson(
                     course_id=session_id,
                     title=item["title"],
-                    order=item["order"]
+                    order=idx + 1
                 )
                 db.add(lesson)
                 db.commit()
                 db.refresh(lesson)
                 
             # Run RTFC master prompting parallel/sequence calls
-            grounding_data = db_session.prerequisites
-            lesson_structure = db_session.structure
+            grounding_data = db_session.prerequisites or ""
+            lesson_structure = db_session.structure or ""
             
             # 1. Creator Content
-            creator_json = await pipeline.generate_creator_content(lesson.title, grounding_data, lesson_structure)
+            try:
+                creator_json = await pipeline.generate_creator_content(lesson.title, grounding_data, lesson_structure)
+                if not isinstance(creator_json, dict):
+                    creator_json = {}
+            except Exception as e_creator:
+                print(f"Error generating creator content for {lesson.title}: {e_creator}")
+                creator_json = {
+                    "overview": f"A comprehensive guide detailing {lesson.title}.",
+                    "learning_outcomes": ["Understand the core mechanics"],
+                    "core_content": f"### Introduction to {lesson.title}\nContent generation failed, fallback default content loaded.",
+                    "exercises": [{"title": "Practice 1", "instruction": "Write a basic script", "difficulty": "Easy"}],
+                    "quiz": [{"question": "Default Question?", "options": ["A", "B", "C", "D"], "answer": "A", "explanation": "Default option is correct."}],
+                    "prompt_templates": []
+                }
+
             for k, v in creator_json.items():
+                # Avoid duplicates
+                db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "creator", Section.section_type == k).delete()
                 sec = Section(lesson_id=lesson.id, role="creator", section_type=k, content_text=json.dumps(v))
                 db.add(sec)
                 
             # 2. Student Content (uses Creator's core content)
-            student_json = await pipeline.generate_student_content(lesson.title, creator_json.get("core_content", ""))
+            try:
+                student_json = await pipeline.generate_student_content(lesson.title, creator_json.get("core_content", ""))
+                if not isinstance(student_json, dict):
+                    student_json = {}
+            except Exception as e_student:
+                print(f"Error generating student content for {lesson.title}: {e_student}")
+                student_json = {
+                    "why_this_matters": "Understanding this module is crucial for modern applications.",
+                    "learning_journey": "Follow the custom practice template.",
+                    "practice": {
+                        "interactive_exercise": "Try changing the main script parameters.",
+                        "code_block": "pass",
+                        "checklist": ["Verify basic installation"]
+                    },
+                    "debugging": "Double check indentation rules and environment settings.",
+                    "ethics": "Always verify usage terms and data protection laws."
+                }
+
             for k, v in student_json.items():
+                db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "student", Section.section_type == k).delete()
                 sec = Section(lesson_id=lesson.id, role="student", section_type=k, content_text=json.dumps(v))
                 db.add(sec)
                 
             # 3. Educator Content (uses Creator's core content)
-            educator_json = await pipeline.generate_educator_content(lesson.title, creator_json.get("core_content", ""))
+            try:
+                educator_json = await pipeline.generate_educator_content(lesson.title, creator_json.get("core_content", ""))
+                if not isinstance(educator_json, dict):
+                    educator_json = {}
+            except Exception as e_educator:
+                print(f"Error generating educator content for {lesson.title}: {e_educator}")
+                educator_json = {
+                    "facilitator_guide": "Guide learners through the basic hands-on demo.",
+                    "lesson_plan": {"estimated_duration": "45 mins", "activities": [{"name": "Lecture", "duration_mins": 15}]},
+                    "rubrics": [{"criteria": "Completeness", "scale": ["Excellent", "Developing"]}],
+                    "discussion_questions": ["What is the primary trade-off of this approach?"]
+                }
+
             for k, v in educator_json.items():
+                db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "educator", Section.section_type == k).delete()
                 sec = Section(lesson_id=lesson.id, role="educator", section_type=k, content_text=json.dumps(v))
                 db.add(sec)
                 
