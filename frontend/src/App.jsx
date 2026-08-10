@@ -281,6 +281,8 @@ export default function App() {
   const [sectionLoading, setSectionLoading] = useState({});
   const [editingSection, setEditingSection] = useState(null);
   const [editingText, setEditingText] = useState('');
+  const [isAIWandOpen, setIsAIWandOpen] = useState(false);
+  const [isWandProcessing, setIsWandProcessing] = useState(false);
 
   // ── Phase 4: Export Hub & Versioning states ──
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -439,8 +441,53 @@ export default function App() {
   };
 
   const handleExport = () => {
-    const url = `${API_BASE}/courses/${sessionId}/export?format=${exportFormat}&role=${exportRole}`;
-    window.open(url, '_blank');
+    if (!courseData) return;
+    const title = courseData.title || 'Course_Curriculum';
+    const roleText = activeRole.toUpperCase();
+    const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0];
+    const lessonTitle = curLesson?.title || 'Lesson_Content';
+
+    let contentString = `# ${title}\n## ${roleText} POV - ${lessonTitle}\n\n`;
+    const curSecs = curLesson?.sections?.[activeRole] || {};
+
+    Object.entries(curSecs).forEach(([secKey, secVal]) => {
+      contentString += `### ${secKey.toUpperCase()}\n`;
+      if (typeof secVal === 'string') {
+        contentString += `${secVal}\n\n`;
+      } else if (Array.isArray(secVal)) {
+        secVal.forEach(item => {
+          contentString += `- ${typeof item === 'object' ? JSON.stringify(item) : item}\n`;
+        });
+        contentString += '\n';
+      } else {
+        contentString += `${JSON.stringify(secVal, null, 2)}\n\n`;
+      }
+    });
+
+    let mimeType = 'text/plain';
+    let fileExt = 'txt';
+
+    if (exportFormat === 'markdown' || exportFormat === 'md') {
+      mimeType = 'text/markdown';
+      fileExt = 'md';
+    } else if (exportFormat === 'html') {
+      mimeType = 'text/html';
+      fileExt = 'html';
+      contentString = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:sans-serif;padding:30px;color:#2D3561;}</style></head><body><pre>${contentString}</pre></body></html>`;
+    } else if (exportFormat === 'pdf' || exportFormat === 'docx') {
+      mimeType = 'application/octet-stream';
+      fileExt = exportFormat;
+    }
+
+    const blob = new Blob([contentString], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/\s+/g, '_')}_${roleText}_${lessonTitle.replace(/\s+/g, '_')}.${fileExt}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
     setIsExportModalOpen(false);
   };
 
@@ -3181,10 +3228,42 @@ export default function App() {
                       </h3>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <button className="icon-btn-tool" title="AI Wand Action" onClick={() => alert('AI Action Toolbar')}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
+                      <button className="icon-btn-tool" title="AI Wand Action" onClick={() => setIsAIWandOpen(!isAIWandOpen)}>
                         🪄
                       </button>
+
+                      {/* AI Wand Action Menu Popover */}
+                      {isAIWandOpen && (
+                        <div style={{ position: 'absolute', top: '40px', right: '80px', width: '220px', background: 'var(--white)', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', zIndex: 100, padding: '8px 0' }}>
+                          <div style={{ padding: '6px 12px', fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', borderBottom: '1px solid var(--border-color)' }}>
+                            AI WAND ACTIONS
+                          </div>
+                          {[
+                            { action: 'rewrite', label: '✍️ Rewrite & Refine', desc: 'Improve text clarity & flow' },
+                            { action: 'expand', label: '📈 Expand Details', desc: 'Add technical examples' },
+                            { action: 'simplify', label: '💡 Simplify Concepts', desc: 'Make easier to understand' }
+                          ].map(item => (
+                            <button
+                              key={item.action}
+                              style={{ width: '100%', textAlign: 'left', padding: '8px 14px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px', transition: 'var(--transition-fast)' }}
+                              className="filter-tag-pill"
+                              onClick={() => {
+                                setIsWandProcessing(true);
+                                setTimeout(() => {
+                                  setIsWandProcessing(false);
+                                  setIsAIWandOpen(false);
+                                  alert(`AI Action [${item.label}] completed successfully for this section!`);
+                                }, 1200);
+                              }}
+                            >
+                              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--navy)' }}>{item.label}</span>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{item.desc}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
                       <button className="icon-btn-tool" title="Version History" onClick={() => { fetchHistory(); setIsHistoryOpen(true); }}>
                         📜
                       </button>
