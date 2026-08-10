@@ -2839,10 +2839,10 @@ button { font-family: var(--font-body); }
   background: var(--white);
   border: 1px solid var(--border-color);
   border-radius: 0 0 var(--radius-md) var(--radius-md);
-  padding: 50px 40px;
+  padding: 50px 40px 30px 40px;
   box-shadow: var(--shadow-md);
   min-height: 800px;
-  position: relative;
+  height: auto;
   font-family: 'Outfit', 'Inter', sans-serif;
   color: #2D3748;
 }
@@ -2861,17 +2861,16 @@ button { font-family: var(--font-body); }
 }
 
 .pdf-footer-page {
-  position: absolute;
-  bottom: 30px;
-  left: 40px;
-  right: 40px;
+  position: relative;
+  margin-top: 40px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
-  border-top: 1px solid var(--border-color);
-  padding-top: 8px;
   font-size: 0.75rem;
   color: var(--text-muted);
 }
+
 
 /* ── Technical Tags & Topics Component ───────────────────── */
 .tech-tags-card {

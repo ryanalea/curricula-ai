@@ -276,6 +276,26 @@ export default function App() {
   const [activeLessonId, setActiveLessonId] = useState(null);
   const [activeRole, setActiveRole] = useState('creator');
   const [activeSubSection, setActiveSubSection] = useState('overview');
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (currentStep === 'generated' && sessionId) {
+      fetch(`${API_BASE}/courses/${sessionId}/export?format=pdf&role=${activeRole.toLowerCase()}`)
+        .then(res => {
+          if (!res.ok) throw new Error("Failed to fetch PDF preview blob");
+          return res.blob();
+        })
+        .then(blob => {
+          if (isMounted) {
+            const url = URL.createObjectURL(blob);
+            setPdfBlobUrl(url);
+          }
+        })
+        .catch(err => console.error("PDF Blob error:", err));
+    }
+    return () => { isMounted = false; };
+  }, [currentStep, sessionId, activeRole]);
 
   // ── Phase 3: Interactive Course & AI Toolbar ──
   const [sectionLoading, setSectionLoading] = useState({});
@@ -440,14 +460,37 @@ export default function App() {
     }
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!courseData) return;
     const title = courseData.title || 'Course_Curriculum';
-    const roleText = activeRole.toUpperCase();
+    const roleText = activeRole.toLowerCase();
+
+    // 1. Try real API export from FastAPI backend
+    if (sessionId) {
+      try {
+        const response = await fetch(`http://localhost:8000/api/v1/courses/${sessionId}/export?format=${exportFormat}&role=${roleText}`);
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${title.replace(/\s+/g, '_')}_${roleText}.${exportFormat === 'markdown' ? 'md' : exportFormat}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+          setIsExportModalOpen(false);
+          return;
+        }
+      } catch (err) {
+        console.error("API export error, falling back to local exporter:", err);
+      }
+    }
+
+    // 2. Local fallback if offline or no sessionId
     const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0];
     const lessonTitle = curLesson?.title || 'Lesson_Content';
-
-    let contentString = `# ${title}\n## ${roleText} POV - ${lessonTitle}\n\n`;
+    let contentString = `# ${title}\n## ${activeRole.toUpperCase()} POV - ${lessonTitle}\n\n`;
     const curSecs = curLesson?.sections?.[activeRole] || {};
 
     Object.entries(curSecs).forEach(([secKey, secVal]) => {
@@ -483,7 +526,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${title.replace(/\s+/g, '_')}_${roleText}_${lessonTitle.replace(/\s+/g, '_')}.${fileExt}`;
+    a.download = `${title.replace(/\s+/g, '_')}_${activeRole.toUpperCase()}_${lessonTitle.replace(/\s+/g, '_')}.${fileExt}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -3279,38 +3322,373 @@ export default function App() {
                     {(() => {
                       const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
                       const curSecs = curLesson?.sections?.[activeRole] || {};
+                      const lessonTitle = curLesson?.title || courseData?.title || 'Machine Learning Essentials';
 
-                      if (!curLesson || Object.keys(curSecs).length === 0) {
-                        return (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '20px 0' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--blue)', fontWeight: 700, fontSize: '0.9rem' }}>
-                              <IconSpinner />
-                              <span>AI is drafting real-time content for this section...</span>
-                            </div>
-                            <div className="skeleton-bar" style={{ width: '90%', height: '14px' }} />
-                            <div className="skeleton-bar" style={{ width: '75%', height: '14px' }} />
-                            <div className="skeleton-bar" style={{ width: '60%', height: '14px' }} />
-                          </div>
-                        );
-                      }
+                      const activeLessonContent = {
+                        overview: curSecs.overview || curSecs.project_brief || `This lesson provides a comprehensive overview and practical foundation for ${lessonTitle}. Students will explore core concepts, industry use-cases, and implementation patterns necessary for real-world projects.`,
+                        learning_outcomes: curSecs.learning_outcomes?.length > 0 ? curSecs.learning_outcomes : [
+                          `Master core concepts and architectural components of ${lessonTitle}.`,
+                          `Implement hands-on code examples and workflows using modern industry standards.`,
+                          `Apply critical thinking to analyze, debug, and optimize real-world production scenarios.`
+                        ],
+                        core_content: curSecs.core_content || curSecs.tech_stack || `### 1. Conceptual Foundations\n${lessonTitle} serves as a key pillar in modern systems engineering. By leveraging structured workflows and robust error handling, developers can ensure high performance and maintainability.\n\n### 2. Practical Implementation\nTo implement ${lessonTitle} effectively, engineers must follow clean architecture patterns and best practices. Below is the step-by-step guidance for applying these techniques in production environments.`,
+                        exercises: curSecs.exercises?.length > 0 ? curSecs.exercises : [
+                          { title: `Building ${lessonTitle} Pipeline`, description: `Implement a basic working prototype for ${lessonTitle} using Python/JavaScript. Verify output correctness with unit tests.`, code_template: `// Exercise 1: ${lessonTitle}\nfunction executeTask() {\n  console.log("Running task for ${lessonTitle}...");\n}` }
+                        ],
+                        quizzes: curSecs.quizzes || curSecs.quiz || [
+                          { question: `What is the primary objective of ${lessonTitle}?`, options: [`To establish a robust, scalable technical workflow`, `To bypass security and data validation`, `To reduce code readability`], answer: `To establish a robust, scalable technical workflow`, explanation: `${lessonTitle} focuses on building reliable, industry-standard systems.` }
+                        ],
+                        why_this_matters: curSecs.why_this_matters || `Understanding ${lessonTitle} is crucial for career advancement. It bridges theoretical principles with industry-grade implementation strategies.`,
+                        practice: curSecs.practice?.code_block ? curSecs.practice : {
+                          code_block: `// Interactive Sandbox for ${lessonTitle}\nfunction main() {\n  console.log("Running ${lessonTitle} sandbox...");\n}\nmain();`,
+                          interactive_exercise: `Run the sandbox script and extend the function logic for ${lessonTitle}.`,
+                          checklist: [`Initialize environment`, `Execute main sandbox function`, `Verify console log output`]
+                        },
+                        debugging: curSecs.debugging || `### Common Pitfalls & Solutions\n1. **Unhandled Edge Cases:** Validate inputs prior to execution.\n2. **Performance Bottlenecks:** Optimize data structure lookups.`,
+                        ethics: curSecs.ethics || `### Code Principles & Ethics\nEnsure user data protection, transparency, and compliance with industry security protocols throughout implementation.`,
+                        facilitator_guide: curSecs.facilitator_guide || `### Educator Instructions\nFacilitate an interactive discussion on ${lessonTitle}. Encourage students to participate in pair-programming exercises.`,
+                        lesson_plan: curSecs.lesson_plan?.ice_breaker ? curSecs.lesson_plan : {
+                          ice_breaker: `Ask students: "What real-world applications of ${lessonTitle} have you encountered?"`,
+                          timing: `Lecture & Demo: 20 mins | Pair Lab: 30 mins | Wrap-up & Q&A: 10 mins`
+                        },
+                        rubric: curSecs.rubric?.length > 0 ? curSecs.rubric : [
+                          { criteria: "Implementation", excellent: "Code runs error-free with optimal logic", good: "Code runs with minor style issues", needs_improvement: "Code contains execution errors" },
+                          { criteria: "Understanding", excellent: "Demonstrates deep mastery of concepts", good: "Demonstrates basic understanding", needs_improvement: "Lacks core understanding" }
+                        ],
+                        discussion_questions: curSecs.discussion_questions?.length > 0 ? curSecs.discussion_questions : [
+                          `How does ${lessonTitle} improve overall system efficiency?`,
+                          `What key trade-offs should be considered when deploying this solution to production?`
+                        ]
+                      };
 
                       return (
-                        <div className="content-block">
-                          {/* Purpose & Description */}
-                          <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '8px' }}>
-                            Purpose
-                          </h4>
-                          <div style={{ fontSize: '0.95rem', color: 'var(--navy)', lineHeight: '1.6', marginBottom: '20px' }}>
-                            <ContentRenderer text={curSecs.overview || curSecs.project_brief || curSecs.facilitator_guide || `This sub-section details ${activeSubSection} for this lesson.`} />
-                          </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+                          
+                          {/* Creator POV Workspace */}
+                          {activeRole === 'creator' && (
+                            <>
+                              <div id="step7-sec-overview" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Lesson Overview</h3>
+                                  {editingSection === 'overview' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('overview', editingText)}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('overview'); setEditingText(activeLessonContent.overview); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'overview' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <ContentRenderer text={activeLessonContent.overview} />
+                                )}
+                              </div>
 
-                          {/* Real-World Relevance */}
-                          <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '8px' }}>
-                            Real-World Relevance
-                          </h4>
-                          <div style={{ fontSize: '0.95rem', color: 'var(--navy)', lineHeight: '1.6' }}>
-                            <ContentRenderer text={curSecs.core_content || curSecs.tech_stack || curSecs.lesson_plan || "In practical terms, this section equips learners with industry-aligned competencies and tools."} />
-                          </div>
+                              <div id="step7-sec-learning_outcomes" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Learning Outcomes</h3>
+                                  {editingSection === 'learning_outcomes' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('learning_outcomes', editingText.split('\n').filter(Boolean))}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('learning_outcomes'); setEditingText(activeLessonContent.learning_outcomes.join('\n')); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'learning_outcomes' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} placeholder="One outcome per line..." />
+                                ) : (
+                                  <ul className="outcome-list">
+                                    {activeLessonContent.learning_outcomes.map((item, idx) => (
+                                      <li key={idx}><span className="outcome-dot" />{item}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+
+                              <div id="step7-sec-core_content" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Core Technical Material</h3>
+                                  {editingSection === 'core_content' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('core_content', editingText)}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('core_content'); setEditingText(activeLessonContent.core_content); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'core_content' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '240px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <ContentRenderer text={activeLessonContent.core_content} />
+                                )}
+                              </div>
+
+                              <div id="step7-sec-exercises" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Hands-On Exercises</h3>
+                                  {editingSection === 'exercises' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => {
+                                      try {
+                                        const parsed = JSON.parse(editingText);
+                                        handleSaveManualEdit('exercises', parsed);
+                                      } catch (err) {
+                                        alert("Invalid JSON format. Expected array of objects.");
+                                      }
+                                    }}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('exercises'); setEditingText(JSON.stringify(activeLessonContent.exercises, null, 2)); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'exercises' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {activeLessonContent.exercises.map((ex, idx) => (
+                                      <div key={idx} style={{ padding: '14px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                                        <strong>Exercise {idx + 1}: {ex.title}</strong>
+                                        <p style={{ margin: '6px 0', fontSize: '0.9rem' }}>{ex.description}</p>
+                                        {ex.code_template && <pre className="code-block" style={{ marginTop: '8px' }}>{ex.code_template}</pre>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div id="step7-sec-quizzes" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Assessment Quiz</h3>
+                                  {editingSection === 'quizzes' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => {
+                                      try {
+                                        const parsed = JSON.parse(editingText);
+                                        handleSaveManualEdit('quizzes', parsed);
+                                      } catch (err) {
+                                        alert("Invalid JSON format. Expected array of objects.");
+                                      }
+                                    }}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('quizzes'); setEditingText(JSON.stringify(activeLessonContent.quizzes, null, 2)); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'quizzes' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                    {activeLessonContent.quizzes.map((q, idx) => (
+                                      <div key={idx} style={{ padding: '14px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                                        <strong>Q{idx + 1}: {q.question}</strong>
+                                        <ul style={{ listStyle: 'none', paddingLeft: 0, marginTop: '8px' }}>
+                                          {q.options?.map((opt, oIdx) => (
+                                            <li key={oIdx} style={{ padding: '4px 0', fontSize: '0.88rem', color: opt === q.answer ? '#059669' : 'var(--text-main)', fontWeight: opt === q.answer ? 700 : 400 }}>
+                                              {opt === q.answer ? '✅ ' : '• '}{opt}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          )}
+
+                          {/* Student POV Workspace */}
+                          {activeRole === 'student' && (
+                            <>
+                              <div id="step7-sec-why_this_matters" className="why-matters-card">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h4 style={{ margin: 0, color: 'var(--navy)' }}>💡 Why This Matters</h4>
+                                  {editingSection === 'why_this_matters' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('why_this_matters', editingText)}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('why_this_matters'); setEditingText(activeLessonContent.why_this_matters); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'why_this_matters' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '100px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <ContentRenderer text={activeLessonContent.why_this_matters} />
+                                )}
+                              </div>
+
+                              <div id="step7-sec-practice" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Interactive Coding Sandbox</h3>
+                                  {editingSection === 'practice' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => {
+                                      try {
+                                        const parsed = JSON.parse(editingText);
+                                        handleSaveManualEdit('practice', parsed);
+                                      } catch (err) {
+                                        alert("Invalid JSON format. Expected: { code_block: string, interactive_exercise: string, checklist: string[] }");
+                                      }
+                                    }}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('practice'); setEditingText(JSON.stringify(activeLessonContent.practice, null, 2)); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'practice' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <>
+                                    <pre className="code-block">{activeLessonContent.practice?.code_block || '// No code block available'}</pre>
+                                    <div className="exercise-task" style={{ marginTop: '10px' }}>
+                                      <strong>Task:</strong> {activeLessonContent.practice?.interactive_exercise}
+                                    </div>
+                                    <h4 style={{ fontSize: '0.95rem', fontWeight: 750, marginTop: '16px' }}>Practice Checklist</h4>
+                                    <ul className="checklist">
+                                      {activeLessonContent.practice?.checklist?.map((item, idx) => (
+                                        <li key={idx}><span className="check-icon">✓</span>{item}</li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                )}
+                              </div>
+
+                              <div id="step7-sec-debugging" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Debugging Pitfalls</h3>
+                                  {editingSection === 'debugging' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('debugging', editingText)}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('debugging'); setEditingText(activeLessonContent.debugging); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'debugging' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <ContentRenderer text={activeLessonContent.debugging} />
+                                )}
+                              </div>
+
+                              <div id="step7-sec-ethics" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Ethics &amp; Code Principles</h3>
+                                  {editingSection === 'ethics' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('ethics', editingText)}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('ethics'); setEditingText(activeLessonContent.ethics); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'ethics' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <ContentRenderer text={activeLessonContent.ethics} />
+                                )}
+                              </div>
+                            </>
+                          )}
+
+                          {/* Educator POV Workspace */}
+                          {activeRole === 'educator' && (
+                            <>
+                              <div id="step7-sec-facilitator_guide" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Facilitator Guide</h3>
+                                  {editingSection === 'facilitator_guide' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('facilitator_guide', editingText)}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('facilitator_guide'); setEditingText(activeLessonContent.facilitator_guide); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'facilitator_guide' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '150px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <ContentRenderer text={activeLessonContent.facilitator_guide} />
+                                )}
+                              </div>
+
+                              <div id="step7-sec-lesson_plan" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Lesson Plan &amp; Timing</h3>
+                                  {editingSection === 'lesson_plan' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => {
+                                      try {
+                                        const parsed = JSON.parse(editingText);
+                                        handleSaveManualEdit('lesson_plan', parsed);
+                                      } catch (err) {
+                                        alert("Invalid JSON format. Expected: { ice_breaker: string, timing: string }");
+                                      }
+                                    }}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('lesson_plan'); setEditingText(JSON.stringify(activeLessonContent.lesson_plan, null, 2)); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'lesson_plan' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <div className="lesson-plan-grid">
+                                    <div className="lesson-plan-card">
+                                      <h4>🧊 Ice Breaker</h4>
+                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.ice_breaker}</p>
+                                    </div>
+                                    <div className="lesson-plan-card">
+                                      <h4>⏱ Timing Allocation</h4>
+                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.timing}</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div id="step7-sec-rubric" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Grading Rubric</h3>
+                                  {editingSection === 'rubric' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => {
+                                      try {
+                                        const parsed = JSON.parse(editingText);
+                                        handleSaveManualEdit('rubric', parsed);
+                                      } catch (err) {
+                                        alert("Invalid JSON format. Expected array of objects.");
+                                      }
+                                    }}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('rubric'); setEditingText(JSON.stringify(activeLessonContent.rubric, null, 2)); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'rubric' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '180px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <table className="rubric-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Criteria</th>
+                                        <th>Excellent</th>
+                                        <th>Good</th>
+                                        <th>Needs Improvement</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {activeLessonContent.rubric.map((row, idx) => (
+                                        <tr key={idx}>
+                                          <td>{row.criteria}</td>
+                                          <td style={{ color: 'var(--accent-green)' }}>{row.excellent}</td>
+                                          <td style={{ color: 'var(--accent-orange)' }}>{row.good}</td>
+                                          <td style={{ color: 'var(--accent-red)' }}>{row.needs_improvement}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
+
+                              <div id="step7-sec-discussion" className="content-block">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Discussion Questions</h3>
+                                  {editingSection === 'discussion' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('discussion', editingText.split('\n').filter(Boolean))}>Save</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('discussion'); setEditingText(activeLessonContent.discussion_questions.join('\n')); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'discussion' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} placeholder="One question per line..." />
+                                ) : (
+                                  <ol className="discussion-list">
+                                    {activeLessonContent.discussion_questions.map((item, idx) => (
+                                      <li key={idx}>{item}</li>
+                                    ))}
+                                  </ol>
+                                )}
+                              </div>
+                            </>
+                          )}
                         </div>
                       );
                     })()}
@@ -3399,110 +3777,167 @@ export default function App() {
               </div>
 
               {/* Right Column: Document Viewer */}
-              <div>
-                {/* Document Viewer Toolbar */}
-                <div className="viewer-toolbar">
-                  <div className="toolbar-zoom-group">
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginRight: '8px' }}>Page Indicator: 1 of 11</span>
-                    <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom Out">−</button>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>100%</span>
-                    <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom In">+</button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => alert('Opening search...')} title="Search document">🔍 Search</button>
-                    <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => window.print()} title="Print document">Print</button>
-                    <button className="purple-start-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', gap: '4px', boxShadow: 'none' }} onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }} title="Save/Download Document">Download PDF</button>
-                  </div>
-                </div>
+              {(() => {
+                const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0] || {};
+                const lessonTitle = curLesson?.title || courseData?.title || 'Machine Learning Essentials';
+                const dbSections = curLesson?.sections?.[activeRole] || {};
 
-                {/* PDF Paper Canvas */}
-                <div className="pdf-paper-canvas" style={{ position: 'relative' }}>
-                  {/* PDF Header Watermark */}
-                  <div className="pdf-header-watermark">
-                    <span>Maxy Academy &middot; Curricula AI</span>
-                    <span>{courseData.title || 'Practical AI and Regulatory Foundations'}</span>
-                  </div>
+                const activeLessonContent = {
+                  overview: dbSections.overview || dbSections.project_brief || `This lesson provides a comprehensive overview and practical foundation for ${lessonTitle}. Students will explore core concepts, industry use-cases, and implementation patterns necessary for real-world projects.`,
+                  learning_outcomes: dbSections.learning_outcomes?.length > 0 ? dbSections.learning_outcomes : [
+                    `Master core concepts and architectural components of ${lessonTitle}.`,
+                    `Implement hands-on code examples and workflows using modern industry standards.`,
+                    `Apply critical thinking to analyze, debug, and optimize real-world production scenarios.`
+                  ],
+                  core_content: dbSections.core_content || dbSections.tech_stack || `### 1. Conceptual Foundations\n${lessonTitle} serves as a key pillar in modern systems engineering. By leveraging structured workflows and robust error handling, developers can ensure high performance and maintainability.\n\n### 2. Practical Implementation\nTo implement ${lessonTitle} effectively, engineers must follow clean architecture patterns and best practices. Below is the step-by-step guidance for applying these techniques in production environments.`,
+                  exercises: dbSections.exercises?.length > 0 ? dbSections.exercises : [
+                    { title: `Building ${lessonTitle} Pipeline`, description: `Implement a basic working prototype for ${lessonTitle} using Python/JavaScript. Verify output correctness with unit tests.`, code_template: `// Exercise 1: ${lessonTitle}\nfunction executeTask() {\n  console.log("Running task for ${lessonTitle}...");\n}` }
+                  ],
+                  quizzes: dbSections.quizzes || dbSections.quiz || [
+                    { question: `What is the primary objective of ${lessonTitle}?`, options: [`To establish a robust, scalable technical workflow`, `To bypass security and data validation`, `To reduce code readability`], answer: `To establish a robust, scalable technical workflow`, explanation: `${lessonTitle} focuses on building reliable, industry-standard systems.` }
+                  ],
+                  why_this_matters: dbSections.why_this_matters || `Understanding ${lessonTitle} is crucial for career advancement. It bridges theoretical principles with industry-grade implementation strategies.`,
+                  practice: dbSections.practice?.code_block ? dbSections.practice : {
+                    code_block: `// Interactive Sandbox for ${lessonTitle}\nfunction main() {\n  console.log("Running ${lessonTitle} sandbox...");\n}\nmain();`,
+                    interactive_exercise: `Run the sandbox script and extend the function logic for ${lessonTitle}.`,
+                    checklist: [`Initialize environment`, `Execute main sandbox function`, `Verify console log output`]
+                  },
+                  debugging: dbSections.debugging || `### Common Pitfalls & Solutions\n1. **Unhandled Edge Cases:** Validate inputs prior to execution.\n2. **Performance Bottlenecks:** Optimize data structure lookups.`,
+                  ethics: dbSections.ethics || `### Code Principles & Ethics\nEnsure user data protection, transparency, and compliance with industry security protocols throughout implementation.`,
+                  facilitator_guide: dbSections.facilitator_guide || `### Educator Instructions\nFacilitate an interactive discussion on ${lessonTitle}. Encourage students to participate in pair-programming exercises.`,
+                  lesson_plan: dbSections.lesson_plan?.ice_breaker ? dbSections.lesson_plan : {
+                    ice_breaker: `Ask students: "What real-world applications of ${lessonTitle} have you encountered?"`,
+                    timing: `Lecture & Demo: 20 mins | Pair Lab: 30 mins | Wrap-up & Q&A: 10 mins`
+                  },
+                  rubric: dbSections.rubric?.length > 0 ? dbSections.rubric : [
+                    { criteria: "Implementation", excellent: "Code runs error-free with optimal logic", good: "Code runs with minor style issues", needs_improvement: "Code contains execution errors" },
+                    { criteria: "Understanding", excellent: "Demonstrates deep mastery of concepts", good: "Demonstrates basic understanding", needs_improvement: "Lacks core understanding" }
+                  ],
+                  discussion_questions: dbSections.discussion_questions?.length > 0 ? dbSections.discussion_questions : [
+                    `How does ${lessonTitle} improve overall system efficiency?`,
+                    `What key trade-offs should be considered when deploying this solution to production?`
+                  ]
+                };
 
-                  {/* Document Content */}
-                  <div className="pdf-body">
-                    {/* Title Header */}
-                    <div style={{ marginBottom: '30px' }}>
-                      <span style={{ color: 'var(--blue)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        {activeRole.toUpperCase()} POV MATERIALS
-                      </span>
-                      <h1 style={{ fontSize: '1.65rem', color: 'var(--navy)', marginTop: '4px', fontWeight: 800 }}>
-                        Lesson {courseData.lessons?.findIndex(l => l.id === activeLessonId) + 1}: {(courseData.lessons?.find(l => l.id === activeLessonId)?.title || '').replace(/^Lesson\s*\d+\s*:\s*/i, '')}
-                      </h1>
+                const currentLessonIndex = courseData.lessons?.findIndex(l => l.id === activeLessonId);
+                const lessonNumber = (currentLessonIndex !== undefined && currentLessonIndex !== -1) ? currentLessonIndex + 1 : 1;
+
+                return (
+                  <div>
+                    {/* Document Viewer Toolbar */}
+                    <div className="viewer-toolbar">
+                      <div className="toolbar-zoom-group">
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginRight: '8px' }}>
+                          Page {lessonNumber} of {courseData.lessons?.length || 1}
+                        </span>
+                        <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom Out">−</button>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>100%</span>
+                        <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom In">+</button>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => alert('Opening search...')} title="Search document">🔍 Search</button>
+                        <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => window.print()} title="Print document">Print</button>
+                        <button className="purple-start-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', gap: '4px', boxShadow: 'none' }} onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }} title="Save/Download Document">Download PDF</button>
+                      </div>
                     </div>
 
-                    <div className="editor-panel" style={{ border: 'none', background: 'transparent', padding: 0, boxShadow: 'none', minHeight: 'auto' }}>
-                <div className="rich-editor-toolbar" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <button className="toolbar-btn">B</button>
-                  <button className="toolbar-btn">I</button>
-                  <button className="toolbar-btn">H1</button>
-                  <button className="toolbar-btn">Code</button>
-                  <button className="toolbar-btn" style={{ marginLeft: 'auto', background: 'var(--blue-light)', color: 'var(--blue)', fontWeight: 600, padding: '4px 10px' }} onClick={() => { fetchHistory(); setIsHistoryOpen(true); }}>📜 Version History</button>
-                </div>
+                    {/* Real PDF Embed or Paper Canvas Preview */}
+                    {sessionId && pdfBlobUrl ? (
+                      <div id="internal-document-container" style={{ background: '#525659', borderRadius: '0 0 var(--radius-md) var(--radius-md)', padding: '12px', border: '1px solid var(--border-color)', borderTop: 'none' }}>
+                        <embed
+                          id="pdf-embed"
+                          type="application/pdf"
+                          src={`${pdfBlobUrl}#toolbar=0`}
+                          width="100%"
+                          height="850px"
+                          style={{ border: 'none', borderRadius: '4px', background: '#FFFFFF', display: 'block' }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="pdf-paper-canvas" style={{ position: 'relative' }}>
+                      {/* PDF Header Watermark */}
+                      <div className="pdf-header-watermark">
+                        <span>Maxy Academy &middot; Curricula AI</span>
+                        <span>{courseData.title || 'Practical AI and Regulatory Foundations'}</span>
+                      </div>
+
+                      {/* Document Content */}
+                      <div className="pdf-body">
+                        {/* Title Header */}
+                        <div style={{ marginBottom: '30px' }}>
+                          <span style={{ color: 'var(--blue)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {activeRole.toUpperCase()} POV MATERIALS
+                          </span>
+                          <h1 style={{ fontSize: '1.65rem', color: 'var(--navy)', marginTop: '4px', fontWeight: 800 }}>
+                            Lesson {lessonNumber}: {(curLesson?.title || '').replace(/^Lesson\s*\d+\s*:\s*/i, '')}
+                          </h1>
+                        </div>
+
+                        <div className="editor-panel" style={{ border: 'none', background: 'transparent', padding: 0, boxShadow: 'none', minHeight: 'auto' }}>
+
 
                 {/* Creator POV */}
                 {activeRole === 'creator' && (
                   <div className="content-section">
                     <div className="content-block">
                       <h3>Lesson Overview</h3>
-                      {renderAIActionBar('overview', activeLessonContent.overview)}
-                      {editingSection === 'overview' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          style={{ width: '100%', minHeight: '150px', padding: '12px' }}
-                        />
-                      ) : (
-                        <ContentRenderer text={activeLessonContent.overview} />
-                      )}
+                      <ContentRenderer text={activeLessonContent.overview} />
                     </div>
 
                     <div className="content-block">
                       <h3>Learning Outcomes</h3>
-                      {renderAIActionBar('learning_outcomes', activeLessonContent.learning_outcomes, (txt) => {
-                        handleSaveManualEdit('learning_outcomes', txt.split('\n').filter(Boolean));
-                      })}
-                      {editingSection === 'learning_outcomes' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          placeholder="One outcome per line..."
-                          style={{ width: '100%', minHeight: '120px', padding: '12px' }}
-                        />
-                      ) : (
-                        activeLessonContent.learning_outcomes?.length > 0 ? (
-                          <ul className="outcome-list">
-                            {activeLessonContent.learning_outcomes.map((item, idx) => (
-                              <li key={idx}><span className="outcome-dot" />{item}</li>
-                            ))}
-                          </ul>
-                        ) : <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No outcomes available.</p>
-                      )}
+                      {activeLessonContent.learning_outcomes?.length > 0 ? (
+                        <ul className="outcome-list">
+                          {activeLessonContent.learning_outcomes.map((item, idx) => (
+                            <li key={idx}><span className="outcome-dot" />{item}</li>
+                          ))}
+                        </ul>
+                      ) : <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No outcomes available.</p>}
                     </div>
 
                     <div className="content-block">
                       <h3>Core Technical Material</h3>
-                      {renderAIActionBar('core_content', activeLessonContent.core_content)}
-                      {editingSection === 'core_content' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          style={{ width: '100%', minHeight: '300px', padding: '12px' }}
-                        />
-                      ) : (
-                        <ContentRenderer text={activeLessonContent.core_content} />
-                      )}
+                      <ContentRenderer text={activeLessonContent.core_content} />
                     </div>
 
-                    {renderExerciseManager()}
-                    {renderQuizManager()}
+                    {/* Static Read Only Exercises */}
+                    {activeLessonContent.exercises?.length > 0 && (
+                      <div className="content-block">
+                        <h3>Hands-On Exercises</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {activeLessonContent.exercises.map((ex, idx) => (
+                            <div key={idx} style={{ padding: '14px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                              <strong style={{ color: 'var(--navy)' }}>Exercise {idx + 1}: {ex.title}</strong>
+                              <p style={{ margin: '6px 0', fontSize: '0.9rem' }}>{ex.description}</p>
+                              {ex.code_template && <pre className="code-block" style={{ marginTop: '8px' }}>{ex.code_template}</pre>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Static Read Only Quizzes */}
+                    {activeLessonContent.quizzes?.length > 0 && (
+                      <div className="content-block">
+                        <h3>Assessment Quiz</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {activeLessonContent.quizzes.map((q, qIdx) => (
+                            <div key={qIdx} style={{ padding: '14px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                              <strong style={{ color: 'var(--navy)' }}>Q{qIdx + 1}: {q.question}</strong>
+                              {q.options?.length > 0 && (
+                                <ul style={{ listStyle: 'none', paddingLeft: 0, marginTop: '8px' }}>
+                                  {q.options.map((opt, oIdx) => (
+                                    <li key={oIdx} style={{ padding: '4px 0', fontSize: '0.88rem', color: opt === q.answer ? '#059669' : 'var(--text-main)', fontWeight: opt === q.answer ? 700 : 400 }}>
+                                      {opt === q.answer ? '✅ ' : '• '}{opt}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -3511,44 +3946,15 @@ export default function App() {
                   <div className="content-section">
                     <div className="why-matters-card">
                       <h4>💡 Why This Matters</h4>
-                      {renderAIActionBar('why_this_matters', activeLessonContent.why_this_matters)}
-                      {editingSection === 'why_this_matters' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          style={{ width: '100%', minHeight: '120px', padding: '12px' }}
-                        />
-                      ) : (
-                        <ContentRenderer text={activeLessonContent.why_this_matters} />
-                      )}
+                      <ContentRenderer text={activeLessonContent.why_this_matters} />
                     </div>
 
                     <div className="content-block">
                       <h3>Interactive Coding Sandbox</h3>
-                      {renderAIActionBar('practice', activeLessonContent.practice, (txt) => {
-                        try {
-                          const parsed = JSON.parse(txt);
-                          handleSaveManualEdit('practice', parsed);
-                        } catch (err) {
-                          alert("Invalid JSON format. Expected: { code_block: string, interactive_exercise: string, checklist: string[] }");
-                        }
-                      })}
-                      {editingSection === 'practice' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          style={{ width: '100%', minHeight: '200px', fontFamily: 'monospace', padding: '12px' }}
-                        />
-                      ) : (
-                        <>
-                          <pre className="code-block">{activeLessonContent.practice?.code_block || '// No code block available'}</pre>
-                          <div className="exercise-task">
-                            <strong>Task:</strong> {activeLessonContent.practice?.interactive_exercise || 'No exercise available.'}
-                          </div>
-                        </>
-                      )}
+                      <pre className="code-block">{activeLessonContent.practice?.code_block || '// No code block available'}</pre>
+                      <div className="exercise-task">
+                        <strong>Task:</strong> {activeLessonContent.practice?.interactive_exercise || 'No exercise available.'}
+                      </div>
                     </div>
 
                     <div className="content-block">
@@ -3564,32 +3970,12 @@ export default function App() {
 
                     <div className="content-block">
                       <h3>Debugging Pitfalls</h3>
-                      {renderAIActionBar('debugging', activeLessonContent.debugging)}
-                      {editingSection === 'debugging' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          style={{ width: '100%', minHeight: '150px', padding: '12px' }}
-                        />
-                      ) : (
-                        <ContentRenderer text={activeLessonContent.debugging} />
-                      )}
+                      <ContentRenderer text={activeLessonContent.debugging} />
                     </div>
 
                     <div className="content-block">
                       <h3>Ethics &amp; Code Principles</h3>
-                      {renderAIActionBar('ethics', activeLessonContent.ethics)}
-                      {editingSection === 'ethics' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          style={{ width: '100%', minHeight: '150px', padding: '12px' }}
-                        />
-                      ) : (
-                        <ContentRenderer text={activeLessonContent.ethics} />
-                      )}
+                      <ContentRenderer text={activeLessonContent.ethics} />
                     </div>
                   </div>
                 )}
@@ -3599,130 +3985,74 @@ export default function App() {
                   <div className="content-section">
                     <div className="content-block">
                       <h3>Facilitator Guide</h3>
-                      {renderAIActionBar('facilitator_guide', activeLessonContent.facilitator_guide)}
-                      {editingSection === 'facilitator_guide' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          style={{ width: '100%', minHeight: '200px', padding: '12px' }}
-                        />
-                      ) : (
-                        <ContentRenderer text={activeLessonContent.facilitator_guide} />
-                      )}
+                      <ContentRenderer text={activeLessonContent.facilitator_guide} />
                     </div>
 
                     <div className="lesson-plan-grid">
                       <div className="lesson-plan-card">
                         <h4>🧊 Ice Breaker</h4>
-                        {renderAIActionBar('lesson_plan', activeLessonContent.lesson_plan, (txt) => {
-                          try {
-                            const parsed = JSON.parse(txt);
-                            handleSaveManualEdit('lesson_plan', parsed);
-                          } catch (err) {
-                            alert("Invalid JSON format. Expected: { ice_breaker: string, timing: string }");
-                          }
-                        })}
-                        {editingSection === 'lesson_plan' ? (
-                          <textarea
-                            className="prompt-textarea"
-                            value={editingText}
-                            onChange={(e) => setEditingText(e.target.value)}
-                            style={{ width: '100%', minHeight: '120px', fontFamily: 'monospace', padding: '12px' }}
-                          />
-                        ) : (
-                          <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.ice_breaker || 'No ice breaker available.'}</p>
-                        )}
+                        <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.ice_breaker || 'No ice breaker available.'}</p>
                       </div>
                       <div className="lesson-plan-card">
                         <h4>⏱ Timing Allocation</h4>
-                        {editingSection === 'lesson_plan' ? (
-                          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Editing JSON outline above...</span>
-                        ) : (
-                          <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.timing || 'No timing available.'}</p>
-                        )}
+                        <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.timing || 'No timing available.'}</p>
                       </div>
                     </div>
 
                     <div className="content-block">
                       <h3>Grading Rubric</h3>
-                      {renderAIActionBar('rubric', activeLessonContent.rubric, (txt) => {
-                        try {
-                          const parsed = JSON.parse(txt);
-                          handleSaveManualEdit('rubric', parsed);
-                        } catch (err) {
-                          alert("Invalid JSON format. Expected: Array of { criteria: string, excellent: string, good: string, needs_improvement: string }");
-                        }
-                      })}
-                      {editingSection === 'rubric' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          style={{ width: '100%', minHeight: '180px', fontFamily: 'monospace', padding: '12px' }}
-                        />
-                      ) : (
-                        activeLessonContent.rubric?.length > 0 ? (
-                          <table className="rubric-table">
-                            <thead>
-                              <tr>
-                                <th>Criteria</th>
-                                <th>Excellent</th>
-                                <th>Good</th>
-                                <th>Needs Improvement</th>
+                      {activeLessonContent.rubric?.length > 0 ? (
+                        <table className="rubric-table">
+                          <thead>
+                            <tr>
+                              <th>Criteria</th>
+                              <th>Excellent</th>
+                              <th>Good</th>
+                              <th>Needs Improvement</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activeLessonContent.rubric.map((row, idx) => (
+                              <tr key={idx}>
+                                <td>{row.criteria}</td>
+                                <td style={{ color: 'var(--accent-green)' }}>{row.excellent}</td>
+                                <td style={{ color: 'var(--accent-orange)' }}>{row.good}</td>
+                                <td style={{ color: 'var(--accent-red)' }}>{row.needs_improvement}</td>
                               </tr>
-                            </thead>
-                            <tbody>
-                              {activeLessonContent.rubric.map((row, idx) => (
-                                <tr key={idx}>
-                                  <td>{row.criteria}</td>
-                                  <td style={{ color: 'var(--accent-green)' }}>{row.excellent}</td>
-                                  <td style={{ color: 'var(--accent-orange)' }}>{row.good}</td>
-                                  <td style={{ color: 'var(--accent-red)' }}>{row.needs_improvement}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        ) : <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No rubric available.</p>
-                      )}
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No rubric available.</p>}
                     </div>
 
                     <div className="content-block">
                       <h3>Discussion Questions</h3>
-                      {renderAIActionBar('discussion_questions', activeLessonContent.discussion_questions, (txt) => {
-                        handleSaveManualEdit('discussion_questions', txt.split('\n').filter(Boolean));
-                      })}
-                      {editingSection === 'discussion_questions' ? (
-                        <textarea
-                          className="prompt-textarea"
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          placeholder="One question per line..."
-                          style={{ width: '100%', minHeight: '120px', padding: '12px' }}
-                        />
-                      ) : (
-                        activeLessonContent.discussion_questions?.length > 0 ? (
-                          <ol className="discussion-list">
-                            {activeLessonContent.discussion_questions.map((item, idx) => (
-                              <li key={idx}>{item}</li>
-                            ))}
-                          </ol>
-                        ) : <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No discussion questions available.</p>
-                      )}
+                      {activeLessonContent.discussion_questions?.length > 0 ? (
+                        <ol className="discussion-list">
+                          {activeLessonContent.discussion_questions.map((item, idx) => (
+                            <li key={idx}>{item}</li>
+                          ))}
+                        </ol>
+                      ) : <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No discussion questions available.</p>}
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
+              </div> {/* editor-panel */}
+            </div> {/* pdf-body */}
 
             {/* PDF Footer Page */}
             <div className="pdf-footer-page">
               <span>Confidential &middot; For Educational Use Only</span>
-              <span>Page {courseData.lessons?.findIndex(l => l.id === activeLessonId) + 1} of {courseData.lessons?.length}</span>
+              <span>Page {lessonNumber} of {courseData.lessons?.length || 1}</span>
             </div>
           </div>
+                    )}
         </div>
-      </div>
+      );
+    })()}
+  </div>
+
+
 
             {/* Export Hub Modal */}
             {isExportModalOpen && (
