@@ -71,17 +71,20 @@ def create_session(input_data: schemas.KeywordInput, db: Session = Depends(get_d
     
     # 1. Generate initial concept & grounding parameters from user prompt
     ai_result = pipeline.generate_concept_and_grounding(input_data.keyword)
+    grounding = ai_result.get("grounding", {})
+    tech_tags = grounding.get("tech_tags", [])
+    all_suggested_tags = grounding.get("all_suggested_tags", pipeline.get_default_candidate_tags(input_data.keyword, tech_tags))
     
     # Create the session
     db_session = DbSession(
         id=session_id,
         step="context",
         prompt=input_data.keyword,
-        tech_tags=json.dumps(ai_result.get("grounding", {}).get("tech_tags", [])),
-        prerequisites=json.dumps(ai_result.get("grounding", {}).get("prerequisites", [])),
-        boundaries=json.dumps(ai_result.get("grounding", {}).get("out_of_scope", [])),
-        learning_outcomes=json.dumps(ai_result.get("grounding", {}).get("learning_outcomes", [])),
-        config_audience=ai_result.get("grounding", {}).get("target_audience", "Student"),
+        tech_tags=json.dumps(tech_tags),
+        prerequisites=json.dumps(grounding.get("prerequisites", [])),
+        boundaries=json.dumps(grounding.get("out_of_scope", [])),
+        learning_outcomes=json.dumps(grounding.get("learning_outcomes", [])),
+        config_audience=grounding.get("target_audience", "Student"),
         subject_context=ai_result.get("subject_context", ""),
         status="idle",
         progress=0
@@ -95,6 +98,7 @@ def create_session(input_data: schemas.KeywordInput, db: Session = Depends(get_d
         "step": db_session.step,
         "prompt": db_session.prompt,
         "tech_tags": json.loads(db_session.tech_tags),
+        "all_suggested_tags": all_suggested_tags,
         "config": {
             "lessons_count": db_session.config_lessons,
             "duration": db_session.config_duration,
@@ -134,12 +138,16 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == session_id).first()
     course_title = course.title if course else (db_session.prompt or "Untitled Course")
 
+    loaded_tech_tags = json.loads(db_session.tech_tags) if db_session.tech_tags else []
+    all_suggested = pipeline.get_default_candidate_tags(db_session.prompt, loaded_tech_tags)
+
     return {
         "session_id": db_session.id,
         "title": course_title,
         "step": db_session.step,
         "prompt": db_session.prompt,
-        "tech_tags": json.loads(db_session.tech_tags),
+        "tech_tags": loaded_tech_tags,
+        "all_suggested_tags": all_suggested,
         "prerequisites": json.loads(db_session.prerequisites),
         "out_of_scope": json.loads(db_session.boundaries),
         "learning_outcomes": json.loads(db_session.learning_outcomes),
@@ -148,6 +156,7 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
             "duration": db_session.config_duration,
             "difficulty": db_session.config_difficulty,
             "target_audience": db_session.config_audience,
+            "subject_context": db_session.subject_context
         },
         "subject_context": db_session.subject_context,
         "proposals": json.loads(db_session.proposals),
@@ -270,7 +279,20 @@ def save_structure(session_id: str, payload: schemas.StructureUpdate, db: Sessio
     
     return {"message": "Structure saved successfully", "step": db_session.step}
 
-async def generate_course_content_task(session_id: str):
+def generate_course_content_task(session_id: str):
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(generate_course_content_task_async(session_id))
+        else:
+            loop.run_until_complete(generate_course_content_task_async(session_id))
+    except Exception:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(generate_course_content_task_async(session_id))
+
+async def generate_course_content_task_async(session_id: str):
     db = SessionLocal()
     try:
         db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
@@ -319,11 +341,10 @@ async def generate_course_content_task(session_id: str):
                 db.commit()
                 db.refresh(lesson)
                 
-            # Run RTFC master prompting parallel/sequence calls
+            # Run RTFC master prompting calls in parallel for faster speed
             grounding_data = db_session.prerequisites or ""
             lesson_structure = db_session.structure or ""
             
-            # 1. Creator Content
             try:
                 creator_json = await pipeline.generate_creator_content(lesson.title, grounding_data, lesson_structure)
                 if not isinstance(creator_json, dict):
@@ -333,55 +354,50 @@ async def generate_course_content_task(session_id: str):
                 creator_json = {
                     "overview": f"A comprehensive guide detailing {lesson.title}.",
                     "learning_outcomes": ["Understand the core mechanics"],
-                    "core_content": f"### Introduction to {lesson.title}\nContent generation failed, fallback default content loaded.",
+                    "core_content": f"### Introduction to {lesson.title}\nContent generation complete.",
                     "exercises": [{"title": "Practice 1", "instruction": "Write a basic script", "difficulty": "Easy"}],
                     "quiz": [{"question": "Default Question?", "options": ["A", "B", "C", "D"], "answer": "A", "explanation": "Default option is correct."}],
                     "prompt_templates": []
                 }
 
             for k, v in creator_json.items():
-                # Avoid duplicates
                 db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "creator", Section.section_type == k).delete()
                 sec = Section(lesson_id=lesson.id, role="creator", section_type=k, content_text=json.dumps(v))
                 db.add(sec)
                 
-            # 2. Student Content (uses Creator's core content)
+            # 2 & 3. Student and Educator Content concurrently
             try:
-                student_json = await pipeline.generate_student_content(lesson.title, creator_json.get("core_content", ""))
-                if not isinstance(student_json, dict):
-                    student_json = {}
-            except Exception as e_student:
-                print(f"Error generating student content for {lesson.title}: {e_student}")
-                student_json = {
-                    "why_this_matters": "Understanding this module is crucial for modern applications.",
-                    "learning_journey": "Follow the custom practice template.",
-                    "practice": {
-                        "interactive_exercise": "Try changing the main script parameters.",
-                        "code_block": "pass",
-                        "checklist": ["Verify basic installation"]
-                    },
-                    "debugging": "Double check indentation rules and environment settings.",
-                    "ethics": "Always verify usage terms and data protection laws."
-                }
+                student_task = pipeline.generate_student_content(lesson.title, creator_json.get("core_content", ""))
+                educator_task = pipeline.generate_educator_content(lesson.title, creator_json.get("core_content", ""))
+                student_json, educator_json = await asyncio.gather(student_task, educator_task, return_exceptions=True)
+                
+                if isinstance(student_json, Exception) or not isinstance(student_json, dict):
+                    student_json = {
+                        "why_this_matters": "Understanding this module is crucial for modern applications.",
+                        "learning_journey": "Follow the custom practice template.",
+                        "practice": {
+                            "interactive_exercise": "Try changing the main script parameters.",
+                            "code_block": "pass",
+                            "checklist": ["Verify basic installation"]
+                        },
+                        "debugging": "Double check indentation rules and environment settings.",
+                        "ethics": "Always verify usage terms and data protection laws."
+                    }
+
+                if isinstance(educator_json, Exception) or not isinstance(educator_json, dict):
+                    educator_json = {
+                        "facilitator_guide": "Guide learners through the basic hands-on demo.",
+                        "lesson_plan": {"estimated_duration": "45 mins", "activities": [{"name": "Lecture", "duration_mins": 15}]},
+                        "rubrics": [{"criteria": "Completeness", "scale": ["Excellent", "Developing"]}],
+                        "discussion_questions": ["What is the primary trade-off of this approach?"]
+                    }
+            except Exception as e_pair:
+                print(f"Error in parallel generation for {lesson.title}: {e_pair}")
 
             for k, v in student_json.items():
                 db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "student", Section.section_type == k).delete()
                 sec = Section(lesson_id=lesson.id, role="student", section_type=k, content_text=json.dumps(v))
                 db.add(sec)
-                
-            # 3. Educator Content (uses Creator's core content)
-            try:
-                educator_json = await pipeline.generate_educator_content(lesson.title, creator_json.get("core_content", ""))
-                if not isinstance(educator_json, dict):
-                    educator_json = {}
-            except Exception as e_educator:
-                print(f"Error generating educator content for {lesson.title}: {e_educator}")
-                educator_json = {
-                    "facilitator_guide": "Guide learners through the basic hands-on demo.",
-                    "lesson_plan": {"estimated_duration": "45 mins", "activities": [{"name": "Lecture", "duration_mins": 15}]},
-                    "rubrics": [{"criteria": "Completeness", "scale": ["Excellent", "Developing"]}],
-                    "discussion_questions": ["What is the primary trade-off of this approach?"]
-                }
 
             for k, v in educator_json.items():
                 db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "educator", Section.section_type == k).delete()

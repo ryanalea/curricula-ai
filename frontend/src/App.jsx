@@ -4,7 +4,7 @@ const API_BASE = 'http://127.0.0.1:8000/api/v1';
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const IconArrow = () => (
-  <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', display: 'inline-block' }}><path d="M5 12h14M12 5l7 7-7 7"/></svg>
 );
 const IconLayers = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -16,16 +16,19 @@ const IconBook = () => (
   <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
 );
 const IconSpinner = () => (
-  <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" className="spin"><circle cx="12" cy="12" r="10" strokeOpacity="0.25"/><path d="M12 2a10 10 0 010 20" strokeLinecap="round"/></svg>
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="spin-smooth" style={{ verticalAlign: 'middle', display: 'inline-block' }}>
+    <circle cx="12" cy="12" r="9.5" stroke="currentColor" strokeWidth="3" strokeOpacity="0.2" />
+    <path d="M12 2.5a9.5 9.5 0 0 1 9.5 9.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+  </svg>
 );
 const IconCheck = () => (
-  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
 );
 const IconPlus = () => (
-  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
 );
 const IconTrash = () => (
-  <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
 );
 const IconUpload = () => (
   <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
@@ -39,7 +42,7 @@ const IconUser = () => (
 
 // ─── Step Progress Bar ────────────────────────────────────────────────────────
 const STEPS = [
-  { key: 'dashboard', label: 'Prompt' },
+  { key: 'dashboard', label: 'Concept' },
   { key: 'context',   label: 'Config' },
   { key: 'grounding', label: 'Grounding' },
   { key: 'proposal',  label: 'Proposals' },
@@ -52,22 +55,20 @@ const WORKFLOW_STEPS = STEPS.map(s => s.key);
 
 function StepProgressBar({ currentStep }) {
   const currentIdx = WORKFLOW_STEPS.indexOf(currentStep);
-  if (currentIdx <= 0) return null;
   return (
     <div className="step-progress-bar">
-      {STEPS.slice(1).map((step, i) => {
-        const idx = i + 1;
-        const isDone = currentIdx > idx;
-        const isActive = currentIdx === idx;
+      {STEPS.map((step, i) => {
+        const isDone = currentIdx > i;
+        const isActive = currentIdx === i;
         return (
           <React.Fragment key={step.key}>
             <div className={`step-node ${isDone ? 'done' : ''} ${isActive ? 'active' : ''}`}>
               <div className="step-node-circle">
-                {isDone ? <IconCheck /> : <span>{idx}</span>}
+                {isDone ? <IconCheck /> : <span>{i + 1}</span>}
               </div>
               <span className="step-label">{step.label}</span>
             </div>
-            {i < STEPS.length - 2 && <div className={`step-connector ${isDone ? 'done' : ''}`} />}
+            {i < STEPS.length - 1 && <div className={`step-connector ${isDone ? 'done' : ''}`} />}
           </React.Fragment>
         );
       })}
@@ -131,6 +132,13 @@ export default function App() {
   const [sessionsList, setSessionsList] = useState([]);
   const [showMyCourses, setShowMyCourses] = useState(false);
 
+  // ── Course Library Filters & Pagination ──
+  const [libraryFilterTab, setLibraryFilterTab] = useState('all'); // 'all', 'drafts', 'published', 'archived'
+  const [librarySearchQuery, setLibrarySearchQuery] = useState('');
+  const [librarySelectedTag, setLibrarySelectedTag] = useState('All Tags');
+  const [libraryWipPage, setLibraryWipPage] = useState(1);
+  const [libraryPubPage, setLibraryPubPage] = useState(1);
+
   const [selectedTopicCategory, setSelectedTopicCategory] = useState('All Categories');
 
   const trendingTopics = [
@@ -152,13 +160,90 @@ export default function App() {
   ];
 
   // ── Context & Config ──
-  const [techTags, setTechTags] = useState([]);
+  const DEFAULT_CANDIDATE_TAGS = [
+    "Go (Golang)", "Python", "React Native", "JavaScript", "TypeScript",
+    "Microservices", "Concurrency", "Generative AI", "REST APIs", "Docker & Kubernetes",
+    "Capstone Projects", "Project-Based Learning", "Experiential Learning",
+    "Collaborative Learning", "Industry Partnerships", "Authentic Assessment",
+    "AI in Education", "Workplace Simulation", "Constructive Alignment",
+    "Team-Based Skills", "Project Management", "Problem-Based Learning"
+  ];
+  const [techTags, setTechTags] = useState(DEFAULT_CANDIDATE_TAGS.slice(0, 3));
+  const [allSuggestedTags, setAllSuggestedTags] = useState(DEFAULT_CANDIDATE_TAGS);
   const [newTag, setNewTag] = useState('');
+
+  const toggleTag = (tag) => {
+    if (techTags.includes(tag)) {
+      setTechTags(techTags.filter(t => t !== tag));
+    } else {
+      setTechTags([...techTags, tag]);
+    }
+  };
+
+  const handleAddCustomTag = (e) => {
+    if (e?.key && e.key !== 'Enter') return;
+    const trimmed = newTag.trim();
+    if (trimmed) {
+      if (!allSuggestedTags.includes(trimmed)) {
+        setAllSuggestedTags(prev => [...prev, trimmed]);
+      }
+      if (!techTags.includes(trimmed)) {
+        setTechTags(prev => [...prev, trimmed]);
+      }
+      setNewTag('');
+    }
+  };
   const [configLessons, setConfigLessons] = useState(5);
   const [configDuration, setConfigDuration] = useState(60);
   const [configDifficulty, setConfigDifficulty] = useState('Beginner');
   const [configAudience, setConfigAudience] = useState('Student');
   const [subjectContext, setSubjectContext] = useState('');
+  const [showHeadingDropdown, setShowHeadingDropdown] = useState(false);
+  const [showTablePicker, setShowTablePicker] = useState(false);
+  const [hoverGrid, setHoverGrid] = useState({ r: 2, c: 2 });
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const contextTextareaRef = useRef(null);
+
+  const insertMarkdown = (prefix, suffix = '') => {
+    if (!contextTextareaRef.current) {
+      setSubjectContext(prev => prev + prefix + suffix);
+      return;
+    }
+    const textarea = contextTextareaRef.current;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = subjectContext;
+    const selectedText = text.substring(start, end) || 'text';
+    const replacement = `${prefix}${selectedText}${suffix}`;
+    const newText = text.substring(0, start) + replacement + text.substring(end);
+    setSubjectContext(newText);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
+    }, 10);
+  };
+
+  const applyHeading = (level) => {
+    setShowHeadingDropdown(false);
+    const hashes = '#'.repeat(level);
+    insertMarkdown(`\n${hashes} `, '');
+  };
+
+  const insertTable = (rows, cols) => {
+    setShowTablePicker(false);
+    let tableMd = '\n';
+    // Header row
+    tableMd += '| ' + Array.from({ length: cols }).map((_, c) => `Header ${c + 1}`).join(' | ') + ' |\n';
+    // Separator row
+    tableMd += '| ' + Array.from({ length: cols }).map(() => '---').join(' | ') + ' |\n';
+    // Body rows
+    for (let r = 0; r < rows; r++) {
+      tableMd += '| ' + Array.from({ length: cols }).map((_, c) => `Cell ${r + 1}-${c + 1}`).join(' | ') + ' |\n';
+    }
+    tableMd += '\n';
+    insertMarkdown(tableMd, '');
+  };
 
   // ── Grounding ──
   const [prerequisites, setPrerequisites] = useState([]);
@@ -174,15 +259,23 @@ export default function App() {
 
   // ── Structure ──
   const [structure, setStructure] = useState([]);
+  const [activeStructureRole, setActiveStructureRole] = useState('creator');
+  const [selectedStructureLessonId, setSelectedStructureLessonId] = useState(null);
+  const [isAddSectionModalOpen, setIsAddSectionModalOpen] = useState(false);
+  const [newSectionTitle, setNewSectionTitle] = useState('');
+  const [newSectionInstruction, setNewSectionInstruction] = useState('');
+  const [newSectionRole, setNewSectionRole] = useState('creator');
 
   // ── Generation ──
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStatusText, setGenerationStatusText] = useState('');
+  const [currentGeneratingLessonIdx, setCurrentGeneratingLessonIdx] = useState(0);
 
   // ── Generated Course ──
   const [courseData, setCourseData] = useState(null);
   const [activeLessonId, setActiveLessonId] = useState(null);
   const [activeRole, setActiveRole] = useState('creator');
+  const [activeSubSection, setActiveSubSection] = useState('overview');
 
   // ── Phase 3: Interactive Course & AI Toolbar ──
   const [sectionLoading, setSectionLoading] = useState({});
@@ -198,16 +291,8 @@ export default function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // ── Phase 2: Structure Details & Inline Editing ──
-  const [selectedStructureLessonId, setSelectedStructureLessonId] = useState(null);
-  const [activeStructureRole, setActiveStructureRole] = useState('creator');
   const [groundingEditIdx, setGroundingEditIdx] = useState({ type: null, idx: -1 }); // type: 'prereq' | 'boundary' | 'outcome'
   const [groundingEditText, setGroundingEditText] = useState('');
-  
-  // Modal for new custom section
-  const [isAddSectionModalOpen, setIsAddSectionModalOpen] = useState(false);
-  const [newSectionTitle, setNewSectionTitle] = useState('');
-  const [newSectionInstruction, setNewSectionInstruction] = useState('');
-  const [newSectionRole, setNewSectionRole] = useState('creator');
 
   // Default structure outline sections placeholder mapping
   const defaultSections = {
@@ -385,7 +470,9 @@ export default function App() {
           activeSessId = data.session_id;
           setSessionId(data.session_id);
           setPromptText(textToSubmit);
-          setTechTags(data.tech_tags || []);
+          const loadedTech = data.tech_tags || [];
+          setTechTags(loadedTech);
+          setAllSuggestedTags(data.all_suggested_tags && data.all_suggested_tags.length > 0 ? data.all_suggested_tags : Array.from(new Set([...loadedTech, ...DEFAULT_CANDIDATE_TAGS])));
           setConfigLessons(data.config?.lessons_count || 5);
           setConfigDuration(data.config?.duration || 60);
           setConfigDifficulty(data.config?.difficulty || 'Beginner');
@@ -705,11 +792,18 @@ export default function App() {
             const data = await res.json();
             setGenerationProgress(data.progress);
             setGenerationStatusText(data.status_text);
+            
+            // Keep live courseData synchronized so completed lessons display immediately
+            if (data.lessons && data.lessons.length > 0) {
+              setCourseData(data);
+              if (!activeLessonId) setActiveLessonId(data.lessons[0].id);
+            }
+
             if (data.status === 'completed') {
               clearInterval(interval);
               setCourseData(data);
               if (data.lessons?.length > 0) setActiveLessonId(data.lessons[0].id);
-              setCurrentStep('generated');
+              // Stay on Step 7 (generating workspace) so user can edit and review! Only move to Step 8 when user clicks "Proceed to Assets"
               fetchSessions();
             } else if (data.status === 'error') {
               clearInterval(interval);
@@ -721,7 +815,7 @@ export default function App() {
       }, 2000);
     }
     return () => clearInterval(interval);
-  }, [currentStep, sessionId, fetchSessions]);
+  }, [currentStep, sessionId, activeLessonId, fetchSessions]);
 
   // ── Agent Auto-Workflow Orchestrator ──
   const runAgentPipeline = async (sessId) => {
@@ -761,9 +855,15 @@ export default function App() {
       if (!selRes.ok) throw new Error('Failed to select proposal');
       const selData = await selRes.json();
       setSelectedProposalId(2);
-      setPrerequisites(selData.prerequisites || []);
-      setBoundaries(selData.out_of_scope || []);
-      setLearningOutcomes(selData.learning_outcomes || []);
+
+      // Fetch latest session data from backend to ensure all state fields (prerequisites, boundaries, learningOutcomes) are synchronized
+      const sessRes = await fetch(`${API_BASE}/courses/sessions/${sessId}`);
+      if (sessRes.ok) {
+        const fullSess = await sessRes.json();
+        setPrerequisites(fullSess.prerequisites || []);
+        setBoundaries(fullSess.out_of_scope || []);
+        setLearningOutcomes(fullSess.learning_outcomes || []);
+      }
 
       // 3. Proposals selected. Move to Stage 4: Curriculum Structure.
       setAgentProgressStage(4);
@@ -776,7 +876,7 @@ export default function App() {
       });
       if (!structRes.ok) throw new Error('Failed to save structure');
       const structData = await structRes.json();
-      const newStruct = (structData.structure || []).map(lesson => ({
+      const newStruct = (selData.structure || []).map(lesson => ({
         ...lesson,
         sections: lesson.sections || defaultSections
       }));
@@ -816,7 +916,9 @@ export default function App() {
         const data = await res.json();
         setSessionId(data.session_id);
         setPromptText(textToSubmit);
-        setTechTags(data.tech_tags || []);
+        const loadedTech = data.tech_tags || [];
+        setTechTags(loadedTech);
+        setAllSuggestedTags(data.all_suggested_tags && data.all_suggested_tags.length > 0 ? data.all_suggested_tags : Array.from(new Set([...loadedTech, ...DEFAULT_CANDIDATE_TAGS])));
         setConfigLessons(data.config?.lessons_count || 5);
         setConfigDuration(data.config?.duration || 60);
         setConfigDifficulty(data.config?.difficulty || 'Beginner');
@@ -1009,7 +1111,9 @@ export default function App() {
         const data = await res.json();
         setSessionId(data.session_id);
         setPromptText(data.prompt || '');
-        setTechTags(data.tech_tags || []);
+        const loadedTech = data.tech_tags || [];
+        setTechTags(loadedTech);
+        setAllSuggestedTags(data.all_suggested_tags && data.all_suggested_tags.length > 0 ? data.all_suggested_tags : Array.from(new Set([...loadedTech, ...DEFAULT_CANDIDATE_TAGS])));
         setConfigLessons(data.config?.lessons_count || 5);
         setConfigDuration(data.config?.duration || 60);
         setConfigDifficulty(data.config?.difficulty || 'Beginner');
@@ -1299,63 +1403,270 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Courses Page View ── */}
+        {/* ── Courses Page View (Course Library Layout) ── */}
         {currentView === 'courses' && (
-          <div>
-            <div className="header">
+          <div className="course-library-container">
+            {/* Library Top Header */}
+            <div className="library-top-header">
               <div>
-                <h2>My Courses</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Resume or review your past generation sessions.</p>
+                <h1 className="library-title">Course Library</h1>
+                <p className="library-subtitle">Manage and organize your course curriculum assets.</p>
               </div>
-              <button className="action-btn" onClick={() => { setCurrentView('wizard'); setCurrentStep('dashboard'); setShowMyCourses(false); setSessionId(null); setPromptText(''); setProposals([]); setStructure([]); setCourseData(null); }}>
-                <IconPlus /> New Course
-              </button>
+
+              <div className="library-header-actions">
+                <button className="library-upload-btn playful-card" onClick={() => { setCurrentView('wizard'); setCurrentStep('dashboard'); }}>
+                  <span>+</span> Upload
+                </button>
+                <div className="library-search-box">
+                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input 
+                    type="text" 
+                    placeholder="Search courses..." 
+                    value={librarySearchQuery}
+                    onChange={(e) => { setLibrarySearchQuery(e.target.value); setLibraryPubPage(1); }}
+                  />
+                </div>
+              </div>
             </div>
 
-            {sessionsList.length === 0 ? (
-              <div className="empty-state">
-                <IconBook />
-                <h3>No courses yet</h3>
-                <p>Start a new course from the Dashboard to see it here.</p>
-                <button className="action-btn" onClick={() => { setCurrentView('wizard'); setCurrentStep('dashboard'); }} style={{ marginTop: '20px' }}>
-                  Create First Course <IconArrow />
-                </button>
-              </div>
-            ) : (
-              <div className="sessions-grid">
-                {sessionsList.map((sess) => (
-                  <div key={sess.session_id} className="session-card">
-                    <div className="session-card-header">
-                      <span className={`session-status-badge ${sess.status}`}>{sess.status}</span>
-                      <div className="session-card-meta">
-                        <span><IconClock /> {sess.difficulty}</span>
-                        <span><IconUser /> {sess.audience}</span>
-                      </div>
-                    </div>
-                    <h3 className="session-card-title">{sess.title || sess.prompt}</h3>
-                    <p className="session-card-prompt">{sess.prompt}</p>
-                    {sess.status === 'generating' && (
-                      <div className="session-mini-progress">
-                        <div className="session-mini-bar" style={{ width: `${sess.progress}%` }} />
-                      </div>
-                    )}
-                    <button
-                      className="action-btn"
-                      style={{ width: '100%', justifyContent: 'center', marginTop: '16px' }}
-                      onClick={() => handleResumeSession(sess)}
-                      disabled={isLoading}
-                    >
-                      {sess.status === 'completed' ? 'View Course' : 'Resume'} <IconArrow />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Main Library Split Layout */}
+            <div className="library-split-layout">
+              {/* Left Column: Sticky Filters Sidebar */}
+              <div className="library-filters-card playful-card" style={{ position: 'sticky', top: '90px' }}>
+                <div className="filters-header">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                  <span>Filters</span>
+                </div>
 
-            {/* Footer */}
-            <div className="elice-footer">
-              <span>&copy; {new Date().getFullYear()} Curricula AI. All rights reserved. Powered by Maxy Academy.</span>
-              <button className="feedback-btn" onClick={() => alert('Thank you for your feedback!')}>Send Feedback</button>
+                <div className="filters-nav-group">
+                  <button 
+                    className={`filter-nav-item ${libraryFilterTab === 'all' ? 'active' : ''}`}
+                    onClick={() => { setLibraryFilterTab('all'); setLibraryPubPage(1); }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                      <span>All Content</span>
+                    </div>
+                    <span className={`filter-count-pill ${libraryFilterTab === 'all' ? 'active' : ''}`}>{sessionsList.length}</span>
+                  </button>
+
+                  <button 
+                    className={`filter-nav-item ${libraryFilterTab === 'drafts' ? 'active' : ''}`}
+                    onClick={() => { setLibraryFilterTab('drafts'); setLibraryPubPage(1); }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <span>Drafts</span>
+                    </div>
+                    <span className="filter-count-pill draft">{sessionsList.filter(s => s.status !== 'completed').length}</span>
+                  </button>
+
+                  <button 
+                    className={`filter-nav-item ${libraryFilterTab === 'published' ? 'active' : ''}`}
+                    onClick={() => { setLibraryFilterTab('published'); setLibraryPubPage(1); }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                      <span>Published</span>
+                    </div>
+                    <span className="filter-count-pill published">{sessionsList.filter(s => s.status === 'completed').length}</span>
+                  </button>
+
+                  <button 
+                    className={`filter-nav-item ${libraryFilterTab === 'archived' ? 'active' : ''}`}
+                    onClick={() => { setLibraryFilterTab('archived'); setLibraryPubPage(1); }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+                      <span>Archived</span>
+                    </div>
+                    <span className="filter-count-pill archived">0</span>
+                  </button>
+                </div>
+
+                <div className="filter-tags-section">
+                  <div className="filter-tags-title">■ TAGS</div>
+                  <div className="filter-tags-list">
+                    {['All Tags', 'AI Website Builders', 'Generative AI', 'No-Code Development', 'Web Development', 'AI in HR', 'AI Security'].map((t) => (
+                      <button 
+                        key={t} 
+                        className={`filter-tag-pill ${librarySelectedTag === t ? 'active' : ''}`}
+                        onClick={() => { setLibrarySelectedTag(t); setLibraryPubPage(1); }}
+                      >
+                        {t === 'All Tags' ? t : `# ${t}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Dynamic Filtered Content Area */}
+              <div className="library-content-area">
+                {(() => {
+                  // Filter Sessions
+                  let filteredList = sessionsList.filter((s) => {
+                    const matchesSearch = !librarySearchQuery || (s.title || s.prompt || '').toLowerCase().includes(librarySearchQuery.toLowerCase());
+                    const matchesTab = 
+                      libraryFilterTab === 'all' ? true :
+                      libraryFilterTab === 'drafts' ? s.status !== 'completed' :
+                      libraryFilterTab === 'published' ? s.status === 'completed' : false;
+                    return matchesSearch && matchesTab;
+                  });
+
+                  const wipList = filteredList.filter(s => s.status !== 'completed');
+                  const pubList = filteredList.filter(s => s.status === 'completed');
+
+                  // Pagination for Published (2 cards per page max)
+                  const CARDS_PER_PAGE = 2;
+                  const totalPubPages = Math.ceil(pubList.length / CARDS_PER_PAGE) || 1;
+                  const startIndex = (libraryPubPage - 1) * CARDS_PER_PAGE;
+                  const paginatedPubList = pubList.slice(startIndex, startIndex + CARDS_PER_PAGE);
+
+                  return (
+                    <>
+                      {/* 1. WORK IN PROGRESS */}
+                      {(libraryFilterTab === 'all' || libraryFilterTab === 'drafts') && wipList.length > 0 && (
+                        <div className="library-section">
+                          <div className="library-section-title-wrap" style={{ marginBottom: '14px' }}>
+                            <span className="title-vertical-bar gold"></span>
+                            <h3 className="library-section-title">WORK IN PROGRESS</h3>
+                          </div>
+
+                          <div className="elice-course-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+                            {wipList.map((sess) => (
+                              <div key={sess.session_id} className="elice-course-card playful-card" onClick={() => handleResumeSession(sess)}>
+                                <div className="card-top">
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span className="card-tag">🎓 COURSE</span>
+                                    <button 
+                                      className="icon-btn-tool"
+                                      title="Delete"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (confirm('Delete this course draft?')) {
+                                          fetch(`${API_BASE}/sessions/${sess.session_id}`, { method: 'DELETE' }).then(() => fetchSessions());
+                                        }
+                                      }}
+                                    >
+                                      <IconTrash />
+                                    </button>
+                                  </div>
+                                  <h3 className="card-title">{sess.title || sess.prompt}</h3>
+                                  
+                                  <div style={{ marginTop: '8px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '4px' }}>
+                                      <span>PROGRESS</span>
+                                      <span style={{ color: 'var(--blue)' }}>{sess.progress || 15}%</span>
+                                    </div>
+                                    <div className="session-mini-progress">
+                                      <div className="session-mini-bar" style={{ width: `${sess.progress || 15}%`, background: 'var(--navy)' }} />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="card-bottom" style={{ marginTop: '16px' }}>
+                                  <button className="action-btn" style={{ width: '100%', justifyContent: 'center', background: 'var(--surface-2)', color: 'var(--navy)', border: '1px solid var(--border-color)' }}>
+                                    Continue Editing
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. PUBLISHED CURRICULUM */}
+                      {(libraryFilterTab === 'all' || libraryFilterTab === 'published') && (
+                        <div className="library-section" style={{ marginTop: wipList.length > 0 ? '30px' : '0' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <div className="library-section-title-wrap">
+                              <span className="title-vertical-bar blue"></span>
+                              <h3 className="library-section-title">PUBLISHED CURRICULUM</h3>
+                            </div>
+
+                            {/* Dynamic Pagination Controls */}
+                            {totalPubPages > 1 && (
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <button 
+                                  className="library-page-btn"
+                                  onClick={() => setLibraryPubPage(Math.max(1, libraryPubPage - 1))}
+                                  disabled={libraryPubPage === 1}
+                                >
+                                  ‹
+                                </button>
+                                {Array.from({ length: totalPubPages }).map((_, pIdx) => (
+                                  <button 
+                                    key={pIdx + 1}
+                                    className={`library-page-btn ${libraryPubPage === pIdx + 1 ? 'active' : ''}`}
+                                    onClick={() => setLibraryPubPage(pIdx + 1)}
+                                  >
+                                    {pIdx + 1}
+                                  </button>
+                                ))}
+                                <button 
+                                  className="library-page-btn"
+                                  onClick={() => setLibraryPubPage(Math.min(totalPubPages, libraryPubPage + 1))}
+                                  disabled={libraryPubPage === totalPubPages}
+                                >
+                                  ›
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {pubList.length === 0 ? (
+                            <div className="empty-state" style={{ background: 'var(--white)', padding: '40px 20px', borderRadius: 'var(--radius-lg)' }}>
+                              <IconBook />
+                              <h3>No curriculum assets found</h3>
+                              <p>Create your first AI course from the top Create button.</p>
+                            </div>
+                          ) : (
+                            <div className="elice-course-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+                              {paginatedPubList.map((sess) => (
+                                <div key={sess.session_id} className="elice-course-card playful-card" onClick={() => handleResumeSession(sess)}>
+                                  <div className="card-top">
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span className="card-tag">🎓 COURSE</span>
+                                      <button 
+                                        className="icon-btn-tool" 
+                                        title="Delete"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (confirm('Delete this course?')) {
+                                            fetch(`${API_BASE}/sessions/${sess.session_id}`, { method: 'DELETE' }).then(() => fetchSessions());
+                                          }
+                                        }}
+                                      >
+                                        <IconTrash />
+                                      </button>
+                                    </div>
+                                    <h3 className="card-title">{sess.title || sess.prompt}</h3>
+                                    <p className="card-desc">{sess.prompt}</p>
+
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                                      <span className="persona-section-tag">AI WEBSITE BUILDERS</span>
+                                      <span className="persona-section-tag">GENERATIVE AI</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="card-bottom">
+                                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <IconClock /> 08/08/2026
+                                    </span>
+                                    <button className="icon-btn-tool" style={{ background: 'var(--blue-light)', color: 'var(--blue)', border: 'none', width: '32px', height: '32px' }}>
+                                      ↗
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
           </div>
         )}
@@ -1368,44 +1679,77 @@ export default function App() {
 
             {isLoading && currentStep === 'dashboard' ? (
               <div className="magic-progress-container">
-                <div className="floating-magic-box">
-                  <svg width="36" height="36" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                  </svg>
+                {/* Playful Floating Sparkles & Star Icon */}
+                <div className="magic-orb-container playful-card">
+                  <div className="sparkle-orbit">
+                    <span className="sparkle-particle p1">✨</span>
+                    <span className="sparkle-particle p2">⚡</span>
+                    <span className="sparkle-particle p3">🌟</span>
+                    <span className="sparkle-particle p4">🔮</span>
+                  </div>
+                  <div className="magic-icon-star-spin">
+                    <svg width="40" height="40" fill="none" stroke="var(--gold)" strokeWidth="2.5" viewBox="0 0 24 24">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                    </svg>
+                  </div>
                 </div>
-                <h1 className="magic-title">Magic in Progress...</h1>
+
+                <h1 className="magic-title">Crafting Your Curriculum Magic...</h1>
                 <p className="magic-subtext">
-                  We're orchestrating the complete technical and educational foundations for your course.
+                  Our AI agents are sculpting technical foundations, learning outcomes, and persona guides in real time!
                 </p>
 
+                {/* Animated Steps Container */}
                 <div className="progress-step-list">
-                  <div className={`progress-step-item ${agentProgressStage === 1 ? 'active' : ''}`}>
-                    <span className="progress-step-name">TECHNICAL FOUNDATIONS</span>
-                    <span className={`progress-step-status ${agentProgressStage === 1 ? 'active' : 'pending'}`}>
-                      {agentProgressStage === 1 ? <><IconSpinner /> Processing</> : (agentProgressStage > 1 ? 'Completed' : 'Pending')}
-                    </span>
-                  </div>
-                  <div className={`progress-step-item ${agentProgressStage === 2 ? 'active' : ''}`}>
-                    <span className="progress-step-name">EDUCATIONAL GROUNDING</span>
-                    <span className={`progress-step-status ${agentProgressStage === 2 ? 'active' : 'pending'}`}>
-                      {agentProgressStage === 2 ? <><IconSpinner /> Processing</> : (agentProgressStage > 2 ? 'Completed' : 'Pending')}
-                    </span>
-                  </div>
-                  <div className={`progress-step-item ${agentProgressStage === 3 ? 'active' : ''}`}>
-                    <span className="progress-step-name">DIRECTIONAL PROPOSALS</span>
-                    <span className={`progress-step-status ${agentProgressStage === 3 ? 'active' : 'pending'}`}>
-                      {agentProgressStage === 3 ? <><IconSpinner /> Processing</> : (agentProgressStage > 3 ? 'Completed' : 'Pending')}
-                    </span>
-                  </div>
-                  <div className={`progress-step-item ${agentProgressStage === 4 ? 'active' : ''}`}>
-                    <span className="progress-step-name">CURRICULUM STRUCTURE</span>
-                    <span className={`progress-step-status ${agentProgressStage === 4 ? 'active' : 'pending'}`}>
-                      {agentProgressStage === 4 ? <><IconSpinner /> Processing</> : 'Pending'}
-                    </span>
-                  </div>
+                  {[
+                    { id: 1, name: "TECHNICAL FOUNDATIONS", desc: "Analyzing tech stack, libraries & frameworks" },
+                    { id: 2, name: "EDUCATIONAL GROUNDING", desc: "Setting prerequisites & out-of-scope boundaries" },
+                    { id: 3, name: "DIRECTIONAL PROPOSALS", desc: "Structuring practical, recommended & advanced tracks" },
+                    { id: 4, name: "CURRICULUM OUTLINE", desc: "Building 3-POV persona guides (Creator, Student, Educator)" }
+                  ].map((step) => {
+                    const isActive = agentProgressStage === step.id;
+                    const isCompleted = agentProgressStage > step.id;
+                    return (
+                      <div 
+                        key={step.id} 
+                        className={`progress-step-item playful-card ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                          <div className={`step-badge-number ${isActive ? 'active' : isCompleted ? 'completed' : ''}`}>
+                            {isCompleted ? '✓' : step.id}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+                            <span className="progress-step-name">{step.name}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{step.desc}</span>
+                          </div>
+                        </div>
+
+                        <div className="progress-step-status-wrap">
+                          {isActive ? (
+                            <span className="status-pill processing">
+                              <span className="pulse-dot"></span>
+                              Processing...
+                            </span>
+                          ) : isCompleted ? (
+                            <span className="status-pill completed">✓ Done</span>
+                          ) : (
+                            <span className="status-pill pending">Pending</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                <div className="elice-footer" style={{ width: '100%', maxWidth: '460px', marginTop: '40px' }}>
+                {/* Interactive Fun Trivia Box */}
+                <div className="loading-trivia-card playful-card">
+                  <div className="trivia-badge">💡 DID YOU KNOW?</div>
+                  <p className="trivia-text">
+                    "AI-assisted project-based learning improves knowledge retention by up to <strong>74%</strong> compared to traditional lecture formats!"
+                  </p>
+                </div>
+
+                <div className="elice-footer" style={{ width: '100%', maxWidth: '460px', marginTop: '30px' }}>
                   <span>&copy; {new Date().getFullYear()} Curricula AI. All rights reserved.</span>
                   <button className="feedback-btn" onClick={() => alert('Thank you for your feedback!')}>Send Feedback</button>
                 </div>
@@ -1496,59 +1840,81 @@ export default function App() {
               </p>
             </div>
 
-            <div className="review-summary-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '24px', marginTop: 0 }}>
-              {/* Technical Tags & Topics Card */}
-              <div className="review-card">
-                <div className="review-card-header" style={{ marginBottom: '12px' }}>
-                  <h4 className="review-card-title">Technical Tags &amp; Topics</h4>
+            {/* Technical Tags & Topics Card */}
+            <div className="tech-tags-card" style={{ marginBottom: '24px' }}>
+              <div className="tech-tags-header">
+                <div className="tech-tags-title-group">
+                  <div className="tech-tags-icon-circle">
+                    <IconLayers />
+                  </div>
+                  <div>
+                    <h3 className="tech-tags-title">Technical Tags &amp; Topics</h3>
+                    <p className="tech-tags-subtitle">Choose the technologies that will power your project.</p>
+                  </div>
                 </div>
-                <div className="review-card-body">
-                  <div className="tags-container" style={{ marginBottom: '16px' }}>
-                    {techTags.map((tag, idx) => (
-                      <span key={idx} className="tag-badge" style={{ margin: '2px' }}>
-                        {tag}
-                        <span className="tag-close" onClick={() => removeTag(tag)}>×</span>
-                      </span>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="text"
-                      className="prompt-textarea"
-                      style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, fontSize: '0.85rem' }}
-                      placeholder="+ Add custom tech stack..."
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      onKeyDown={addTag}
-                    />
-                    <button className="file-upload-btn" onClick={addTag} style={{ fontSize: '0.85rem' }}>+ Add</button>
-                  </div>
+                <div className="tech-tags-count-badge">
+                  {techTags.length} SELECTED
                 </div>
               </div>
 
-              {/* Course Configuration Card */}
-              <div className="review-card">
-                <div className="review-card-header" style={{ marginBottom: '12px' }}>
-                  <h4 className="review-card-title">Course Configuration</h4>
+              <div className="tech-tags-pills-grid">
+                {allSuggestedTags.map((tag, idx) => {
+                  const isSelected = techTags.includes(tag);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      className={`tech-tag-pill ${isSelected ? 'selected' : ''}`}
+                      onClick={() => toggleTag(tag)}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="tech-tags-input-container">
+                <span className="input-plus-icon">+</span>
+                <input
+                  type="text"
+                  className="tech-tags-custom-input"
+                  placeholder="Add custom tech stack..."
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyDown={handleAddCustomTag}
+                />
+                {newTag.trim() && (
+                  <button 
+                    type="button" 
+                    className="tech-tags-add-btn" 
+                    onClick={handleAddCustomTag}
+                  >
+                    Add
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Course Configuration Card */}
+            <div className="prompt-card" style={{ marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '1.05rem', color: 'var(--navy)', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>Course Configuration</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-1)', padding: '12px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Target Number of Lessons</span>
+                  <div className="stepper" style={{ margin: 0 }}>
+                    <button onClick={() => setConfigLessons(Math.max(1, configLessons - 1))}>−</button>
+                    <span style={{ minWidth: '24px', textAlign: 'center' }}>{configLessons}</span>
+                    <button onClick={() => setConfigLessons(configLessons + 1)}>+</button>
+                  </div>
                 </div>
-                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Target Number of Lessons</span>
-                    <div className="stepper" style={{ margin: 0 }}>
-                      <button onClick={() => setConfigLessons(Math.max(1, configLessons - 1))}>−</button>
-                      <span style={{ minWidth: '24px', textAlign: 'center' }}>{configLessons}</span>
-                      <button onClick={() => setConfigLessons(configLessons + 1)}>+</button>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Avg. Duration (Min)</span>
-                    <select className="prompt-textarea" value={configDuration} onChange={(e) => setConfigDuration(Number(e.target.value))} style={{ minHeight: 'auto', padding: '6px 10px', maxWidth: '120px', marginBottom: 0 }}>
-                      <option value="30">30 Min</option>
-                      <option value="60">60 Min</option>
-                      <option value="90">90 Min</option>
-                      <option value="120">120 Min</option>
-                    </select>
-                  </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-1)', padding: '12px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Avg. Duration (Min)</span>
+                  <select className="prompt-textarea" value={configDuration} onChange={(e) => setConfigDuration(Number(e.target.value))} style={{ minHeight: 'auto', padding: '6px 10px', maxWidth: '120px', marginBottom: 0 }}>
+                    <option value="30">30 Min</option>
+                    <option value="60">60 Min</option>
+                    <option value="90">90 Min</option>
+                    <option value="120">120 Min</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -1556,34 +1922,200 @@ export default function App() {
             {/* Subject Matter Context Card */}
             <div className="prompt-card">
               <h3 style={{ marginBottom: '14px', fontSize: '1.05rem', color: 'var(--navy)' }}>Subject Matter Context</h3>
-              <div className="rich-editor-toolbar" style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
-                <button className="toolbar-btn" style={{ fontWeight: 'bold' }}>B</button>
-                <button className="toolbar-btn" style={{ fontStyle: 'italic' }}>I</button>
-                <button className="toolbar-btn" style={{ textDecoration: 'line-through' }}>S</button>
-                <button className="toolbar-btn">H</button>
-                <button className="toolbar-btn">x₂</button>
-                <button className="toolbar-btn">x²</button>
-                <button className="toolbar-btn">”</button>
-                <button className="toolbar-btn">• List</button>
-                <button className="toolbar-btn">1. List</button>
-                <button className="toolbar-btn">Link</button>
-                <button className="toolbar-btn">Code</button>
-                <button className="toolbar-btn">Table</button>
-                <button className="toolbar-btn" style={{ marginLeft: 'auto', background: 'var(--blue-light)', color: 'var(--blue)', fontWeight: 600, padding: '4px 10px' }} onClick={handleFileUploadClick}>
-                  Upload DOCX/PDF 📤
-                </button>
+              
+              {/* Rich Editor Toolbar */}
+              <div className="rich-editor-container">
+                <div className="rich-editor-toolbar">
+                  {/* 1. Text Styling */}
+                  <div className="toolbar-group">
+                    <button type="button" className="editor-tb-btn" title="bold" onClick={() => insertMarkdown('**', '**')}>
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z"/><path d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z"/></svg>
+                    </button>
+                    <button type="button" className="editor-tb-btn" title="italic" onClick={() => insertMarkdown('*', '*')}>
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
+                    </button>
+                    <button type="button" className="editor-tb-btn" title="strikeThrough" onClick={() => insertMarkdown('~~', '~~')}>
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M16 4H9a3 3 0 00-3 3c0 2 2 3 4 3.5m0 0C14 11 17 12 17 15a3.5 3.5 0 01-3.5 3.5H7"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
+                    </button>
+                  </div>
+
+                  <div className="toolbar-divider" />
+
+                  {/* 2. Headings & Titles */}
+                  <div className="toolbar-group" style={{ position: 'relative' }}>
+                    <button 
+                      type="button" 
+                      className={`editor-tb-btn ${showHeadingDropdown ? 'active' : ''}`} 
+                      title="title" 
+                      onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}
+                    >
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M4 6v12M12 6v12M4 12h8M20 6v12M16 12h4"/></svg>
+                      <span className="dropdown-caret">▾</span>
+                    </button>
+                    {showHeadingDropdown && (
+                      <div className="editor-dropdown-menu">
+                        <div className="dropdown-item" onClick={() => applyHeading(1)}>Lv1 Heading (#)</div>
+                        <div className="dropdown-item" onClick={() => applyHeading(2)}>Lv2 Heading (##)</div>
+                        <div className="dropdown-item" onClick={() => applyHeading(3)}>Lv3 Heading (###)</div>
+                        <div className="dropdown-item" onClick={() => applyHeading(4)}>Lv4 Heading (####)</div>
+                        <div className="dropdown-item" onClick={() => applyHeading(5)}>Lv5 Heading (#####)</div>
+                        <div className="dropdown-item" onClick={() => applyHeading(6)}>Lv6 Heading (######)</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="toolbar-divider" />
+
+                  {/* 3. Advanced Text Formatting */}
+                  <div className="toolbar-group">
+                    <button type="button" className="editor-tb-btn" title="subscript" onClick={() => insertMarkdown('~', '~')}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>X<sub>2</sub></span>
+                    </button>
+                    <button type="button" className="editor-tb-btn" title="superscript" onClick={() => insertMarkdown('^', '^')}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>X<sup>2</sup></span>
+                    </button>
+                    <button type="button" className="editor-tb-btn" title="quote" onClick={() => insertMarkdown('\n> ', '')}>
+                      <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24"><path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z"/></svg>
+                    </button>
+                  </div>
+
+                  <div className="toolbar-divider" />
+
+                  {/* 4. Lists & Links */}
+                  <div className="toolbar-group">
+                    <button type="button" className="editor-tb-btn" title="unordered list" onClick={() => insertMarkdown('\n- ', '')}>
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                    </button>
+                    <button type="button" className="editor-tb-btn" title="ordered list" onClick={() => insertMarkdown('\n1. ', '')}>
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg>
+                    </button>
+                    <button type="button" className="editor-tb-btn" title="link" onClick={() => insertMarkdown('[', '](https://example.com)')}>
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+                    </button>
+                  </div>
+
+                  <div className="toolbar-divider" />
+
+                  {/* 5. Code & Tables */}
+                  <div className="toolbar-group" style={{ position: 'relative' }}>
+                    <button type="button" className="editor-tb-btn" title="block-level code" onClick={() => insertMarkdown('\n```\n', '\n```\n')}>
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    </button>
+                    <button 
+                      type="button" 
+                      className={`editor-tb-btn ${showTablePicker ? 'active' : ''}`} 
+                      title="table" 
+                      onClick={() => setShowTablePicker(!showTablePicker)}
+                    >
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+                    </button>
+
+                    {/* Interactive Table Grid Picker */}
+                    {showTablePicker && (
+                      <div className="table-picker-popup">
+                        <div className="table-picker-header">
+                          Table Shape Grid ({hoverGrid.r} &times; {hoverGrid.c})
+                        </div>
+                        <div className="table-grid-matrix">
+                          {Array.from({ length: 6 }).map((_, rIdx) => (
+                            <div key={rIdx} className="table-grid-row">
+                              {Array.from({ length: 6 }).map((_, cIdx) => {
+                                const isHighlighted = rIdx < hoverGrid.r && cIdx < hoverGrid.c;
+                                return (
+                                  <div
+                                    key={cIdx}
+                                    className={`table-grid-cell ${isHighlighted ? 'active' : ''}`}
+                                    onMouseEnter={() => setHoverGrid({ r: rIdx + 1, c: cIdx + 1 })}
+                                    onClick={() => insertTable(rIdx + 1, cIdx + 1)}
+                                  />
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="toolbar-divider" />
+
+                  {/* 6. View & Navigation */}
+                  <div className="toolbar-group">
+                    <button 
+                      type="button" 
+                      className={`editor-tb-btn ${isPreviewMode ? 'active' : ''}`} 
+                      title="preview" 
+                      onClick={() => setIsPreviewMode(!isPreviewMode)}
+                    >
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                    <button 
+                      type="button" 
+                      className={`editor-tb-btn ${showCatalog ? 'active' : ''}`} 
+                      title="catalog" 
+                      onClick={() => setShowCatalog(!showCatalog)}
+                    >
+                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg>
+                    </button>
+                  </div>
+
+                  <button 
+                    type="button"
+                    className="editor-tb-btn file-upload-right-btn" 
+                    title="Upload Reference Document"
+                    onClick={handleFileUploadClick}
+                  >
+                    Upload DOCX/PDF 📤
+                  </button>
+                </div>
+
+                {/* Editor Content Area (Split catalog or preview mode) */}
+                <div className="rich-editor-workspace">
+                  {showCatalog && (
+                    <div className="editor-catalog-sidebar">
+                      <div className="catalog-title">Table of Contents</div>
+                      {subjectContext.split('\n').filter(l => l.startsWith('#')).length === 0 ? (
+                        <div className="catalog-empty">No headings added yet. Use H1-H6 to outline your context.</div>
+                      ) : (
+                        subjectContext.split('\n').filter(l => l.startsWith('#')).map((hLine, hIdx) => {
+                          const level = hLine.match(/^#+/)?.[0].length || 1;
+                          const text = hLine.replace(/^#+\s*/, '');
+                          return (
+                            <div key={hIdx} className={`catalog-item level-${level}`}>
+                              {text}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+
+                  {isPreviewMode ? (
+                    <div className="prompt-textarea editor-preview-box">
+                      <ContentRenderer text={subjectContext || '*No content to preview yet.*'} />
+                    </div>
+                  ) : (
+                    <textarea
+                      ref={contextTextareaRef}
+                      className="prompt-textarea"
+                      value={subjectContext}
+                      onChange={(e) => setSubjectContext(e.target.value)}
+                      style={{ minHeight: '220px' }}
+                      placeholder="Add any extra context about this subject matter to improve AI quality…"
+                    />
+                  )}
+                </div>
               </div>
-              <textarea
-                className="prompt-textarea"
-                value={subjectContext}
-                onChange={(e) => setSubjectContext(e.target.value)}
-                style={{ minHeight: '180px' }}
-                placeholder="Add any extra context about this subject matter to improve AI quality…"
-              />
 
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  <button className="file-upload-btn" onClick={() => setCurrentStep('dashboard')}>← Back</button>
+                  <button className="file-upload-btn" onClick={() => {
+                    setCurrentStep('dashboard');
+                    setSessionId(null);
+                    setProposals([]);
+                    setStructure([]);
+                    setCourseData(null);
+                  }}>← Back</button>
                   <button className="file-upload-btn" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }} onClick={() => setCurrentStep('review')}>Jump to Review</button>
                 </div>
                 <button className="action-btn" onClick={handleGenerateProposals} disabled={isLoading}>
@@ -1669,7 +2201,7 @@ export default function App() {
                           setBoundaries(updated);
                         }}
                       />
-                      <button className="icon-btn danger" style={{ padding: '8px' }} onClick={() => {
+                      <button className="icon-btn-tool danger" onClick={() => {
                         const updated = boundaries.filter((_, i) => i !== idx);
                         setBoundaries(updated);
                       }}>
@@ -1712,7 +2244,7 @@ export default function App() {
                           setLearningOutcomes(updated);
                         }}
                       />
-                      <button className="icon-btn danger" style={{ padding: '8px' }} onClick={() => {
+                      <button className="icon-btn-tool danger" onClick={() => {
                         const updated = learningOutcomes.filter((_, i) => i !== idx);
                         setLearningOutcomes(updated);
                       }}>
@@ -1890,9 +2422,15 @@ export default function App() {
                         />
                       </div>
                       <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
-                        <button className="icon-btn" style={{ padding: '4px 6px', fontSize: '0.75rem' }} onClick={() => moveLesson(idx, -1)} title="Move Up">▲</button>
-                        <button className="icon-btn" style={{ padding: '4px 6px', fontSize: '0.75rem' }} onClick={() => moveLesson(idx, 1)} title="Move Down">▼</button>
-                        <button className="icon-btn danger" style={{ padding: '4px 6px', fontSize: '0.75rem' }} onClick={() => deleteLesson(idx)} title="Delete Lesson"><IconTrash /></button>
+                        <button className="icon-btn-tool" onClick={() => moveLesson(idx, -1)} title="Move Up">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 15l-6-6-6 6"/></svg>
+                        </button>
+                        <button className="icon-btn-tool" onClick={() => moveLesson(idx, 1)} title="Move Down">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M6 9l6 6 6-6"/></svg>
+                        </button>
+                        <button className="icon-btn-tool danger" onClick={() => deleteLesson(idx)} title="Delete Lesson">
+                          <IconTrash />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -2015,9 +2553,6 @@ export default function App() {
                                         className="structure-title-input"
                                         style={{ fontWeight: 700, fontSize: '0.9rem', border: 'none', background: 'transparent', color: 'var(--navy)', flex: 1, padding: 0 }}
                                       />
-                                      {sec.locked && (
-                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }} title="Core Section">🔒</span>
-                                      )}
                                     </div>
                                     <input
                                       type="text"
@@ -2035,10 +2570,13 @@ export default function App() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                   {sec.locked ? (
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }} title="Core Section">🔒 Locked</span>
+                                    <span className="locked-badge" title="Core Section">
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                                      Locked
+                                    </span>
                                   ) : (
                                     <button 
-                                      className="icon-btn danger" 
+                                      className="icon-btn-tool danger" 
                                       onClick={() => {
                                         const updated = [...structure];
                                         updated[lIdx].sections[activeStructureRole] = sections.filter((_, i) => i !== sIdx);
@@ -2053,6 +2591,19 @@ export default function App() {
                             ))
                           )}
                         </div>
+
+                        {/* Add Custom Section Button */}
+                        <button 
+                          type="button"
+                          className="file-upload-btn" 
+                          onClick={() => {
+                            setNewSectionRole(activeStructureRole);
+                            setIsAddSectionModalOpen(true);
+                          }}
+                          style={{ width: '100%', justifyContent: 'center', marginTop: '16px', fontSize: '0.85rem' }}
+                        >
+                          + Add Custom Section
+                        </button>
                       </div>
                     );
                   })()
@@ -2066,55 +2617,97 @@ export default function App() {
               </div>
             </div>
 
+            {/* Bottom Actions for Step 5 */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '30px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+              <button className="file-upload-btn" onClick={() => setCurrentStep('proposal')}>← Back to Proposals</button>
+              <button 
+                className="action-btn" 
+                onClick={async () => {
+                  if (sessionId) {
+                    setIsLoading(true);
+                    try {
+                      await fetch(`${API_BASE}/courses/sessions/${sessionId}/structure`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ structure })
+                      });
+                    } catch (e) {
+                      console.error('Failed to save structure:', e);
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }
+                  setCurrentStep('review');
+                }} 
+                disabled={isLoading}
+              >
+                {isLoading ? <><IconSpinner /> Saving…</> : <>Save &amp; Continue to Review <IconArrow /></>}
+              </button>
+            </div>
+
             {/* Custom Section Add Popup Modal */}
             {isAddSectionModalOpen && (
-              <div className="modal-overlay">
+              <div className="modal-overlay" onClick={(e) => { if (e.target.className === 'modal-overlay') { setIsAddSectionModalOpen(false); setNewSectionTitle(''); setNewSectionInstruction(''); } }}>
                 <div className="add-section-modal">
-                  <h3 style={{ color: 'var(--navy)', marginBottom: '8px' }}>Define a new structural requirement for the {newSectionRole === 'creator' ? 'Creator' : newSectionRole === 'student' ? 'Student' : 'Educator'} view.</h3>
-                  <div className="config-item">
-                    <label>Section Title</label>
-                    <input
-                      type="text"
-                      className="prompt-textarea"
-                      style={{ minHeight: 'auto', padding: '10px' }}
-                      value={newSectionTitle}
-                      onChange={(e) => setNewSectionTitle(e.target.value)}
-                      placeholder="e.g. Code Review, Troubleshooting Guide"
-                    />
-                  </div>
-                  <div className="config-item">
-                    <label>AI Writing Instruction</label>
-                    <textarea
-                      className="prompt-textarea"
-                      style={{ minHeight: '90px', padding: '10px' }}
-                      value={newSectionInstruction}
-                      onChange={(e) => setNewSectionInstruction(e.target.value)}
-                      placeholder="Instruct the AI what content to generate..."
-                    />
-                  </div>
-                  <div className="config-item">
-                    <label>Target Role Tab</label>
-                    <select
-                      className="prompt-textarea"
-                      style={{ minHeight: 'auto', padding: '10px' }}
-                      value={newSectionRole}
-                      onChange={(e) => setNewSectionRole(e.target.value)}
-                    >
-                      <option value="creator">Creator POV</option>
-                      <option value="student">Student POV</option>
-                      <option value="educator">Educator POV</option>
-                    </select>
-                  </div>
-                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                    <button className="file-upload-btn" onClick={() => {
-                      setIsAddSectionModalOpen(false);
-                      setNewSectionTitle('');
-                      setNewSectionInstruction('');
-                    }}>
-                      Cancel
+
+                  {/* Header */}
+                  <div className="add-section-modal-header">
+                    <div>
+                      <h2 className="add-section-modal-title">Add Custom Section</h2>
+                      <p className="add-section-modal-subtitle">
+                        Define a new structural requirement for the{' '}
+                        <strong style={{ color: 'var(--gold)', fontWeight: 700 }}>
+                          {newSectionRole === 'creator' ? 'CREATOR' : newSectionRole === 'student' ? 'STUDENT' : 'EDUCATOR'}
+                        </strong>{' '}view.
+                      </p>
+                    </div>
+                    <button className="modal-close-btn" onClick={() => { setIsAddSectionModalOpen(false); setNewSectionTitle(''); setNewSectionInstruction(''); }}>
+                      ✕
                     </button>
-                    <button 
-                      className="action-btn"
+                  </div>
+
+                  {/* Target Role selector */}
+                  <div className="add-section-modal-role-tabs">
+                    {['creator', 'student', 'educator'].map(role => (
+                      <button
+                        key={role}
+                        className={`role-tab-pill ${newSectionRole === role ? 'active' : ''}`}
+                        onClick={() => setNewSectionRole(role)}
+                      >
+                        {role === 'creator' ? '🛠 Creator' : role === 'student' ? '📚 Student' : '🎓 Educator'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Fields */}
+                  <div className="add-section-modal-body">
+                    <div className="config-item">
+                      <label style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '0.9rem', marginBottom: '8px', display: 'block' }}>Section Title</label>
+                      <input
+                        type="text"
+                        className="modal-input"
+                        value={newSectionTitle}
+                        onChange={(e) => setNewSectionTitle(e.target.value)}
+                        placeholder="e.g. Case Study, Code Review"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="config-item" style={{ marginTop: '16px' }}>
+                      <label style={{ fontWeight: 600, color: 'var(--navy)', fontSize: '0.9rem', marginBottom: '8px', display: 'block' }}>Instruction / Description</label>
+                      <textarea
+                        className="modal-textarea"
+                        value={newSectionInstruction}
+                        onChange={(e) => setNewSectionInstruction(e.target.value)}
+                        placeholder="e.g. To ensure learners understand the performance implications of their architectural choices."
+                        rows={4}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div className="add-section-modal-footer">
+                    <button
+                      className="modal-add-btn"
                       onClick={() => {
                         if (!newSectionTitle.trim()) {
                           alert('Please enter a section title.');
@@ -2141,7 +2734,7 @@ export default function App() {
                         setNewSectionInstruction('');
                       }}
                     >
-                      Add Section
+                      Add Section →
                     </button>
                   </div>
                 </div>
@@ -2163,159 +2756,230 @@ export default function App() {
               <span className="step-chip">Step 6 of 8</span>
             </div>
 
-            <div className="review-summary-grid">
-              {/* Concept Card */}
-              <div className="review-card">
-                <div className="review-card-header">
-                  <h4 className="review-card-title">
-                    <svg width="18" height="18" fill="none" stroke="var(--blue)" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
-                    Course Concept
-                  </h4>
-                  <button className="ai-pill-btn edit" style={{ fontSize: '0.75rem', padding: '2px 8px' }} onClick={() => {
-                    const newConcept = prompt("Edit Course Concept / Prompt:", promptText);
-                    if (newConcept !== null) setPromptText(newConcept);
-                  }}>Edit</button>
-                </div>
-                <div className="review-card-body">
-                  <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '8px' }}>Course Focus:</p>
-                  <p style={{ fontStyle: 'italic' }}>"{promptText || 'Practical AI and Regulatory Foundations'}"</p>
-                </div>
-              </div>
+            <div className="review-summary-grid-v2">
+              {/* Left Column: Concept & Instructional Alignment */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* Concept Card */}
+                <div className="review-card-v2 playful-card">
+                  <div className="review-card-v2-header">
+                    <div className="review-card-v2-title">
+                      <span className="review-card-v2-icon">✨</span>
+                      <h4>Concept</h4>
+                    </div>
+                    <button className="review-card-edit-btn" onClick={() => {
+                      const newConcept = prompt("Edit Course Concept / Prompt:", promptText);
+                      if (newConcept !== null) setPromptText(newConcept);
+                    }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      Edit
+                    </button>
+                  </div>
 
-              {/* Duration & Metadata Card */}
-              <div className="review-card">
-                <div className="review-card-header">
-                  <h4 className="review-card-title">
-                    <svg width="18" height="18" fill="none" stroke="var(--blue)" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    Duration & Metadata
-                  </h4>
-                </div>
-                <div className="review-card-body">
-                  <p style={{ marginBottom: '12px' }}>
-                    Total: <strong style={{ color: 'var(--navy)' }}>{structure.length} Lesson(s) &times; {configDuration} Minute(s)</strong>
-                  </p>
-                  <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '6px' }}>Category Tags:</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {techTags.length > 0 ? techTags.map(tag => (
-                      <span key={tag} className="tag-badge" style={{ margin: 0, fontSize: '0.75rem', padding: '3px 8px' }}>{tag}</span>
-                    )) : (
-                      ['Healthcare AI', 'Clinical Trial Design', 'Regulatory Compliance'].map(tag => (
-                        <span key={tag} className="tag-badge" style={{ margin: 0, fontSize: '0.75rem', padding: '3px 8px' }}>{tag}</span>
-                      ))
-                    )}
+                  <div className="review-card-v2-body">
+                    <div className="concept-hero-box">
+                      <h3 className="concept-hero-title">{promptText || 'Rapid Prototyping for Real-World Impact'}</h3>
+                      <p className="concept-hero-subtitle">"{promptText ? `Course focus: ${promptText}` : 'apakabar kamu'}"</p>
+                    </div>
+
+                    <p className="concept-description-text">
+                      This capstone project is anchored in integrative, real-world technology problem-solving—requiring learners to synthesize expertise across AI engineering, software development, and product management. Modeled on authentic industry workflows, learners assume roles such as solution architect, data scientist, or product manager, simulating cross-functional teamwork to address a genuine business or societal need.
+                    </p>
+
+                    <div className="concept-tech-pills-row">
+                      {techTags.length > 0 ? techTags.map(tag => (
+                        <span key={tag} className="concept-tech-pill">{tag}</span>
+                      )) : (
+                        ['Capstone Projects', 'Project-Based Learning', 'Experiential Learning'].map(tag => (
+                          <span key={tag} className="concept-tech-pill">{tag}</span>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Curriculum Outline & POV Card */}
-              <div className="review-card" style={{ gridColumn: 'span 2' }}>
-                <div className="review-card-header">
-                  <h4 className="review-card-title">
-                    <svg width="18" height="18" fill="none" stroke="var(--blue)" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-                    Curriculum Structure & POV Personas
-                  </h4>
-                </div>
-                <div className="review-card-body">
-                  <p style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: '8px' }}>Generated Outline ({structure.length} Lessons):</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '20px' }}>
-                    <ol style={{ paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {structure.map((item) => (
-                        <li key={item.id} style={{ fontWeight: 600 }}>{item.title}</li>
-                      ))}
-                    </ol>
-                    <div className="pov-structures">
-                      <div className="pov-role-block">
-                        <div className="pov-role-header">
-                          <span>🎨 Creator POV</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--blue)' }}>8 Sections</span>
-                        </div>
-                        <div className="pov-sections-pills">
-                          {['Overview', 'Learning Outcome', 'Core Content', 'Exercises', 'Quizzes', 'Regulatory Scenario Builder', 'Python Script Repository', 'Ethics Case Curator'].map(s => (
-                            <span key={s} className="pov-section-pill">{s}</span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="pov-role-block">
-                        <div className="pov-role-header">
-                          <span>📚 Student POV</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--blue)' }}>7 Sections</span>
-                        </div>
-                        <div className="pov-sections-pills">
-                          {['Why This Matters', 'What You Will Learn', 'Learning Journey', 'Interactive Practice', 'Regulatory Simulator', 'Self-Assessment', 'Glossary'].map(s => (
-                            <span key={s} className="pov-section-pill">{s}</span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="pov-role-block">
-                        <div className="pov-role-header">
-                          <span>👩‍🏫 Educator POV</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--blue)' }}>7 Sections</span>
-                        </div>
-                        <div className="pov-sections-pills">
-                          {['Facilitator Guide', 'Engagement Strategies', 'Classroom Management', 'Discussion Questions', 'Grading Rubric', 'Additional Readings', 'Keys & Explanations'].map(s => (
-                            <span key={s} className="pov-section-pill">{s}</span>
-                          ))}
-                        </div>
-                      </div>
+                {/* Instructional Alignment Card */}
+                <div className="review-card-v2 playful-card">
+                  <div className="review-card-v2-header">
+                    <div className="review-card-v2-title">
+                      <span className="review-card-v2-icon">🌐</span>
+                      <h4>Instructional Alignment</h4>
+                    </div>
+                    <button className="review-card-edit-btn" onClick={() => setCurrentStep('grounding')}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      Edit
+                    </button>
+                  </div>
+
+                  <div className="review-card-v2-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div className="alignment-section-group">
+                      <span className="alignment-section-label">PREREQUISITES</span>
+                      <ul className="alignment-section-list green">
+                        {prerequisites.length > 0 ? prerequisites.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        )) : (
+                          <>
+                            <li>Can independently scope and plan a tech project</li>
+                            <li>Proficient with version control (e.g., Git)</li>
+                            <li>Comfortable seeking and incorporating feedback in teams</li>
+                          </>
+                        )}
+                      </ul>
+                    </div>
+
+                    <div className="alignment-section-group">
+                      <span className="alignment-section-label">OUT OF SCOPE &amp; ASSUMPTIONS</span>
+                      <ul className="alignment-section-list yellow">
+                        {boundaries.length > 0 ? boundaries.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        )) : (
+                          <>
+                            <li>Instruction on core programming languages or frameworks</li>
+                            <li>Detailed tutorials on version control systems</li>
+                            <li>One-on-one mentorship for project ideation</li>
+                          </>
+                        )}
+                      </ul>
+                    </div>
+
+                    <div className="alignment-section-group">
+                      <span className="alignment-section-label">LEARNING OUTCOMES</span>
+                      <ul className="alignment-section-list purple">
+                        {learningOutcomes.length > 0 ? learningOutcomes.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        )) : (
+                          <>
+                            <li>Design and present a complete technical project solution</li>
+                            <li>Evaluate and iterate project implementations using peer feedback</li>
+                            <li>Explain project design decisions and trade-offs to stakeholders</li>
+                          </>
+                        )}
+                      </ul>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Instructional Alignment Card */}
-              <div className="review-card" style={{ gridColumn: 'span 2' }}>
-                <div className="review-card-header">
-                  <h4 className="review-card-title">
-                    <svg width="18" height="18" fill="none" stroke="var(--blue)" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    Instructional Alignment
-                  </h4>
+              {/* Right Column: Milestones & Persona Document Structures */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* Milestones Card */}
+                <div className="review-card-v2 playful-card">
+                  <div className="review-card-v2-header">
+                    <div className="review-card-v2-title">
+                      <span className="review-card-v2-icon">📊</span>
+                      <h4>Milestones</h4>
+                    </div>
+                    <button className="review-card-edit-btn" onClick={() => setCurrentStep('structure')}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      Edit
+                    </button>
+                  </div>
+
+                  <div className="review-card-v2-body">
+                    <span className="alignment-section-label">PROJECT MILESTONES</span>
+                    <div className="milestones-pill-list" style={{ marginTop: '10px' }}>
+                      {structure.length > 0 ? structure.map((item, idx) => (
+                        <div key={item.id} className="milestone-pill-item">
+                          <span className="milestone-code">M{idx + 1 < 10 ? `0${idx + 1}` : idx + 1}</span>
+                          <span className="milestone-title">{item.title}</span>
+                        </div>
+                      )) : (
+                        [
+                          { code: 'M01', title: 'Designing the Project Solution' },
+                          { code: 'M02', title: 'Evaluating Feasibility and Impact' },
+                          { code: 'M03', title: 'Analyzing Technical and User Needs' },
+                          { code: 'M04', title: 'Applying Agile MVP Development' },
+                          { code: 'M05', title: 'Explaining Decisions to Stakeholders' }
+                        ].map(m => (
+                          <div key={m.code} className="milestone-pill-item">
+                            <span className="milestone-code">{m.code}</span>
+                            <span className="milestone-title">{m.title}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="review-card-body review-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', display: 'grid' }}>
-                  <div className="alignment-item">
-                    <h5>Prerequisites</h5>
-                    <ul>
-                      {prerequisites.length > 0 ? prerequisites.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      )) : (
-                        <li>Basic understanding of machine learning principles.</li>
-                      )}
-                    </ul>
+
+                {/* Persona Document Structures Card */}
+                <div className="review-card-v2 playful-card">
+                  <div className="review-card-v2-header" style={{ marginBottom: '14px' }}>
+                    <span className="alignment-section-label">PERSONA DOCUMENT STRUCTURES</span>
                   </div>
-                  <div className="alignment-item">
-                    <h5>Topics Not Covered (Out of Scope)</h5>
-                    <ul>
-                      {boundaries.length > 0 ? boundaries.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      )) : (
-                        <li>Low-level hardware/GPU optimization scripts.</li>
-                      )}
-                    </ul>
-                  </div>
-                  <div className="alignment-item">
-                    <h5>Learning Outcomes</h5>
-                    <ul>
-                      {learningOutcomes.length > 0 ? learningOutcomes.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      )) : (
-                        <li>Analyze regulatory compliance matrices.</li>
-                      )}
-                    </ul>
+
+                  <div className="review-card-v2-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* Creator Persona */}
+                    <div className="persona-role-box">
+                      <div className="persona-role-header">
+                        <div className="persona-role-name">
+                          <span className="persona-dot purple"></span>
+                          <span>CREATOR</span>
+                        </div>
+                        <span className="persona-count-badge">5 Sections</span>
+                      </div>
+                      <div className="persona-tags-wrap">
+                        <span className="persona-section-tag">PROJECT OVERVIEW</span>
+                        <span className="persona-section-tag">ANDRAGOGY MINDSET</span>
+                        <span className="persona-section-tag">MARKING RUBRICS</span>
+                        <span className="persona-section-tag">CLIENT NEEDS ASSESSMENT TEMPLATES</span>
+                        <span className="persona-section-tag">AGILE ITERATION SCRIPTING TOOLS</span>
+                      </div>
+                    </div>
+
+                    {/* Student Persona */}
+                    <div className="persona-role-box">
+                      <div className="persona-role-header">
+                        <div className="persona-role-name">
+                          <span className="persona-dot blue"></span>
+                          <span>STUDENT</span>
+                        </div>
+                        <span className="persona-count-badge">7 Sections</span>
+                      </div>
+                      <div className="persona-tags-wrap">
+                        <span className="persona-section-tag">PROJECT BRIEF</span>
+                        <span className="persona-section-tag">TECHNOLOGY STACK</span>
+                        <span className="persona-section-tag">FUNCTIONAL REQUIREMENTS</span>
+                        <span className="persona-section-tag">NON FUNCTIONAL REQUIREMENTS</span>
+                        <span className="persona-section-tag">DELIVERABLES</span>
+                        <span className="persona-section-tag">PEER REVIEW FRAMEWORKS</span>
+                        <span className="persona-section-tag">STAKEHOLDER PRESENTATION CHECKLISTS</span>
+                      </div>
+                    </div>
+
+                    {/* Educator Persona */}
+                    <div className="persona-role-box">
+                      <div className="persona-role-header">
+                        <div className="persona-role-name">
+                          <span className="persona-dot green"></span>
+                          <span>EDUCATOR</span>
+                        </div>
+                        <span className="persona-count-badge">5 Sections</span>
+                      </div>
+                      <div className="persona-tags-wrap">
+                        <span className="persona-section-tag">FACILITATOR GUIDE</span>
+                        <span className="persona-section-tag">ANDRAGOGY IN PRACTICE</span>
+                        <span className="persona-section-tag">ENGAGEMENT STRATEGIES</span>
+                        <span className="persona-section-tag">INDUSTRY SIMULATION DEBRIEF GUIDES</span>
+                        <span className="persona-section-tag">MVP TESTING EVALUATION CRITERIA</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                {/* Big Start Generation Button */}
+                <button className="navy-start-generation-btn" onClick={handleTriggerGeneration} disabled={isLoading}>
+                  {isLoading ? <><IconSpinner /> Starting…</> : (
+                    <>
+                      Start Generation
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 
             {/* Bottom Actions */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '40px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', marginTop: '30px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
               <button className="file-upload-btn" onClick={() => setCurrentStep('structure')}>← Back to Outline</button>
-              <button className="purple-start-btn" onClick={handleTriggerGeneration} disabled={isLoading}>
-                {isLoading ? <><IconSpinner /> Starting…</> : (
-                  <>
-                    <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                    Start Generation
-                  </>
-                )}
-              </button>
             </div>
           </div>
         )}
@@ -2325,33 +2989,43 @@ export default function App() {
         {/* ══════════════════════════════════════════════ */}
         {!showMyCourses && currentStep === 'generating' && (
           <div>
-            <div className="header">
+            <div className="header" style={{ alignItems: 'flex-start', marginBottom: '24px' }}>
               <div>
-                <h2>AI Pipeline Generation</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Live generation process of your multi-role course content.</p>
+                <h2 style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--navy)' }}>{promptText || 'Rapid Prototyping for Real-World Impact'}</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '4px', fontSize: '0.9rem' }}>Created on {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
               </div>
-              <span className="step-chip">Step 7 of 8</span>
+
+              <button 
+                className="header-create-btn" 
+                style={{ background: 'var(--navy)', color: '#fff', padding: '10px 24px', fontSize: '0.9rem', boxShadow: '0 4px 14px rgba(26, 32, 64, 0.25)' }}
+                onClick={() => {
+                  if (courseData) {
+                    setCurrentStep('generated');
+                  } else {
+                    // Fetch fresh session data and move to Step 8
+                    fetch(`${API_BASE}/courses/sessions/${sessionId}`).then(res => res.json()).then(data => {
+                      setCourseData(data);
+                      if (data.lessons?.length > 0) setActiveLessonId(data.lessons[0].id);
+                      setCurrentStep('generated');
+                    });
+                  }
+                }}
+              >
+                Proceed to Assets &rarr;
+              </button>
             </div>
 
-            {/* Live Status Box */}
-            <div className="live-status-box">
-              <div className="live-status-header">
-                <div className="live-status-title">
+            {/* Live Progress Banner with Animated Progress Bar */}
+            <div className="live-status-box" style={{ marginBottom: '24px', background: 'var(--white)', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-xl)', padding: '18px 24px', boxShadow: 'var(--shadow-sm)' }}>
+              <div className="live-status-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div className="live-status-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800, color: 'var(--navy)', fontSize: '0.95rem' }}>
                   <IconSpinner />
-                  <span>Assembling Course Content...</span>
+                  <span>GENERATING:</span>
+                  <span style={{ color: 'var(--blue)' }}>{generationStatusText || 'Assembling Course Content...'}</span>
                 </div>
-                <div className="live-status-text">
-                  {generationStatusText}
-                </div>
-              </div>
-              
-              <div className="progress-bar-container">
-                <div className="progress-bar-outer" style={{ flex: 1, margin: 0 }}>
-                  <div className="progress-bar-inner" style={{ width: `${generationProgress}%` }} />
-                </div>
-                <span style={{ fontWeight: 700, minWidth: '40px', textAlign: 'right' }}>{generationProgress}%</span>
                 <button 
-                  className="cancel-gen-btn" 
+                  className="cancel-gen-btn"
+                  style={{ background: 'transparent', border: '1.5px solid #F87171', color: '#EF4444', fontWeight: 700, padding: '4px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
                   onClick={() => {
                     if (confirm('Are you sure you want to cancel the generation?')) {
                       setCurrentStep('review');
@@ -2361,105 +3035,206 @@ export default function App() {
                   Cancel
                 </button>
               </div>
+              
+              <div className="progress-bar-container" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div className="progress-bar-outer" style={{ flex: 1, height: '10px', background: 'var(--surface-3)', borderRadius: '9999px', overflow: 'hidden' }}>
+                  <div className="progress-bar-inner" style={{ width: `${generationProgress}%`, height: '100%', background: 'linear-gradient(90deg, var(--navy) 0%, var(--blue) 100%)', borderRadius: '9999px', transition: 'width 0.4s ease' }} />
+                </div>
+                <span style={{ fontWeight: 800, fontSize: '0.88rem', color: 'var(--navy)', minWidth: '42px', textAlign: 'right' }}>{generationProgress}%</span>
+              </div>
             </div>
 
-            {/* Workspace Preview Panel */}
-            <div className="workspace-preview-panel">
-              {/* Header Info */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '20px' }}>
-                <div>
-                  <span className="tag-badge" style={{ background: 'var(--blue)', color: '#fff', fontSize: '0.75rem', padding: '3px 8px', marginBottom: '8px', display: 'inline-block' }}>
-                    PREVIEW WORKSPACE
+            {/* Main Content Workspace Box */}
+            <div style={{ background: 'var(--white)', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-xl)', padding: '24px', boxShadow: 'var(--shadow-sm)' }}>
+              {/* Lesson Carousel Navigator Slider */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'var(--surface-2)', padding: '16px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
+                <button 
+                  className="library-page-btn playful-card" 
+                  style={{ width: '36px', height: '36px', fontSize: '1.1rem' }}
+                  onClick={() => setCurrentGeneratingLessonIdx(Math.max(0, currentGeneratingLessonIdx - 1))}
+                  disabled={currentGeneratingLessonIdx === 0}
+                >
+                  ‹
+                </button>
+
+                <div style={{ textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+                    LESSON {currentGeneratingLessonIdx + 1} OF {structure.length || 1}
                   </span>
-                  <h3 style={{ color: 'var(--navy)', fontSize: '1.25rem', marginTop: '4px' }}>{promptText || 'Practical AI and Regulatory Foundations'}</h3>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px' }}>
-                    {structure.length} Lessons &middot; Est. 12 hours &middot; Created: {new Date().toLocaleDateString()}
-                  </p>
+                  <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--navy)', margin: 0 }}>
+                    {(() => {
+                      const rawTitle = structure[currentGeneratingLessonIdx]?.title || 'Crafting an Actionable AI Strategy Blueprint';
+                      return rawTitle.replace(/^Lesson\s*\d+\s*:\s*/i, '');
+                    })()}
+                  </h3>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <button className="icon-btn" disabled style={{ opacity: 0.5 }}>◀</button>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Lesson Navigator</span>
-                  <button className="icon-btn" disabled style={{ opacity: 0.5 }}>▶</button>
+
+                <button 
+                  className="library-page-btn playful-card" 
+                  style={{ width: '36px', height: '36px', fontSize: '1.1rem' }}
+                  onClick={() => setCurrentGeneratingLessonIdx(Math.min((structure.length || 1) - 1, currentGeneratingLessonIdx + 1))}
+                  disabled={currentGeneratingLessonIdx >= (structure.length || 1) - 1}
+                >
+                  ›
+                </button>
+              </div>
+
+              {/* Role Selector Tabs (CREATOR, STUDENT, EDUCATOR) */}
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', background: 'var(--surface-2)', padding: '4px', borderRadius: '9999px', border: '1px solid var(--border-color)', gap: '4px' }}>
+                  <button 
+                    className={`tab-btn ${activeRole === 'creator' ? 'active' : ''}`}
+                    style={{ borderRadius: '9999px', padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => { setActiveRole('creator'); setActiveSubSection('overview'); }}
+                  >
+                    <span>🎨</span> CREATOR
+                  </button>
+                  <button 
+                    className={`tab-btn ${activeRole === 'student' ? 'active' : ''}`}
+                    style={{ borderRadius: '9999px', padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => { setActiveRole('student'); setActiveSubSection('brief'); }}
+                  >
+                    <span>🎓</span> STUDENT
+                  </button>
+                  <button 
+                    className={`tab-btn ${activeRole === 'educator' ? 'active' : ''}`}
+                    style={{ borderRadius: '9999px', padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => { setActiveRole('educator'); setActiveSubSection('facilitator'); }}
+                  >
+                    <span>🏫</span> EDUCATOR
+                  </button>
                 </div>
               </div>
 
               {/* Workspace Split Layout */}
-              <div className="structure-split-layout" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
-                {/* Left Side: Lessons Navigator */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {structure.map((item, idx) => {
-                    const threshold = (idx + 1) * (100 / structure.length);
-                    const prevThreshold = idx * (100 / structure.length);
-                    const isDone = generationProgress >= threshold;
-                    const isProcessing = generationProgress >= prevThreshold && generationProgress < threshold;
-                    return (
-                      <div 
-                        key={item.id} 
-                        style={{ 
-                          padding: '12px', 
-                          borderRadius: 'var(--radius-md)', 
-                          background: isProcessing ? 'var(--blue-light)' : 'var(--surface-2)',
-                          border: isProcessing ? '1px solid rgba(72, 107, 245, 0.25)' : '1px solid var(--border-color)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          opacity: isDone || isProcessing ? 1 : 0.5
-                        }}
+              <div className="structure-split-layout" style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '24px', alignItems: 'start' }}>
+                {/* Left Side: ON THIS PAGE Sections Navigator */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'sticky', top: '90px' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '8px' }}>ON THIS PAGE</span>
+                  {(() => {
+                    const secList = activeRole === 'creator' ? [
+                      { id: 'overview', title: 'Project Overview' },
+                      { id: 'andragogy', title: 'Andragogy Mindset' },
+                      { id: 'rubrics', title: 'Marking Rubrics' },
+                      { id: 'templates', title: 'Client Needs Assessment Templates' },
+                      { id: 'scripting', title: 'Agile Iteration Scripting Tools' }
+                    ] : activeRole === 'student' ? [
+                      { id: 'brief', title: 'Project Brief' },
+                      { id: 'stack', title: 'Technology Stack' },
+                      { id: 'functional', title: 'Functional Requirements' },
+                      { id: 'non_functional', title: 'Non Functional Requirements' },
+                      { id: 'deliverables', title: 'Deliverables' },
+                      { id: 'peer_review', title: 'Peer Review Frameworks' },
+                      { id: 'presentation', title: 'Stakeholder Presentation Checklists' }
+                    ] : [
+                      { id: 'facilitator', title: 'Facilitator Guide' },
+                      { id: 'lesson_plan', title: 'Lesson Plan & Timing' },
+                      { id: 'rubric', title: 'Assessment Rubric' },
+                      { id: 'teaching_tips', title: 'Teaching Tips' },
+                      { id: 'discussion', title: 'Discussion Questions' }
+                    ];
+
+                    return secList.map((sec) => (
+                      <button
+                        key={sec.id}
+                        className={`filter-nav-item ${activeSubSection === sec.id ? 'active' : ''}`}
+                        style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.85rem' }}
+                        onClick={() => setActiveSubSection(sec.id)}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>0{idx + 1}</span>
-                          <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>{item.title}</span>
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          <span>{sec.title}</span>
                         </div>
-                        <div>
-                          {isDone ? (
-                            <span style={{ color: 'var(--accent-green)', fontWeight: 'bold' }}>✓ Done</span>
-                          ) : isProcessing ? (
-                            <span style={{ color: 'var(--blue)', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <IconSpinner /> Writing
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Pending</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      </button>
+                    ));
+                  })()}
                 </div>
 
-                {/* Right Side: Role Content Preview */}
-                <div style={{ background: 'var(--white)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '20px' }}>
-                  <div className="tab-row" style={{ marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '0' }}>
-                    <button className="tab-btn active">Creator POV</button>
-                    <button className="tab-btn">Student POV</button>
-                    <button className="tab-btn">Educator POV</button>
+                {/* Right Side: Interactive Editable Section Viewer Card */}
+                <div style={{ background: 'var(--white)', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: '28px', minHeight: '500px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <svg width="18" height="18" fill="none" stroke="var(--navy)" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--navy)', margin: 0 }}>
+                        {(() => {
+                          const allSecs = [
+                            { id: 'overview', title: 'Project Overview' },
+                            { id: 'andragogy', title: 'Andragogy Mindset' },
+                            { id: 'rubrics', title: 'Marking Rubrics' },
+                            { id: 'templates', title: 'Client Needs Assessment Templates' },
+                            { id: 'scripting', title: 'Agile Iteration Scripting Tools' },
+                            { id: 'brief', title: 'Project Brief' },
+                            { id: 'stack', title: 'Technology Stack' },
+                            { id: 'functional', title: 'Functional Requirements' },
+                            { id: 'non_functional', title: 'Non Functional Requirements' },
+                            { id: 'deliverables', title: 'Deliverables' },
+                            { id: 'peer_review', title: 'Peer Review Frameworks' },
+                            { id: 'presentation', title: 'Stakeholder Presentation Checklists' },
+                            { id: 'facilitator', title: 'Facilitator Guide' },
+                            { id: 'lesson_plan', title: 'Lesson Plan & Timing' },
+                            { id: 'rubric', title: 'Assessment Rubric' },
+                            { id: 'teaching_tips', title: 'Teaching Tips' },
+                            { id: 'discussion', title: 'Discussion Questions' }
+                          ];
+                          return allSecs.find(s => s.id === activeSubSection)?.title || 'Project Overview';
+                        })()}
+                      </h3>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button className="icon-btn-tool" title="AI Wand Action" onClick={() => alert('AI Action Toolbar')}>
+                        🪄
+                      </button>
+                      <button className="icon-btn-tool" title="Version History" onClick={() => { fetchHistory(); setIsHistoryOpen(true); }}>
+                        📜
+                      </button>
+                      <button className="review-card-edit-btn" style={{ fontSize: '0.82rem', padding: '6px 14px' }} onClick={() => setEditingSection(activeSubSection)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        Edit
+                      </button>
+                    </div>
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {['Overview', 'Learning Outcome', 'Core Content'].map((secName, sIdx) => {
-                      const isSecDone = generationProgress > (sIdx + 1) * 30;
-                      return (
-                        <div key={secName} style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '16px', background: isSecDone ? 'var(--white)' : 'var(--surface-2)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                            <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--navy)' }}>{secName}</h4>
-                            {isSecDone ? (
-                              <span style={{ color: 'var(--accent-green)', fontSize: '0.75rem', fontWeight: 600 }}>Completed</span>
-                            ) : (
-                              <span className="pulse" style={{ color: 'var(--blue)', fontSize: '0.75rem', fontWeight: 600 }}>Generating...</span>
-                            )}
+                  {/* Live Rendered Content Body */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {(() => {
+                      const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
+                      const curSecs = curLesson?.sections?.[activeRole] || {};
+
+                      if (!curLesson || Object.keys(curSecs).length === 0) {
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '20px 0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--blue)', fontWeight: 700, fontSize: '0.9rem' }}>
+                              <IconSpinner />
+                              <span>AI is drafting real-time content for this section...</span>
+                            </div>
+                            <div className="skeleton-bar" style={{ width: '90%', height: '14px' }} />
+                            <div className="skeleton-bar" style={{ width: '75%', height: '14px' }} />
+                            <div className="skeleton-bar" style={{ width: '60%', height: '14px' }} />
                           </div>
-                          {isSecDone ? (
-                            <div style={{ height: '32px', background: 'var(--surface-3)', borderRadius: '4px', opacity: 0.5, display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '0.75rem' }}>
-                              Content writing completed for this section.
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <div className="skeleton-bar" style={{ width: '80%', height: '10px' }} />
-                              <div className="skeleton-bar" style={{ width: '50%', height: '10px' }} />
-                            </div>
-                          )}
+                        );
+                      }
+
+                      return (
+                        <div className="content-block">
+                          {/* Purpose & Description */}
+                          <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '8px' }}>
+                            Purpose
+                          </h4>
+                          <div style={{ fontSize: '0.95rem', color: 'var(--navy)', lineHeight: '1.6', marginBottom: '20px' }}>
+                            <ContentRenderer text={curSecs.overview || curSecs.project_brief || curSecs.facilitator_guide || `This sub-section details ${activeSubSection} for this lesson.`} />
+                          </div>
+
+                          {/* Real-World Relevance */}
+                          <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '8px' }}>
+                            Real-World Relevance
+                          </h4>
+                          <div style={{ fontSize: '0.95rem', color: 'var(--navy)', lineHeight: '1.6' }}>
+                            <ContentRenderer text={curSecs.core_content || curSecs.tech_stack || curSecs.lesson_plan || "In practical terms, this section equips learners with industry-aligned competencies and tools."} />
+                          </div>
                         </div>
                       );
-                    })}
+                    })()}
                   </div>
                 </div>
               </div>
@@ -2577,7 +3352,7 @@ export default function App() {
                         {activeRole.toUpperCase()} POV MATERIALS
                       </span>
                       <h1 style={{ fontSize: '1.65rem', color: 'var(--navy)', marginTop: '4px', fontWeight: 800 }}>
-                        Lesson {courseData.lessons?.findIndex(l => l.id === activeLessonId) + 1}: {courseData.lessons?.find(l => l.id === activeLessonId)?.title}
+                        Lesson {courseData.lessons?.findIndex(l => l.id === activeLessonId) + 1}: {(courseData.lessons?.find(l => l.id === activeLessonId)?.title || '').replace(/^Lesson\s*\d+\s*:\s*/i, '')}
                       </h1>
                     </div>
 

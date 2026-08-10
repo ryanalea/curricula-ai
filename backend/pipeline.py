@@ -66,12 +66,67 @@ MOCK_PROPOSALS = [
     }
 ]
 
+def get_default_candidate_tags(keyword: str, tech_tags: list = None) -> list:
+    if tech_tags is None:
+        tech_tags = []
+    
+    kw_lower = (keyword or "").lower()
+    tech_candidates = []
+    
+    if any(k in kw_lower for k in ["go", "golang", "pipeline", "microservice", "concurrent"]):
+        tech_candidates = [
+            "Go (Golang)", "Concurrency", "Goroutines & Channels", "Microservices",
+            "REST APIs", "gRPC", "Docker & Kubernetes", "CI/CD Pipelines",
+            "System Architecture", "Performance Tuning"
+        ]
+    elif any(k in kw_lower for k in ["python", "pandas", "data"]):
+        tech_candidates = [
+            "Python 3", "Data Science", "Pandas", "NumPy", "Data Visualization",
+            "Machine Learning", "Jupyter Notebooks", "Data Analytics", "SQL & Databases", "ETL Pipelines"
+        ]
+    elif any(k in kw_lower for k in ["ai", "machine learning", "deep learning", "llm", "neural", "gpt"]):
+        tech_candidates = [
+            "Generative AI", "Deep Learning", "Prompt Engineering", "LLM Integration",
+            "Neural Networks", "PyTorch", "Transformers", "LangChain", "Vector Databases", "AI Ethics"
+        ]
+    elif any(k in kw_lower for k in ["react", "native", "mobile", "javascript", "frontend", "web", "typescript"]):
+        tech_candidates = [
+            "React Native", "React 18", "JavaScript (ES6+)", "TypeScript",
+            "State Management (Redux/Zustand)", "Component Architecture", "Mobile UI/UX",
+            "REST API Integration", "Navigation & Routing", "Vite"
+        ]
+    elif keyword:
+        words = [w.capitalize() for w in keyword.split() if len(w) > 2]
+        tech_candidates = words + [
+            f"{keyword.title()} Core", "System Design", "Hands-on Projects",
+            "API Integration", "Architecture Patterns", "Best Practices"
+        ]
+    else:
+        tech_candidates = ["Software Engineering", "Full-Stack Development", "System Architecture", "Cloud Infrastructure"]
+
+    edu_tags = [
+        "Capstone Projects", "Project-Based Learning", "Experiential Learning",
+        "Collaborative Learning", "Industry Partnerships", "Authentic Assessment",
+        "AI in Education", "Workplace Simulation", "Constructive Alignment",
+        "Team-Based Skills", "Project Management", "Problem-Based Learning",
+        "Portfolio Development", "Agile Methodologies", "Learning Outcomes"
+    ]
+
+    combined = []
+    for tag in list(tech_tags) + tech_candidates + edu_tags:
+        if tag and tag not in combined:
+            combined.append(tag)
+    return combined
+
 def generate_concept_and_grounding(keyword: str):
+    candidate_tags = get_default_candidate_tags(keyword)
+    selected_tags = candidate_tags[:3] if candidate_tags else ["Project-Based Learning", "Experiential Learning"]
     if not client:
         return {
             "subject_context": f"This course provides a comprehensive guide to {keyword}, covering setup, core APIs, and real-world projects.",
             "grounding": {
-                "tech_tags": [keyword, "Modern Practices", "Framework Core"],
+                "tech_tags": selected_tags,
+                "all_suggested_tags": candidate_tags,
                 "prerequisites": ["Basic coding experience", "Familiarity with terminal"],
                 "out_of_scope": ["Advanced enterprise architectures", "Alternative legacy systems"],
                 "learning_outcomes": [f"Understand fundamental {keyword} syntax", "Build a production-ready application", "Debug common runtime errors"],
@@ -83,14 +138,15 @@ def generate_concept_and_grounding(keyword: str):
         prompt = f"""
         Given the keyword '{keyword}', generate:
         1. A rich text content overview/context for this topic (2-3 paragraphs).
-        2. Technical tags relevant to the topic.
-        3. Prerequisites required before starting.
-        4. Learning boundaries (out of scope topics).
-        5. Expected learning outcomes.
-        6. Target audience (Student, Professional, Employee, or Teacher).
+        2. Selected technical tags relevant to the topic (exactly 3 items).
+        3. All suggested technical & pedagogical candidate tags for selecting options (15-20 items).
+        4. Prerequisites required before starting.
+        5. Learning boundaries (out of scope topics).
+        6. Expected learning outcomes.
+        7. Target audience (Student, Professional, Employee, or Teacher).
 
         Return your output as a JSON object with exactly these top-level keys:
-        'subject_context' (string), 'grounding' (object with keys: 'tech_tags' (array), 'prerequisites' (array), 'out_of_scope' (array), 'learning_outcomes' (array), 'target_audience' (string)).
+        'subject_context' (string), 'grounding' (object with keys: 'tech_tags' (array), 'all_suggested_tags' (array), 'prerequisites' (array), 'out_of_scope' (array), 'learning_outcomes' (array), 'target_audience' (string)).
         """
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -104,18 +160,31 @@ def generate_concept_and_grounding(keyword: str):
                 "subject_context": data.get("subject_context", ""),
                 "grounding": {
                     "tech_tags": data.get("tech_tags", []),
+                    "all_suggested_tags": data.get("all_suggested_tags", []),
                     "prerequisites": data.get("prerequisites", []),
                     "out_of_scope": data.get("out_of_scope", []),
                     "learning_outcomes": data.get("learning_outcomes", []),
                     "target_audience": data.get("target_audience", "Student")
                 }
             }
+        selected = data["grounding"].get("tech_tags", [])[:3]
+        data["grounding"]["tech_tags"] = selected
+        if not data["grounding"].get("all_suggested_tags"):
+            data["grounding"]["all_suggested_tags"] = get_default_candidate_tags(keyword, selected)
         return data
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
+        selected_tags = ["Capstone Projects", "Project-Based Learning", "Experiential Learning"]
         return {
             "subject_context": f"Failed to call API. Fallback context for {keyword}.",
-            "grounding": MOCK_GROUNDING
+            "grounding": {
+                "tech_tags": selected_tags,
+                "all_suggested_tags": get_default_candidate_tags(keyword, selected_tags),
+                "prerequisites": MOCK_GROUNDING["prerequisites"],
+                "out_of_scope": MOCK_GROUNDING["out_of_scope"],
+                "learning_outcomes": MOCK_GROUNDING["learning_outcomes"],
+                "target_audience": MOCK_GROUNDING["target_audience"]
+            }
         }
 
 def generate_proposals(keyword: str, grounding_data: dict):
@@ -226,6 +295,7 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     - Fokus pada kelengkapan materi induk dan struktur latihan/kuis.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
+    loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
@@ -279,6 +349,7 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
     - Sediakan blok *debugging* dan *ethics* yang relevan.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
+    loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
@@ -338,6 +409,7 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
     - Hindari mengulang teks materi pelajaran panjang milik siswa.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
+    loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
