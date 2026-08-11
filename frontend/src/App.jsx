@@ -2569,13 +2569,7 @@ export default function App() {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  <button className="file-upload-btn" onClick={() => {
-                    setCurrentStep('dashboard');
-                    setSessionId(null);
-                    setProposals([]);
-                    setStructure([]);
-                    setCourseData(null);
-                  }}>← Back</button>
+                  <button className="file-upload-btn" onClick={() => setCurrentStep('dashboard')}>← Back</button>
                   <button className="file-upload-btn" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }} onClick={() => setCurrentStep('review')}>Jump to Review</button>
                 </div>
                 <button className="action-btn" onClick={handleGenerateProposals} disabled={isLoading}>
