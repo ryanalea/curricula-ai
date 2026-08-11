@@ -3919,11 +3919,11 @@ export default function App() {
                                   <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                                    {activeLessonContent.quizzes.map((q, idx) => (
+                                    {(Array.isArray(activeLessonContent.quizzes) ? activeLessonContent.quizzes : []).map((q, idx) => (
                                       <div key={idx} style={{ padding: '14px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                                        <strong>Q{idx + 1}: {q.question}</strong>
+                                        <strong>Q{idx + 1}: {q.question || 'Quiz Question'}</strong>
                                         <ul style={{ listStyle: 'none', paddingLeft: 0, marginTop: '8px' }}>
-                                          {q.options?.map((opt, oIdx) => (
+                                          {(Array.isArray(q.options) ? q.options : (q.choices || [])).map((opt, oIdx) => (
                                             <li key={oIdx} style={{ padding: '4px 0', fontSize: '0.88rem', color: opt === q.answer ? '#059669' : 'var(--text-main)', fontWeight: opt === q.answer ? 700 : 400 }}>
                                               {opt === q.answer ? '✅ ' : '• '}{opt}
                                             </li>
@@ -3946,7 +3946,7 @@ export default function App() {
                                   {editingSection === 'why_this_matters' ? (
                                     <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('why_this_matters', editingText)}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('why_this_matters'); setEditingText(activeLessonContent.why_this_matters); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('why_this_matters'); setEditingText(activeLessonContent.why_this_matters || ''); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'why_this_matters' ? (
@@ -3969,20 +3969,20 @@ export default function App() {
                                       }
                                     }}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('practice'); setEditingText(JSON.stringify(activeLessonContent.practice, null, 2)); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('practice'); setEditingText(JSON.stringify(activeLessonContent.practice || {}, null, 2)); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'practice' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <>
-                                    <pre className="code-block">{activeLessonContent.practice?.code_block || '// No code block available'}</pre>
+                                    <pre className="code-block">{activeLessonContent.practice?.code_block || activeLessonContent.practice?.starter_code || '// No starter code template provided'}</pre>
                                     <div className="exercise-task" style={{ marginTop: '10px' }}>
-                                      <strong>Task:</strong> {activeLessonContent.practice?.interactive_exercise}
+                                      <strong>Task:</strong> {activeLessonContent.practice?.interactive_exercise || activeLessonContent.practice?.task || 'Complete the interactive exercise below.'}
                                     </div>
                                     <h4 style={{ fontSize: '0.95rem', fontWeight: 750, marginTop: '16px' }}>Practice Checklist</h4>
                                     <ul className="checklist">
-                                      {activeLessonContent.practice?.checklist?.map((item, idx) => (
+                                      {(activeLessonContent.practice?.checklist || []).map((item, idx) => (
                                         <li key={idx}><span className="check-icon">✓</span>{item}</li>
                                       ))}
                                     </ul>
@@ -3996,7 +3996,7 @@ export default function App() {
                                   {editingSection === 'debugging' ? (
                                     <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('debugging', editingText)}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('debugging'); setEditingText(activeLessonContent.debugging); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('debugging'); setEditingText(activeLessonContent.debugging || ''); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'debugging' ? (
@@ -4012,7 +4012,7 @@ export default function App() {
                                   {editingSection === 'ethics' ? (
                                     <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('ethics', editingText)}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('ethics'); setEditingText(activeLessonContent.ethics); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('ethics'); setEditingText(activeLessonContent.ethics || ''); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'ethics' ? (
@@ -4033,7 +4033,7 @@ export default function App() {
                                   {editingSection === 'facilitator_guide' ? (
                                     <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('facilitator_guide', editingText)}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('facilitator_guide'); setEditingText(activeLessonContent.facilitator_guide); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('facilitator_guide'); setEditingText(activeLessonContent.facilitator_guide || ''); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'facilitator_guide' ? (
@@ -4056,7 +4056,7 @@ export default function App() {
                                       }
                                     }}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('lesson_plan'); setEditingText(JSON.stringify(activeLessonContent.lesson_plan, null, 2)); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('lesson_plan'); setEditingText(JSON.stringify(activeLessonContent.lesson_plan || {}, null, 2)); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'lesson_plan' ? (
@@ -4065,11 +4065,11 @@ export default function App() {
                                   <div className="lesson-plan-grid">
                                     <div className="lesson-plan-card">
                                       <h4>🧊 Ice Breaker</h4>
-                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.ice_breaker}</p>
+                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.ice_breaker || 'No ice breaker prompt defined.'}</p>
                                     </div>
                                     <div className="lesson-plan-card">
                                       <h4>⏱ Timing Allocation</h4>
-                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.timing}</p>
+                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.timing || '60 mins total duration'}</p>
                                     </div>
                                   </div>
                                 )}
@@ -4088,7 +4088,7 @@ export default function App() {
                                       }
                                     }}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('rubric'); setEditingText(JSON.stringify(activeLessonContent.rubric, null, 2)); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('rubric'); setEditingText(JSON.stringify(activeLessonContent.rubric || [], null, 2)); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'rubric' ? (
@@ -4104,7 +4104,7 @@ export default function App() {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {activeLessonContent.rubric.map((row, idx) => (
+                                      {(Array.isArray(activeLessonContent.rubric) ? activeLessonContent.rubric : []).map((row, idx) => (
                                         <tr key={idx}>
                                           <td>{row.criteria}</td>
                                           <td style={{ color: 'var(--accent-green)' }}>{row.excellent}</td>
@@ -4123,14 +4123,14 @@ export default function App() {
                                   {editingSection === 'discussion_questions' ? (
                                     <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('discussion_questions', editingText.split('\n').filter(Boolean))}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('discussion_questions'); setEditingText(activeLessonContent.discussion_questions.join('\n')); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('discussion_questions'); setEditingText(Array.isArray(activeLessonContent.discussion_questions) ? activeLessonContent.discussion_questions.join('\n') : String(activeLessonContent.discussion_questions || '')); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'discussion_questions' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} placeholder="One question per line..." />
                                 ) : (
                                   <ol className="discussion-list">
-                                    {activeLessonContent.discussion_questions.map((item, idx) => (
+                                    {(Array.isArray(activeLessonContent.discussion_questions) ? activeLessonContent.discussion_questions : (typeof activeLessonContent.discussion_questions === 'string' ? [activeLessonContent.discussion_questions] : [])).map((item, idx) => (
                                       <li key={idx}>{item}</li>
                                     ))}
                                   </ol>
