@@ -3328,9 +3328,9 @@ export default function App() {
                       <p className="concept-hero-subtitle">"{promptText ? `Course focus: ${promptText}` : 'apakabar kamu'}"</p>
                     </div>
 
-                    <p className="concept-description-text">
-                      This capstone project is anchored in integrative, real-world technology problem-solving—requiring learners to synthesize expertise across AI engineering, software development, and product management. Modeled on authentic industry workflows, learners assume roles such as solution architect, data scientist, or product manager, simulating cross-functional teamwork to address a genuine business or societal need.
-                    </p>
+                    <div className="concept-description-text" style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.65', margin: '16px 0' }}>
+                      <ContentRenderer text={subjectContext || `This course is engineered to provide comprehensive, hands-on mastery of ${promptText || 'the selected topic'}, covering foundational setup, core architectures, and real-world project implementation.`} />
+                    </div>
 
                     <div className="concept-tech-pills-row">
                       {techTags.length > 0 ? techTags.map(tag => (
