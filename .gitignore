@@ -43,3 +43,6 @@ Thumbs.db
 # Gemini / AI agent
 .agents/
 .gemini/
+
+# Dokumentasi internal
+DOKUMENTASI-CREATOR-AI.md

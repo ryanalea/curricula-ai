@@ -1,27 +1,19 @@
 import os
 import json
 import asyncio
+import re
 from openai import OpenAI
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Initialize client (using OpenRouter, which exposes an OpenAI-compatible API)
-api_key = os.environ.get("OPENROUTER_API_KEY", "MOCK_KEY_FOR_DEVELOPMENT")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+# Initialize client (OpenAI)
+api_key = os.environ.get("OPENAI_API_KEY", "MOCK_KEY_FOR_DEVELOPMENT")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 client = None
 if api_key and api_key != "MOCK_KEY_FOR_DEVELOPMENT":
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
-        default_headers={
-            # Optional but recommended by OpenRouter for analytics/rate-limit tiers.
-            # Safe to leave as-is or customize.
-            "HTTP-Referer": os.environ.get("OPENROUTER_SITE_URL", "http://localhost"),
-            "X-Title": os.environ.get("OPENROUTER_SITE_NAME", "Curricula AI"),
-        },
-    )
+    client = OpenAI(api_key=api_key)
 
 def safe_load_json(raw_text: str):
     """Safely cleans and loads JSON strings, ignoring markdown code blocks if present."""
@@ -79,40 +71,82 @@ MOCK_PROPOSALS = [
 def get_default_candidate_tags(keyword: str, tech_tags: list = None) -> list:
     if tech_tags is None:
         tech_tags = []
-    
+
     kw_lower = (keyword or "").lower()
-    tech_candidates = []
-    
-    if any(k in kw_lower for k in ["go", "golang", "pipeline", "microservice", "concurrent"]):
-        tech_candidates = [
+
+    def kw_hits(keys):
+        return any(
+            re.search(rf"\b{re.escape(k)}\b", kw_lower) if len(k) <= 3 else k in kw_lower
+            for k in keys
+        )
+
+    categories = [
+        (["go", "golang", "concurrent", "microservice", "grpc", "pipeline"], [
             "Go (Golang)", "Concurrency", "Goroutines & Channels", "Microservices",
             "REST APIs", "gRPC", "Docker & Kubernetes", "CI/CD Pipelines",
             "System Architecture", "Performance Tuning"
-        ]
-    elif any(k in kw_lower for k in ["python", "pandas", "data"]):
-        tech_candidates = [
+        ]),
+        (["python", "pandas", "numpy", "scikit", "jupyter", "data"], [
             "Python 3", "Data Science", "Pandas", "NumPy", "Data Visualization",
             "Machine Learning", "Jupyter Notebooks", "Data Analytics", "SQL & Databases", "ETL Pipelines"
-        ]
-    elif any(k in kw_lower for k in ["ai", "machine learning", "deep learning", "llm", "neural", "gpt"]):
-        tech_candidates = [
+        ]),
+        (["ai", "machine learning", "deep learning", "llm", "neural", "gpt", "chatgpt", "tensorflow", "pytorch"], [
             "Generative AI", "Deep Learning", "Prompt Engineering", "LLM Integration",
             "Neural Networks", "PyTorch", "Transformers", "LangChain", "Vector Databases", "AI Ethics"
-        ]
-    elif any(k in kw_lower for k in ["react", "native", "mobile", "javascript", "frontend", "web", "typescript"]):
-        tech_candidates = [
+        ]),
+        (["react", "native", "mobile", "javascript", "frontend", "web", "typescript", "html", "css", "vite"], [
             "React Native", "React 18", "JavaScript (ES6+)", "TypeScript",
             "State Management (Redux/Zustand)", "Component Architecture", "Mobile UI/UX",
             "REST API Integration", "Navigation & Routing", "Vite"
-        ]
-    elif keyword:
-        words = [w.capitalize() for w in keyword.split() if len(w) > 2]
-        tech_candidates = words + [
-            f"{keyword.title()} Core", "System Design", "Hands-on Projects",
-            "API Integration", "Architecture Patterns", "Best Practices"
-        ]
-    else:
-        tech_candidates = ["Software Engineering", "Full-Stack Development", "System Architecture", "Cloud Infrastructure"]
+        ]),
+        (["java", "spring", "backend", "hibernate"], [
+            "Java", "Spring Boot", "Backend Development", "Microservices",
+            "REST APIs", "SQL & Databases", "JPA/Hibernate", "System Architecture",
+            "Docker & Kubernetes", "API Integration"
+        ]),
+        (["flutter", "dart"], [
+            "Flutter", "Dart", "Mobile Development", "UI/UX",
+            "State Management", "Widgets & Material Design", "REST API Integration",
+            "Navigation & Routing", "Testing", "CI/CD Pipelines"
+        ]),
+        (["php", "laravel", "wordpress"], [
+            "PHP", "Laravel", "Web Development", "MySQL",
+            "Blade Templating", "Eloquent ORM", "REST APIs", "Frontend Development",
+            "Docker & Kubernetes", "API Integration"
+        ]),
+        (["digital marketing", "seo", "content marketing", "social media", "copywriting"], [
+            "Digital Marketing", "SEO", "Content Marketing", "Social Media Marketing",
+            "Google Analytics", "Email Marketing", "Copywriting", "Brand Strategy",
+            "Performance Marketing", "Market Research"
+        ]),
+        (["devops", "kubernetes", "docker", "aws", "azure", "cloud", "cicd", "terraform", "infrastructure"], [
+            "DevOps", "Docker & Kubernetes", "CI/CD Pipelines", "Cloud Computing",
+            "Infrastructure as Code", "Terraform", "Monitoring & Observability", "System Architecture",
+            "AWS", "Security Best Practices"
+        ]),
+        (["blockchain", "solidity", "web3", "smart contract", "ethereum"], [
+            "Blockchain", "Solidity", "Smart Contracts", "Web3",
+            "Decentralized Applications", "Cryptography", "Ethereum", "Tokenomics",
+            "Security Best Practices", "Smart Contract Testing"
+        ]),
+    ]
+
+    tech_candidates = []
+    for keys, tags in categories:
+        if kw_hits(keys):
+            for tag in tags:
+                if tag not in tech_candidates:
+                    tech_candidates.append(tag)
+
+    if not tech_candidates:
+        if keyword:
+            words = [w.capitalize() for w in keyword.split() if len(w) > 2]
+            tech_candidates = words + [
+                f"{keyword.title()} Core", "System Design", "Hands-on Projects",
+                "API Integration", "Architecture Patterns", "Best Practices"
+            ]
+        else:
+            tech_candidates = ["Software Engineering", "Full-Stack Development", "System Architecture", "Cloud Infrastructure"]
 
     edu_tags = [
         "Capstone Projects", "Project-Based Learning", "Experiential Learning",
@@ -126,7 +160,7 @@ def get_default_candidate_tags(keyword: str, tech_tags: list = None) -> list:
     for tag in list(tech_tags) + tech_candidates + edu_tags:
         if tag and tag not in combined:
             combined.append(tag)
-    return combined
+    return combined[:20]
 
 def generate_concept_and_grounding(keyword: str):
     candidate_tags = get_default_candidate_tags(keyword)
@@ -159,7 +193,7 @@ def generate_concept_and_grounding(keyword: str):
         'subject_context' (string), 'grounding' (object with keys: 'tech_tags' (array), 'all_suggested_tags' (array), 'prerequisites' (array), 'out_of_scope' (array), 'learning_outcomes' (array), 'target_audience' (string)).
         """
         response = client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=1800,
@@ -231,7 +265,7 @@ def generate_proposals(keyword: str, grounding_data: dict):
         }}
         """
         response = client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=1500,
@@ -279,7 +313,7 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         The "lessons" array must contain exactly {lessons_count} items, ordered 1..{lessons_count}.
         """
         response = client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=1200,
@@ -352,7 +386,7 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=3000,
@@ -408,7 +442,7 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=2000,
@@ -471,7 +505,7 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=2000,
@@ -507,7 +541,7 @@ async def run_section_action(section_type: str, content: str, action: str, param
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1800,
             temperature=0.7
@@ -550,7 +584,7 @@ async def generate_more_quiz(lesson_title: str, core_content: str, count: int = 
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=1500,
@@ -590,7 +624,7 @@ async def generate_more_exercises(lesson_title: str, core_content: str, count: i
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=1500,
@@ -625,7 +659,7 @@ async def generate_single_grounding_item(keyword: str, field_type: str, existing
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             max_tokens=300,

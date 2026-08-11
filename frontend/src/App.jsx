@@ -1123,6 +1123,8 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setProposals(data.proposals || []);
+        setSelectedProposalId(null);
+        setStructure([]);
         // Fetch fresh session data to populate grounding from AI
         const sessionRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
         if (sessionRes.ok) {
@@ -1158,6 +1160,19 @@ export default function App() {
         }),
       });
       if (res.ok) {
+        if (proposals.length > 0) {
+          const genRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
+            method: 'POST',
+          });
+          if (genRes.ok) {
+            const genData = await genRes.json();
+            setProposals(genData.proposals || []);
+            setSelectedProposalId(null);
+            setStructure([]);
+          } else {
+            alert('Grounding saved, but failed to refresh proposals.');
+          }
+        }
         setCurrentStep('proposal');
       } else {
         alert('Failed to save grounding data.');
@@ -1323,29 +1338,26 @@ export default function App() {
         const data = await res.json();
         setSessionId(data.session_id);
         if (data.prompt) setPromptText(data.prompt);
-        const loadedTech = data.tech_tags || [];
-        if (loadedTech.length > 0) setTechTags(loadedTech);
-        if (data.all_suggested_tags?.length) setAllSuggestedTags(data.all_suggested_tags);
+        setTechTags(data.tech_tags || []);
+        setAllSuggestedTags(data.all_suggested_tags?.length ? data.all_suggested_tags : DEFAULT_CANDIDATE_TAGS);
         if (data.config) {
-          if (data.config.lessons_count) setConfigLessons(data.config.lessons_count);
-          if (data.config.duration) setConfigDuration(data.config.duration);
+          if (data.config.lessons_count != null) setConfigLessons(data.config.lessons_count);
+          if (data.config.duration != null) setConfigDuration(data.config.duration);
           if (data.config.difficulty) setConfigDifficulty(data.config.difficulty);
           if (data.config.target_audience) setConfigAudience(data.config.target_audience);
-          if (data.config.subject_context) setSubjectContext(data.config.subject_context);
+          if (data.config.subject_context != null) setSubjectContext(data.config.subject_context);
         }
-        if (data.subject_context) setSubjectContext(data.subject_context);
-        if (data.prerequisites?.length) setPrerequisites(data.prerequisites);
-        if (data.out_of_scope?.length) setBoundaries(data.out_of_scope);
-        if (data.learning_outcomes?.length) setLearningOutcomes(data.learning_outcomes);
-        if (data.proposals?.length) setProposals(data.proposals);
-        if (data.selected_proposal_id) setSelectedProposalId(data.selected_proposal_id);
-        if (data.structure?.length) {
-          const newStruct = data.structure.map(lesson => ({
-            ...lesson,
-            sections: lesson.sections || defaultSections
-          }));
-          setStructure(newStruct);
-        }
+        if (data.subject_context != null) setSubjectContext(data.subject_context);
+        setPrerequisites(data.prerequisites || []);
+        setBoundaries(data.out_of_scope || []);
+        setLearningOutcomes(data.learning_outcomes || []);
+        setProposals(data.proposals || []);
+        setSelectedProposalId(data.selected_proposal_id || null);
+        const newStruct = (data.structure || []).map(lesson => ({
+          ...lesson,
+          sections: lesson.sections || defaultSections
+        }));
+        setStructure(newStruct);
       }
     } catch (err) {
       console.error("Failed to sync session state:", err);
@@ -2270,7 +2282,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="tech-tags-title">Technical Tags &amp; Topics</h3>
-                    <p className="tech-tags-subtitle">Choose the technologies that will power your project.</p>
+                    <p className="tech-tags-subtitle">Choose the technologies that will power your project. Showing up to {Math.min(allSuggestedTags.length, 20)} relevant suggestions.</p>
                   </div>
                 </div>
                 <div className="tech-tags-count-badge">
@@ -2279,7 +2291,7 @@ export default function App() {
               </div>
 
               <div className="tech-tags-pills-grid">
-                {allSuggestedTags.map((tag, idx) => {
+                {allSuggestedTags.slice(0, 20).map((tag, idx) => {
                   const isSelected = techTags.includes(tag);
                   return (
                     <button
@@ -2328,14 +2340,41 @@ export default function App() {
                     <button onClick={() => setConfigLessons(configLessons + 1)}>+</button>
                   </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-1)', padding: '12px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Avg. Duration (Min)</span>
-                  <select className="prompt-textarea" value={configDuration} onChange={(e) => setConfigDuration(Number(e.target.value))} style={{ minHeight: 'auto', padding: '6px 10px', maxWidth: '120px', marginBottom: 0 }}>
-                    <option value="30">30 Min</option>
-                    <option value="60">60 Min</option>
-                    <option value="90">90 Min</option>
-                    <option value="120">120 Min</option>
-                  </select>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-1)', padding: '12px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Avg. Duration per Lesson (Min)</span>
+                    <span style={{ fontSize: '0.75rem', color: '#888' }}>{configDuration} min</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    {[5, 10, 15, 30, 60, 90, 120].map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setConfigDuration(p)}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          border: `1px solid ${configDuration === p ? 'var(--gold)' : 'var(--border-color)'}`,
+                          background: configDuration === p ? 'var(--gold)' : 'transparent',
+                          color: configDuration === p ? '#fff' : 'var(--navy)',
+                        }}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                    <input
+                      type="number"
+                      min="1"
+                      max="480"
+                      value={configDuration}
+                      onChange={(e) => setConfigDuration(Math.max(1, Math.min(480, Number(e.target.value) || 0)))}
+                      style={{ minHeight: 'auto', padding: '6px 8px', maxWidth: '70px', marginBottom: 0, textAlign: 'center' }}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: '#888' }}>min</span>
+                  </div>
                 </div>
               </div>
             </div>
