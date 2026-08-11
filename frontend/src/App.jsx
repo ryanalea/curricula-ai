@@ -3878,13 +3878,23 @@ export default function App() {
                                   <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    {activeLessonContent.exercises.map((ex, idx) => (
-                                      <div key={idx} style={{ padding: '14px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                                        <strong>Exercise {idx + 1}: {ex.title}</strong>
-                                        <p style={{ margin: '6px 0', fontSize: '0.9rem' }}>{ex.description}</p>
-                                        {ex.code_template && <pre className="code-block" style={{ marginTop: '8px' }}>{ex.code_template}</pre>}
-                                      </div>
-                                    ))}
+                                    {activeLessonContent.exercises.map((ex, idx) => {
+                                      const textDesc = ex.instruction || ex.description || (typeof ex === 'string' ? ex : '');
+                                      return (
+                                        <div key={idx} style={{ padding: '16px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                            <strong style={{ fontSize: '0.98rem', color: 'var(--navy)' }}>Exercise {idx + 1}: {ex.title || 'Practice Exercise'}</strong>
+                                            {ex.difficulty && (
+                                              <span style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: '12px', background: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0' }}>
+                                                {ex.difficulty}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {textDesc && <p style={{ margin: '6px 0', fontSize: '0.9rem', color: 'var(--text-main)', lineHeight: '1.6' }}>{textDesc}</p>}
+                                          {(ex.code_template || ex.code) && <pre className="code-block" style={{ marginTop: '10px' }}>{ex.code_template || ex.code}</pre>}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>
