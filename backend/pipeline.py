@@ -140,7 +140,8 @@ def get_default_candidate_tags(keyword: str, tech_tags: list = None) -> list:
 
     if not tech_candidates:
         if keyword:
-            words = [w.capitalize() for w in keyword.split() if len(w) > 2]
+            stopwords = {"for", "and", "the", "with", "from", "about", "into", "that", "this", "your", "using", "how", "what", "which", "are", "was", "were", "non"}
+            words = [w.capitalize() for w in keyword.split() if len(w) > 2 and w.lower() not in stopwords]
             tech_candidates = words + [
                 f"{keyword.title()} Core", "System Design", "Hands-on Projects",
                 "API Integration", "Architecture Patterns", "Best Practices"

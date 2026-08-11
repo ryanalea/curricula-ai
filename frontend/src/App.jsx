@@ -1075,6 +1075,14 @@ export default function App() {
     }
     setIsLoading(true);
     setAgentProgressStage(1);
+    // Reset old session state to prevent state leaking between courses
+    setProposals([]);
+    setSelectedProposalId(null);
+    setStructure([]);
+    setCourseData(null);
+    setPrerequisites([]);
+    setBoundaries([]);
+    setLearningOutcomes([]);
     try {
       const res = await fetch(`${API_BASE}/courses/sessions`, {
         method: 'POST',
