@@ -281,14 +281,26 @@ def generate_proposals(keyword: str, grounding_data: dict):
         return MOCK_PROPOSALS
 
 def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
+    lessons_count = config.get('lessons_count', 4)
+    fallback_topics = [
+        f"Foundations & Setup",
+        f"Core Workflows & Architecture",
+        f"Practical Implementation & Hands-On Labs",
+        f"Advanced Patterns & Optimization",
+        f"Capstone Integration & Real-World Deployment",
+        f"Scaling & Performance Tuning",
+        f"Security & Enterprise Best Practices",
+        f"Maintenance & Future Roadmap"
+    ]
+    fallback_lessons = [
+        {"id": i, "title": f"Lesson {i}: {fallback_topics[(i-1) % len(fallback_topics)]} ({proposal_title})", "order": i}
+        for i in range(1, lessons_count + 1)
+    ]
+    
     if not client:
-        return [
-            {"id": i, "title": f"Lesson {i}: Introduction to {proposal_title}", "order": i}
-            for i in range(1, config.get("lessons_count", 4) + 1)
-        ]
+        return fallback_lessons
     
     try:
-        lessons_count = config.get('lessons_count', 4)
         prompt = f"""
         [ROLE]
         You are a Curriculum Architect designing the lesson-by-lesson roadmap for a course.
@@ -298,16 +310,20 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         Grounding parameters (prerequisites, learning outcomes, tech tags, out-of-scope topics): {json.dumps(grounding_data)}.
 
         [RULES]
-        - Each lesson title MUST be unique and specific (never reuse a generic phrase like "Introduction to {proposal_title}" for more than one lesson).
-        - Titles must progress logically from foundational to advanced, each covering a distinct concept, tool, or skill drawn from the grounding parameters.
-        - Together, the lessons should fully cover the listed learning outcomes and respect the out-of-scope boundaries.
-        - Do not repeat the course name verbatim inside every title.
+        - Each lesson title MUST be completely unique and specific (CRITICAL: NEVER repeat generic prefixes like 'Introduction to...' or repeat the exact same title across lessons).
+        - Titles must progress logically from foundational concepts to advanced practical implementation:
+          * Lesson 1: Foundations & Architecture
+          * Lesson 2: Core Workflows & Hands-On Concepts
+          * Lesson 3: Advanced Optimization & Implementation
+          * Lesson 4+: Practical Capstone & Real-World Deployment
+        - Do NOT repeat the full course title verbatim inside every lesson name.
 
         [FORMAT]
         Return a pure JSON object, no preamble, exactly:
         {{
           "lessons": [
-            {{"id": 1, "title": "Specific, distinct lesson title", "order": 1}}
+            {{"id": 1, "title": "Lesson 1: Specific, distinct foundational topic", "order": 1}},
+            {{"id": 2, "title": "Lesson 2: Specific, distinct intermediate topic", "order": 2}}
           ]
         }}
         The "lessons" array must contain exactly {lessons_count} items, ordered 1..{lessons_count}.
@@ -320,15 +336,12 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
             temperature=0.7
         )
         data = safe_load_json(response.choices[0].message.content)
-        if "lessons" in data:
+        if "lessons" in data and isinstance(data["lessons"], list) and len(data["lessons"]) > 0:
             return data["lessons"]
-        return list(data.values())[0] if isinstance(data, dict) else data
+        return list(data.values())[0] if isinstance(data, dict) and isinstance(list(data.values())[0], list) else fallback_lessons
     except Exception as e:
         print(f"Error generating structure: {e}")
-        return [
-            {"id": i, "title": f"Lesson {i}: Core Concepts of {proposal_title}", "order": i}
-            for i in range(1, config.get("lessons_count", 4) + 1)
-        ]
+        return fallback_lessons
 
 async def generate_creator_content(lesson_title: str, grounding_data: str, lesson_structure: str):
     if not client:
