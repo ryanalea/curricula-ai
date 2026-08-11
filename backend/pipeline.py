@@ -451,13 +451,13 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
     )
     return safe_load_json(response.choices[0].message.content)
 
-async def generate_educator_content(lesson_title: str, core_content_creator: str):
+async def generate_educator_content(lesson_title: str, core_content_creator: str, lesson_duration: str = "60 mins"):
     if not client:
         await asyncio.sleep(0.5)
         return {
             "facilitator_guide": f"Begin with a 5-minute recap of prerequisite terms, then demo {lesson_title}.",
             "lesson_plan": {
-                "timing": "15m Intro, 30m Coding, 15m Q&A",
+                "timing": f"Session Duration: {lesson_duration}",
                 "ice_breaker": "Ask students: 'What is the most frustrating error you hit this week?'"
             },
             "rubric": [{"criteria": "Code Accuracy", "excellent": "Code runs without warnings", "good": "Code runs with minor style warnings", "needs_improvement": "Code fails to execute"}],
@@ -472,14 +472,15 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
 
     [TASK]
     Berdasarkan materi induk dan struktur lesson berikut, buatlah Panduan Mengajar (Facilitator Guide) khusus untuk POV EDUCATOR/MENTOR pada Lesson: "{lesson_title}".
+    Durasi Target Pelajaran: {lesson_duration} per lesson.
     Materi Induk: {core_content_creator}
 
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
     {{
-      "facilitator_guide": "Panduan spesifik cara membawakan sesi lesson INI, pembukaan kelas, dan poin krusial (konsep dari Materi Induk) yang harus ditekankan",
+      "facilitator_guide": "Panduan spesifik cara membawakan sesi lesson INI dengan durasi total {lesson_duration}, pembukaan kelas, dan poin krusial (konsep dari Materi Induk) yang harus ditekankan",
       "lesson_plan": {{
-        "timing": "Rincian alokasi waktu yang totalnya masuk akal untuk 1 sesi kelas (misal: 15 menit teori, 30 menit praktik, 15 menit Q&A)",
+        "timing": "Rincian alokasi waktu yang totalnya HARUS PERSIS SAMA DENGAN DURASI TARGET ({lesson_duration}) per lesson (contoh jika durasi 60m: 10m Pembukaan, 35m Penjelasan & Praktik, 15m Q&A)",
         "ice_breaker": "Pertanyaan pemantik atau aktivitas singkat yang relevan dengan topik lesson ini, bukan generik"
       }},
       "rubric": [

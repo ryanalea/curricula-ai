@@ -473,8 +473,9 @@ async def generate_course_content_task_async(session_id: str):
                 
             # 2 & 3. Student and Educator Content concurrently
             try:
+                lesson_duration = db_session.config_duration or "60 mins"
                 student_task = pipeline.generate_student_content(lesson.title, creator_json.get("core_content", ""))
-                educator_task = pipeline.generate_educator_content(lesson.title, creator_json.get("core_content", ""))
+                educator_task = pipeline.generate_educator_content(lesson.title, creator_json.get("core_content", ""), lesson_duration=lesson_duration)
                 student_json, educator_json = await asyncio.gather(student_task, educator_task, return_exceptions=True)
                 
                 if isinstance(student_json, Exception) or not isinstance(student_json, dict):
