@@ -7,11 +7,21 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Initialize client
-api_key = os.environ.get("OPENAI_API_KEY", "MOCK_KEY_FOR_DEVELOPMENT")
+# Initialize client (using OpenRouter, which exposes an OpenAI-compatible API)
+api_key = os.environ.get("OPENROUTER_API_KEY", "MOCK_KEY_FOR_DEVELOPMENT")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 client = None
 if api_key and api_key != "MOCK_KEY_FOR_DEVELOPMENT":
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+        default_headers={
+            # Optional but recommended by OpenRouter for analytics/rate-limit tiers.
+            # Safe to leave as-is or customize.
+            "HTTP-Referer": os.environ.get("OPENROUTER_SITE_URL", "http://localhost"),
+            "X-Title": os.environ.get("OPENROUTER_SITE_NAME", "Curricula AI"),
+        },
+    )
 
 def safe_load_json(raw_text: str):
     """Safely cleans and loads JSON strings, ignoring markdown code blocks if present."""
@@ -149,9 +159,11 @@ def generate_concept_and_grounding(keyword: str):
         'subject_context' (string), 'grounding' (object with keys: 'tech_tags' (array), 'all_suggested_tags' (array), 'prerequisites' (array), 'out_of_scope' (array), 'learning_outcomes' (array), 'target_audience' (string)).
         """
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=1800,
+            temperature=0.7
         )
         data = safe_load_json(response.choices[0].message.content)
         # Normalize: if AI returned flat structure (no 'grounding' key), wrap it
@@ -193,16 +205,37 @@ def generate_proposals(keyword: str, grounding_data: dict):
     
     try:
         prompt = f"""
-        Create 3 curriculum proposals (Practical, Recommended, Advanced) for: '{keyword}'
+        [ROLE]
+        You are a Curriculum Strategist proposing 3 distinct course angles for the topic '{keyword}'.
+
+        [TASK]
+        Create exactly 3 curriculum proposals with genuinely different positioning:
+        1. "Practical" — hands-on, project-first, minimal theory.
+        2. "Recommended" — balanced theory + practice, the default safe choice.
+        3. "Advanced" — deep, production-grade, assumes stronger prior knowledge.
         Grounding context: {json.dumps(grounding_data)}
 
-        Return a JSON array of 3 objects containing:
-        'id' (1, 2, 3), 'title', 'description', 'differentiators', 'difficulty', 'estimated_hours', 'target_user'.
+        [RULES]
+        - Each proposal's 'description' and 'differentiators' must be concrete and specific to '{keyword}' (no generic filler like "hands-on learning" without naming what is actually built or covered).
+        - 'estimated_hours' must increase from Practical -> Recommended -> Advanced.
+        - 'difficulty' must be one of: Beginner, Intermediate, Advanced (matching the proposal's positioning).
+
+        [FORMAT]
+        Return a pure JSON object, no preamble, exactly:
+        {{
+          "proposals": [
+            {{"id": 1, "title": "...", "description": "...", "differentiators": "...", "difficulty": "Beginner", "estimated_hours": 6, "target_user": "..."}},
+            {{"id": 2, "title": "...", "description": "...", "differentiators": "...", "difficulty": "Intermediate", "estimated_hours": 8, "target_user": "..."}},
+            {{"id": 3, "title": "...", "description": "...", "differentiators": "...", "difficulty": "Advanced", "estimated_hours": 12, "target_user": "..."}}
+          ]
+        }}
         """
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=1500,
+            temperature=0.7
         )
         data = safe_load_json(response.choices[0].message.content)
         # Ensure it returns list
@@ -221,18 +254,36 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         ]
     
     try:
+        lessons_count = config.get('lessons_count', 4)
         prompt = f"""
-        Generate a list of lessons for the course: '{proposal_title}'.
-        Number of lessons requested: {config.get('lessons_count', 4)}.
-        Grounding parameters: {json.dumps(grounding_data)}.
+        [ROLE]
+        You are a Curriculum Architect designing the lesson-by-lesson roadmap for a course.
 
-        Return output as a JSON array of objects, each containing:
-        'id' (integer), 'title' (string), 'order' (integer).
+        [TASK]
+        Design exactly {lessons_count} DISTINCT lessons for the course '{proposal_title}'.
+        Grounding parameters (prerequisites, learning outcomes, tech tags, out-of-scope topics): {json.dumps(grounding_data)}.
+
+        [RULES]
+        - Each lesson title MUST be unique and specific (never reuse a generic phrase like "Introduction to {proposal_title}" for more than one lesson).
+        - Titles must progress logically from foundational to advanced, each covering a distinct concept, tool, or skill drawn from the grounding parameters.
+        - Together, the lessons should fully cover the listed learning outcomes and respect the out-of-scope boundaries.
+        - Do not repeat the course name verbatim inside every title.
+
+        [FORMAT]
+        Return a pure JSON object, no preamble, exactly:
+        {{
+          "lessons": [
+            {{"id": 1, "title": "Specific, distinct lesson title", "order": 1}}
+          ]
+        }}
+        The "lessons" array must contain exactly {lessons_count} items, ordered 1..{lessons_count}.
         """
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=1200,
+            temperature=0.7
         )
         data = safe_load_json(response.choices[0].message.content)
         if "lessons" in data:
@@ -264,44 +315,48 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     [TASK]
     Berdasarkan struktur kurikulum dan parameter grounding berikut, hasilkan konten utama untuk POV CREATOR pada Lesson: "{lesson_title}".
     Parameter Grounding: {grounding_data}
-    Struktur Lesson: {lesson_structure}
+    Struktur Lesson (daftar seluruh lesson dalam course ini, untuk konteks urutan & agar tidak tumpang tindih materi antar lesson): {lesson_structure}
 
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
     {{
-      "overview": "Deskripsi teknis mendalam tentang lesson ini",
-      "learning_outcomes": ["Outcomes 1", "Outcomes 2"],
-      "core_content": "Materi teks lengkap, konsep teoretis, dan contoh kode teknis",
+      "overview": "2-3 kalimat deskripsi teknis yang spesifik untuk lesson '{lesson_title}' ini saja (bukan deskripsi umum tentang course secara keseluruhan)",
+      "learning_outcomes": ["Outcome spesifik 1", "Outcome spesifik 2", "Outcome spesifik 3"],
+      "core_content": "Materi lengkap dalam format MARKDOWN memakai heading '### ' untuk tiap sub-topik (minimal 2 sub-topik). Sertakan penjelasan konsep, contoh nyata/kasus penggunaan, dan minimal satu blok kode relevan dalam ```bahasa\\nkode\\n```. Panjang: 4-6 paragraf setara.",
       "exercises": [
         {{
-          "title": "Nama Latihan",
-          "instruction": "Instruksi latihan",
+          "title": "Nama latihan yang spesifik untuk topik lesson ini",
+          "instruction": "Instruksi latihan yang detail dan actionable, merujuk langsung ke konsep di core_content",
           "difficulty": "Easy/Medium/Hard"
         }}
       ],
       "quiz": [
         {{
-          "question": "Pertanyaan",
+          "question": "Pertanyaan yang menguji pemahaman konsep spesifik lesson ini (bukan pertanyaan generik)",
           "options": ["A", "B", "C", "D"],
-          "answer": "A",
+          "answer": "Salah satu string di options, persis sama",
           "explanation": "Penjelasan kunci jawaban"
         }}
       ],
-      "prompt_templates": ["Prompt AI pendukung untuk builder"]
+      "prompt_templates": ["Contoh prompt AI yang bisa dipakai siswa untuk eksplorasi lebih lanjut terkait topik lesson ini"]
     }}
 
     [CONSTRAINT]
+    - WAJIB spesifik ke topik lesson "{lesson_title}" — DILARANG memakai kalimat generik/template seperti "materi ini penting untuk fondasi" tanpa menyebutkan konsep konkretnya.
+    - Konten antar lesson TIDAK BOLEH duplikat; gunakan Struktur Lesson di atas sebagai referensi supaya tiap lesson punya fokus materi berbeda.
+    - Sediakan minimal 2 exercises dan minimal 3 quiz.
     - Gunakan bahasa yang teknis, presisi, dan komprehensif.
-    - Fokus pada kelengkapan materi induk dan struktur latihan/kuis.
-    - Tanpa salam pengantar, berikan respons JSON valid murni.
+    - Tanpa salam pengantar, berikan respons JSON valid murni (tanpa markdown code fence di luar field core_content).
     """
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=3000,
+            temperature=0.7
         )
     )
     return safe_load_json(response.choices[0].message.content)
@@ -332,30 +387,32 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
     {{
-      "why_this_matters": "Penjelasan intuitif dan analogi mengapa materi ini penting di dunia nyata",
-      "learning_journey": "Langkah-langkah belajar interaktif yang mudah dipahami bab demi bab",
+      "why_this_matters": "Penjelasan intuitif dan analogi konkret (bukan generik) mengapa materi lesson INI spesifik penting di dunia nyata",
+      "learning_journey": "Langkah-langkah belajar berformat MARKDOWN dengan list bernomor (1. 2. 3.), merujuk konsep konkret dari Materi Induk, bukan langkah generik",
       "practice": {{
-        "interactive_exercise": "Panduan praktik langkah demi langkah",
-        "code_block": "Draf kode awal untuk diisi siswa",
-        "checklist": ["Checklist pemahaman 1", "Checklist pemahaman 2"]
+        "interactive_exercise": "Panduan praktik langkah demi langkah yang merujuk langsung ke konsep di Materi Induk",
+        "code_block": "Draf kode awal (starter code) yang relevan dengan topik, siap diisi siswa",
+        "checklist": ["Checklist pemahaman spesifik 1", "Checklist pemahaman spesifik 2", "Checklist pemahaman spesifik 3"]
       }},
-      "debugging": "Daftar kesalahan umum (common bugs/errors) dan cara mengatasinya",
-      "ethics": "Pertimbangan etika atau best practice dalam menerapkan materi ini"
+      "debugging": "Minimal 2 kesalahan umum (common bugs/errors) YANG SPESIFIK untuk topik ini beserta cara mengatasinya, format markdown list",
+      "ethics": "Pertimbangan etika atau best practice yang relevan dengan topik lesson ini secara spesifik"
     }}
 
     [CONSTRAINT]
     - JANGAN sertakan jawaban kuis, rubrik penilaian pengajar, atau panduan fasilitator.
+    - JANGAN gunakan kalimat generik yang bisa berlaku untuk topik apapun — semua harus merujuk konsep konkret dari Materi Induk di atas.
     - Gunakan bahasa yang suportif, mudah dipahami, dan berorientasi pada penyelesaian masalah nyata.
-    - Sediakan blok *debugging* dan *ethics* yang relevan.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=2000,
+            temperature=0.7
         )
     )
     return safe_load_json(response.choices[0].message.content)
@@ -386,36 +443,39 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
     {{
-      "facilitator_guide": "Panduan cara membawakan sesi, pembukaan kelas, dan poin krusial yang harus ditekankan",
+      "facilitator_guide": "Panduan spesifik cara membawakan sesi lesson INI, pembukaan kelas, dan poin krusial (konsep dari Materi Induk) yang harus ditekankan",
       "lesson_plan": {{
-        "timing": "Rincian alokasi waktu (misal: 15 menit teori, 30 menit praktik, 15 menit Q&A)",
-        "ice_breaker": "Pertanyaan pemantik atau aktivitas singkat sebelum masuk materi"
+        "timing": "Rincian alokasi waktu yang totalnya masuk akal untuk 1 sesi kelas (misal: 15 menit teori, 30 menit praktik, 15 menit Q&A)",
+        "ice_breaker": "Pertanyaan pemantik atau aktivitas singkat yang relevan dengan topik lesson ini, bukan generik"
       }},
       "rubric": [
         {{
-          "criteria": "Kriteria Penilaian",
+          "criteria": "Kriteria Penilaian yang spesifik untuk exercise/topik lesson ini",
           "excellent": "Indikator nilai A",
           "good": "Indikator nilai B",
           "needs_improvement": "Indikator perbaikan"
         }}
       ],
-      "teaching_tips": ["Tips menangani siswa yang tertinggal", "Tips menjawab pertanyaan sulit"],
-      "discussion_questions": ["Pertanyaan diskusi kelas 1", "Pertanyaan diskusi kelas 2"],
-      "assessment": "Panduan evaluasi tugas akhir atau homework"
+      "teaching_tips": ["Tips menangani miskonsepsi umum yang SPESIFIK untuk topik ini", "Tips menjawab pertanyaan sulit terkait topik ini"],
+      "discussion_questions": ["Pertanyaan diskusi kelas 1 yang spesifik ke topik", "Pertanyaan diskusi kelas 2 yang spesifik ke topik"],
+      "assessment": "Panduan evaluasi tugas akhir/homework yang merujuk langsung ke exercise di Materi Induk"
     }}
 
     [CONSTRAINT]
+    - Minimal 2 kriteria di rubric.
     - Fokus sepenuhnya pada strategi pedagogi, alokasi waktu kelas (*timing*), rubrik penilaian, dan tips mengajar di kelas.
-    - Hindari mengulang teks materi pelajaran panjang milik siswa.
+    - Hindari mengulang teks materi pelajaran panjang milik siswa; hindari kalimat generik yang bisa berlaku untuk topik apapun.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=2000,
+            temperature=0.7
         )
     )
     return safe_load_json(response.choices[0].message.content)
@@ -447,8 +507,10 @@ async def run_section_action(section_type: str, content: str, action: str, param
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
+            model=OPENROUTER_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1800,
+            temperature=0.7
         )
     )
     return response.choices[0].message.content.strip()
@@ -488,9 +550,11 @@ async def generate_more_quiz(lesson_title: str, core_content: str, count: int = 
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=1500,
+            temperature=0.7
         )
     )
     return safe_load_json(response.choices[0].message.content).get("quizzes", [])
@@ -526,9 +590,11 @@ async def generate_more_exercises(lesson_title: str, core_content: str, count: i
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=1500,
+            temperature=0.7
         )
     )
     return safe_load_json(response.choices[0].message.content).get("exercises", [])
@@ -559,11 +625,12 @@ async def generate_single_grounding_item(keyword: str, field_type: str, existing
     response = await loop.run_in_executor(
         None,
         lambda: client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=OPENROUTER_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=300,
+            temperature=0.7
         )
     )
     data = safe_load_json(response.choices[0].message.content)
     return data.get("suggestion", f"Understanding of {keyword} concepts")
-

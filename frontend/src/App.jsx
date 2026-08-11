@@ -266,6 +266,9 @@ export default function App() {
   const [newSectionInstruction, setNewSectionInstruction] = useState('');
   const [newSectionRole, setNewSectionRole] = useState('creator');
 
+  // ── Modals & Popups ──
+  const [deleteTargetSession, setDeleteTargetSession] = useState(null);
+
   // ── Generation ──
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStatusText, setGenerationStatusText] = useState('');
@@ -871,41 +874,107 @@ export default function App() {
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 
-  // ── Polling generation progress ──
+  // ── Real-Time SSE Stream & Polling generation progress ──
   useEffect(() => {
-    let interval = null;
-    if (currentStep === 'generating' && sessionId) {
-      interval = setInterval(async () => {
+    if (currentStep !== 'generating' || !sessionId) return;
+
+    let eventSource = null;
+    let fallbackInterval = null;
+
+    const handleProgressUpdate = async (data) => {
+      if (data.progress !== undefined) setGenerationProgress(data.progress);
+      if (data.status_text) setGenerationStatusText(data.status_text);
+
+      try {
+        const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
+        if (res.ok) {
+          const sessData = await res.json();
+          if (sessData.lessons && sessData.lessons.length > 0) {
+            setCourseData(sessData);
+            if (!activeLessonId) setActiveLessonId(sessData.lessons[0].id);
+          }
+          if (sessData.status === 'completed' || data.status === 'completed') {
+            if (eventSource) eventSource.close();
+            if (fallbackInterval) clearInterval(fallbackInterval);
+            setCourseData(sessData);
+            if (sessData.lessons?.length > 0) setActiveLessonId(sessData.lessons[0].id);
+            fetchSessions();
+          } else if (sessData.status === 'error' || data.status === 'error') {
+            if (eventSource) eventSource.close();
+            if (fallbackInterval) clearInterval(fallbackInterval);
+            alert(sessData.status_text || data.status_text);
+            setCurrentStep('review');
+          }
+        }
+      } catch { /* ignore */ }
+    };
+
+    try {
+      eventSource = new EventSource(`${API_BASE}/courses/sessions/${sessionId}/stream-progress`);
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleProgressUpdate(data);
+        } catch { /* ignore */ }
+      };
+
+      eventSource.onerror = () => {
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        if (!fallbackInterval) {
+          fallbackInterval = setInterval(async () => {
+            try {
+              const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
+              if (res.ok) {
+                const data = await res.json();
+                handleProgressUpdate(data);
+              }
+            } catch { /* ignore */ }
+          }, 2000);
+        }
+      };
+    } catch {
+      fallbackInterval = setInterval(async () => {
         try {
           const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
           if (res.ok) {
             const data = await res.json();
-            setGenerationProgress(data.progress);
-            setGenerationStatusText(data.status_text);
-            
-            // Keep live courseData synchronized so completed lessons display immediately
-            if (data.lessons && data.lessons.length > 0) {
-              setCourseData(data);
-              if (!activeLessonId) setActiveLessonId(data.lessons[0].id);
-            }
-
-            if (data.status === 'completed') {
-              clearInterval(interval);
-              setCourseData(data);
-              if (data.lessons?.length > 0) setActiveLessonId(data.lessons[0].id);
-              // Stay on Step 7 (generating workspace) so user can edit and review! Only move to Step 8 when user clicks "Proceed to Assets"
-              fetchSessions();
-            } else if (data.status === 'error') {
-              clearInterval(interval);
-              alert(data.status_text);
-              setCurrentStep('review');
-            }
+            handleProgressUpdate(data);
           }
         } catch { /* ignore */ }
       }, 2000);
     }
-    return () => clearInterval(interval);
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (fallbackInterval) clearInterval(fallbackInterval);
+    };
   }, [currentStep, sessionId, activeLessonId, fetchSessions]);
+
+  // ── ScrollSpy for ON THIS PAGE TOC Navigation ──
+  useEffect(() => {
+    if (currentStep !== 'generating' && currentStep !== 'generated') return;
+
+    const sectionElements = document.querySelectorAll('[id^="step7-sec-"]');
+    if (!sectionElements.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const secId = entry.target.id.replace('step7-sec-', '');
+            setActiveSubSection(secId);
+          }
+        });
+      },
+      { rootMargin: '-15% 0px -60% 0px', threshold: 0.1 }
+    );
+
+    sectionElements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [currentStep, activeRole, currentGeneratingLessonIdx]);
 
   // ── Agent Auto-Workflow Orchestrator ──
   const runAgentPipeline = async (sessId) => {
@@ -1100,8 +1169,11 @@ export default function App() {
     }
   };
 
+  // ── Specific Button Loading State ──
+  const [loadingField, setLoadingField] = useState(null);
+
   const handleAutoSuggestGrounding = async (fieldType, currentList, setter) => {
-    setIsLoading(true);
+    setLoadingField(fieldType);
     try {
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding/suggest`, {
         method: 'POST',
@@ -1122,12 +1194,13 @@ export default function App() {
     } catch (err) {
       console.error(err);
     } finally {
-      setIsLoading(false);
+      setLoadingField(null);
     }
   };
 
   // ── Step 4: Select Proposal ──
   const handleSelectProposal = async (propId) => {
+    setSelectedProposalId(propId);
     setIsLoading(true);
     try {
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/select`, {
@@ -1240,6 +1313,50 @@ export default function App() {
       setIsLoading(false);
     }
   };
+
+  // ── Sync session state from backend on step navigation (Fix for empty state on Back) ──
+  const syncSessionState = useCallback(async (targetSessionId = sessionId) => {
+    if (!targetSessionId) return;
+    try {
+      const res = await fetch(`${API_BASE}/courses/sessions/${targetSessionId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSessionId(data.session_id);
+        if (data.prompt) setPromptText(data.prompt);
+        const loadedTech = data.tech_tags || [];
+        if (loadedTech.length > 0) setTechTags(loadedTech);
+        if (data.all_suggested_tags?.length) setAllSuggestedTags(data.all_suggested_tags);
+        if (data.config) {
+          if (data.config.lessons_count) setConfigLessons(data.config.lessons_count);
+          if (data.config.duration) setConfigDuration(data.config.duration);
+          if (data.config.difficulty) setConfigDifficulty(data.config.difficulty);
+          if (data.config.target_audience) setConfigAudience(data.config.target_audience);
+          if (data.config.subject_context) setSubjectContext(data.config.subject_context);
+        }
+        if (data.subject_context) setSubjectContext(data.subject_context);
+        if (data.prerequisites?.length) setPrerequisites(data.prerequisites);
+        if (data.out_of_scope?.length) setBoundaries(data.out_of_scope);
+        if (data.learning_outcomes?.length) setLearningOutcomes(data.learning_outcomes);
+        if (data.proposals?.length) setProposals(data.proposals);
+        if (data.selected_proposal_id) setSelectedProposalId(data.selected_proposal_id);
+        if (data.structure?.length) {
+          const newStruct = data.structure.map(lesson => ({
+            ...lesson,
+            sections: lesson.sections || defaultSections
+          }));
+          setStructure(newStruct);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to sync session state:", err);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (sessionId && currentStep !== 'generating') {
+      syncSessionState(sessionId);
+    }
+  }, [currentStep, sessionId, syncSessionState]);
 
   // ── Structure helpers ──
   const moveLesson = (index, direction) => {
@@ -1521,6 +1638,38 @@ export default function App() {
 
             {/* Main Library Split Layout */}
             <div className="library-split-layout">
+              {/* Helper for dynamic smart hashtags */}
+              {(() => {
+                window._getCourseTags = (sess) => {
+                  if (sess.tech_tags && Array.isArray(sess.tech_tags) && sess.tech_tags.length > 0) {
+                    return sess.tech_tags.slice(0, 3);
+                  }
+                  const text = (sess.title || sess.prompt || '').toLowerCase();
+                  const tags = [];
+                  if (text.includes('python')) tags.push('Python');
+                  if (text.includes('machine learning') || text.includes('ml')) tags.push('Machine Learning');
+                  if (text.includes('data science') || text.includes('pandas')) tags.push('Data Science');
+                  if (text.includes('generative') || text.includes('ai')) tags.push('Generative AI');
+                  if (text.includes('react') || text.includes('native')) tags.push('React Native');
+                  if (text.includes('go') || text.includes('golang')) tags.push('Go');
+                  if (text.includes('web') || text.includes('next.js')) tags.push('Web Development');
+                  if (text.includes('microservices')) tags.push('Microservices');
+                  if (text.includes('deep learning')) tags.push('Deep Learning');
+                  if (text.includes('cloud')) tags.push('Cloud Computing');
+                  if (text.includes('agile')) tags.push('Agile Leadership');
+
+                  if (tags.length === 0) {
+                    const words = (sess.title || sess.prompt || 'AI Course')
+                      .split(/\s+/)
+                      .filter(w => w.length > 3 && !['with', 'from', 'into', 'your', 'this', 'that', 'course', 'overview'].includes(w.toLowerCase()))
+                      .slice(0, 3);
+                    return words.length > 0 ? words : ['Generative AI', 'PedagogyTrack', 'HandsOnCode'];
+                  }
+                  return tags.slice(0, 3);
+                };
+                return null;
+              })()}
+
               {/* Left Column: Sticky Filters Sidebar */}
               <div className="library-filters-card playful-card" style={{ position: 'sticky', top: '90px' }}>
                 <div className="filters-header">
@@ -1537,7 +1686,7 @@ export default function App() {
                       <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
                       <span>All Content</span>
                     </div>
-                    <span className={`filter-count-pill ${libraryFilterTab === 'all' ? 'active' : ''}`}>{sessionsList.length}</span>
+                    <span className={`filter-count-pill ${libraryFilterTab === 'all' ? 'active' : ''}`}>{sessionsList.filter(s => s.status !== 'archived').length}</span>
                   </button>
 
                   <button 
@@ -1548,7 +1697,7 @@ export default function App() {
                       <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                       <span>Drafts</span>
                     </div>
-                    <span className="filter-count-pill draft">{sessionsList.filter(s => s.status !== 'completed').length}</span>
+                    <span className="filter-count-pill draft">{sessionsList.filter(s => s.status !== 'completed' && s.status !== 'published' && s.status !== 'archived').length}</span>
                   </button>
 
                   <button 
@@ -1559,7 +1708,7 @@ export default function App() {
                       <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                       <span>Published</span>
                     </div>
-                    <span className="filter-count-pill published">{sessionsList.filter(s => s.status === 'completed').length}</span>
+                    <span className="filter-count-pill published">{sessionsList.filter(s => (s.status === 'completed' || s.status === 'published') && s.status !== 'archived').length}</span>
                   </button>
 
                   <button 
@@ -1570,22 +1719,29 @@ export default function App() {
                       <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
                       <span>Archived</span>
                     </div>
-                    <span className="filter-count-pill archived">0</span>
+                    <span className="filter-count-pill archived">{sessionsList.filter(s => s.status === 'archived').length}</span>
                   </button>
                 </div>
 
                 <div className="filter-tags-section">
                   <div className="filter-tags-title">■ TAGS</div>
                   <div className="filter-tags-list">
-                    {['All Tags', 'AI Website Builders', 'Generative AI', 'No-Code Development', 'Web Development', 'AI in HR', 'AI Security'].map((t) => (
-                      <button 
-                        key={t} 
-                        className={`filter-tag-pill ${librarySelectedTag === t ? 'active' : ''}`}
-                        onClick={() => { setLibrarySelectedTag(t); setLibraryPubPage(1); }}
-                      >
-                        {t === 'All Tags' ? t : `# ${t}`}
-                      </button>
-                    ))}
+                    {(() => {
+                      const allDynamicTags = Array.from(new Set([
+                        'All Tags',
+                        ...sessionsList.flatMap(s => (window._getCourseTags ? window._getCourseTags(s) : s.tech_tags || []))
+                      ]));
+                      const displayTags = allDynamicTags.length > 1 ? allDynamicTags : ['All Tags', 'Python', 'Machine Learning', 'Generative AI', 'Web Development', 'Go', 'React Native'];
+                      return displayTags.slice(0, 8).map((t) => (
+                        <button 
+                          key={t} 
+                          className={`filter-tag-pill ${librarySelectedTag === t ? 'active' : ''}`}
+                          onClick={() => { setLibrarySelectedTag(t); setLibraryPubPage(1); }}
+                        >
+                          {t === 'All Tags' ? t : `# ${t}`}
+                        </button>
+                      ));
+                    })()}
                   </div>
                 </div>
               </div>
@@ -1596,54 +1752,129 @@ export default function App() {
                   // Filter Sessions
                   let filteredList = sessionsList.filter((s) => {
                     const matchesSearch = !librarySearchQuery || (s.title || s.prompt || '').toLowerCase().includes(librarySearchQuery.toLowerCase());
+                    const cleanTag = librarySelectedTag.replace('# ', '').trim();
+                    const courseTags = window._getCourseTags ? window._getCourseTags(s) : (s.tech_tags || []);
+                    const matchesTag = librarySelectedTag === 'All Tags' || 
+                      courseTags.includes(cleanTag) ||
+                      ((s.title || s.prompt || '').toLowerCase().includes(cleanTag.toLowerCase()));
                     const matchesTab = 
-                      libraryFilterTab === 'all' ? true :
-                      libraryFilterTab === 'drafts' ? s.status !== 'completed' :
-                      libraryFilterTab === 'published' ? s.status === 'completed' : false;
-                    return matchesSearch && matchesTab;
+                      libraryFilterTab === 'all' ? s.status !== 'archived' :
+                      libraryFilterTab === 'drafts' ? s.status !== 'completed' && s.status !== 'published' && s.status !== 'archived' :
+                      libraryFilterTab === 'published' ? (s.status === 'completed' || s.status === 'published') && s.status !== 'archived' :
+                      libraryFilterTab === 'archived' ? s.status === 'archived' : true;
+                    return matchesSearch && matchesTag && matchesTab;
                   });
 
-                  const wipList = filteredList.filter(s => s.status !== 'completed');
-                  const pubList = filteredList.filter(s => s.status === 'completed');
+                  const wipList = filteredList.filter(s => s.status !== 'completed' && s.status !== 'published' && s.status !== 'archived');
+                  const pubList = filteredList.filter(s => (s.status === 'completed' || s.status === 'published') && s.status !== 'archived');
+                  const archivedList = filteredList.filter(s => s.status === 'archived');
 
-                  // Pagination for Published (2 cards per page max)
-                  const CARDS_PER_PAGE = 2;
+                  // Pagination for Published (6 cards per page max)
+                  const CARDS_PER_PAGE = 6;
                   const totalPubPages = Math.ceil(pubList.length / CARDS_PER_PAGE) || 1;
                   const startIndex = (libraryPubPage - 1) * CARDS_PER_PAGE;
                   const paginatedPubList = pubList.slice(startIndex, startIndex + CARDS_PER_PAGE);
 
+                  if (filteredList.length === 0 && sessionsList.length > 0) {
+                    return (
+                      <div className="empty-state" style={{ background: 'var(--white)', padding: '50px 20px', borderRadius: 'var(--radius-lg)', textAlign: 'center' }}>
+                        <IconBook />
+                        <h3>No courses match "{libraryFilterTab !== 'all' ? libraryFilterTab : librarySelectedTag !== 'All Tags' ? librarySelectedTag : librarySearchQuery}"</h3>
+                        <p style={{ marginTop: '8px', color: 'var(--text-muted)' }}>You have {sessionsList.length} saved courses, but none match this tab or filter.</p>
+                        <button 
+                          className="ai-pill-btn" 
+                          style={{ marginTop: '16px', background: 'var(--blue)', color: 'var(--white)' }}
+                          onClick={() => { setLibrarySelectedTag('All Tags'); setLibrarySearchQuery(''); setLibraryFilterTab('all'); }}
+                        >
+                          Reset Filters 🔄
+                        </button>
+                      </div>
+                    );
+                  }
+
                   return (
                     <>
-                      {/* 1. WORK IN PROGRESS */}
+                      {/* 1. WORK IN PROGRESS (DRAFTS) */}
                       {(libraryFilterTab === 'all' || libraryFilterTab === 'drafts') && wipList.length > 0 && (
                         <div className="library-section">
                           <div className="library-section-title-wrap" style={{ marginBottom: '14px' }}>
                             <span className="title-vertical-bar gold"></span>
-                            <h3 className="library-section-title">WORK IN PROGRESS</h3>
+                            <h3 className="library-section-title">WORK IN PROGRESS (DRAFTS - {wipList.length})</h3>
                           </div>
 
                           <div className="elice-course-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
                             {wipList.map((sess) => (
-                              <div key={sess.session_id} className="elice-course-card playful-card" onClick={() => handleResumeSession(sess)}>
+                              <div 
+                                key={sess.session_id} 
+                                className="elice-course-card playful-card" 
+                                onClick={() => handleResumeSession(sess)}
+                                onDoubleClick={() => handleResumeSession(sess)}
+                                onTouchEnd={(e) => {
+                                  const now = Date.now();
+                                  if (window._lastCardTap && (now - window._lastCardTap) < 350) {
+                                    handleResumeSession(sess);
+                                  }
+                                  window._lastCardTap = now;
+                                }}
+                              >
                                 <div className="card-top">
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span className="card-tag">🎓 COURSE</span>
-                                    <button 
-                                      className="icon-btn-tool"
-                                      title="Delete"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (confirm('Delete this course draft?')) {
-                                          fetch(`${API_BASE}/sessions/${sess.session_id}`, { method: 'DELETE' }).then(() => fetchSessions());
-                                        }
-                                      }}
-                                    >
-                                      <IconTrash />
-                                    </button>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span className="card-tag" style={{ background: '#fef3c7', color: '#b45309' }}>📝 DRAFT</span>
+                                    <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
+                                      <button 
+                                        className="ai-pill-btn" 
+                                        style={{ padding: '2px 6px', fontSize: '0.7rem', background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' }}
+                                        title="Publish course"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          await fetch(`${API_BASE}/courses/sessions/${sess.session_id}/status`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ status: 'completed' })
+                                          });
+                                          fetchSessions();
+                                        }}
+                                      >
+                                        Publish 🚀
+                                      </button>
+                                      <button 
+                                        className="ai-pill-btn" 
+                                        style={{ padding: '2px 6px', fontSize: '0.7rem', background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' }}
+                                        title="Archive course"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          await fetch(`${API_BASE}/courses/sessions/${sess.session_id}/status`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ status: 'archived' })
+                                          });
+                                          fetchSessions();
+                                        }}
+                                      >
+                                        Archive 📦
+                                      </button>
+                                      <button 
+                                        className="icon-btn-tool"
+                                        title="Delete Draft"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setDeleteTargetSession(sess);
+                                        }}
+                                      >
+                                        <IconTrash />
+                                      </button>
+                                    </div>
                                   </div>
                                   <h3 className="card-title">{sess.title || sess.prompt}</h3>
                                   
-                                  <div style={{ marginTop: '8px' }}>
+                                  {/* Dynamic Tech Hashtags */}
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
+                                    {(window._getCourseTags ? window._getCourseTags(sess) : ['AI Course']).slice(0, 3).map((tag, tIdx) => (
+                                      <span key={tIdx} className="persona-section-tag"># {tag}</span>
+                                    ))}
+                                  </div>
+
+                                  <div style={{ marginTop: '12px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 800, color: 'var(--navy)', marginBottom: '4px' }}>
                                       <span>PROGRESS</span>
                                       <span style={{ color: 'var(--blue)' }}>{sess.progress || 15}%</span>
@@ -1666,12 +1897,12 @@ export default function App() {
                       )}
 
                       {/* 2. PUBLISHED CURRICULUM */}
-                      {(libraryFilterTab === 'all' || libraryFilterTab === 'published') && (
+                      {(libraryFilterTab === 'all' || libraryFilterTab === 'published') && pubList.length > 0 && (
                         <div className="library-section" style={{ marginTop: wipList.length > 0 ? '30px' : '0' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                             <div className="library-section-title-wrap">
                               <span className="title-vertical-bar blue"></span>
-                              <h3 className="library-section-title">PUBLISHED CURRICULUM</h3>
+                              <h3 className="library-section-title">PUBLISHED CURRICULUM ({pubList.length})</h3>
                             </div>
 
                             {/* Dynamic Pagination Controls */}
@@ -1704,53 +1935,153 @@ export default function App() {
                             )}
                           </div>
 
-                          {pubList.length === 0 ? (
-                            <div className="empty-state" style={{ background: 'var(--white)', padding: '40px 20px', borderRadius: 'var(--radius-lg)' }}>
-                              <IconBook />
-                              <h3>No curriculum assets found</h3>
-                              <p>Create your first AI course from the top Create button.</p>
-                            </div>
-                          ) : (
-                            <div className="elice-course-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
-                              {paginatedPubList.map((sess) => (
-                                <div key={sess.session_id} className="elice-course-card playful-card" onClick={() => handleResumeSession(sess)}>
-                                  <div className="card-top">
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <span className="card-tag">🎓 COURSE</span>
+                          <div className="elice-course-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+                            {paginatedPubList.map((sess) => (
+                              <div 
+                                key={sess.session_id} 
+                                className="elice-course-card playful-card" 
+                                onClick={() => handleResumeSession(sess)}
+                                onDoubleClick={() => handleResumeSession(sess)}
+                                onTouchEnd={(e) => {
+                                  const now = Date.now();
+                                  if (window._lastCardTap && (now - window._lastCardTap) < 350) {
+                                    handleResumeSession(sess);
+                                  }
+                                  window._lastCardTap = now;
+                                }}
+                              >
+                                <div className="card-top">
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span className="card-tag" style={{ background: '#dcfce7', color: '#15803d' }}>✅ PUBLISHED</span>
+                                    <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
+                                      <button 
+                                        className="ai-pill-btn" 
+                                        style={{ padding: '2px 6px', fontSize: '0.7rem', background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}
+                                        title="Move to Drafts"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          await fetch(`${API_BASE}/courses/sessions/${sess.session_id}/status`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ status: 'draft' })
+                                          });
+                                          fetchSessions();
+                                        }}
+                                      >
+                                        Draft 📝
+                                      </button>
+                                      <button 
+                                        className="ai-pill-btn" 
+                                        style={{ padding: '2px 6px', fontSize: '0.7rem', background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' }}
+                                        title="Archive course"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          await fetch(`${API_BASE}/courses/sessions/${sess.session_id}/status`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ status: 'archived' })
+                                          });
+                                          fetchSessions();
+                                        }}
+                                      >
+                                        Archive 📦
+                                      </button>
                                       <button 
                                         className="icon-btn-tool" 
-                                        title="Delete"
+                                        title="Delete Course"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          if (confirm('Delete this course?')) {
-                                            fetch(`${API_BASE}/sessions/${sess.session_id}`, { method: 'DELETE' }).then(() => fetchSessions());
-                                          }
+                                          setDeleteTargetSession(sess);
                                         }}
                                       >
                                         <IconTrash />
                                       </button>
                                     </div>
-                                    <h3 className="card-title">{sess.title || sess.prompt}</h3>
-                                    <p className="card-desc">{sess.prompt}</p>
-
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                                      <span className="persona-section-tag">AI WEBSITE BUILDERS</span>
-                                      <span className="persona-section-tag">GENERATIVE AI</span>
-                                    </div>
                                   </div>
+                                  <h3 className="card-title">{sess.title || sess.prompt}</h3>
 
-                                  <div className="card-bottom">
-                                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                      <IconClock /> 08/08/2026
-                                    </span>
-                                    <button className="icon-btn-tool" style={{ background: 'var(--blue-light)', color: 'var(--blue)', border: 'none', width: '32px', height: '32px' }}>
-                                      ↗
-                                    </button>
+                                  {/* Dynamic Tech Hashtags */}
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
+                                    {(window._getCourseTags ? window._getCourseTags(sess) : ['AI Course']).slice(0, 3).map((tag, tIdx) => (
+                                      <span key={tIdx} className="persona-section-tag"># {tag}</span>
+                                    ))}
                                   </div>
                                 </div>
-                              ))}
-                            </div>
-                          )}
+
+                                <div className="card-bottom" style={{ marginTop: '16px' }}>
+                                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <IconClock /> {sess.updated_at ? new Date(sess.updated_at).toLocaleDateString() : 'Active'}
+                                  </span>
+                                  <button className="icon-btn-tool" style={{ background: 'var(--blue-light)', color: 'var(--blue)', border: 'none', width: '32px', height: '32px' }}>
+                                    ↗
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. ARCHIVED CURRICULUM */}
+                      {(libraryFilterTab === 'all' || libraryFilterTab === 'archived') && archivedList.length > 0 && (
+                        <div className="library-section" style={{ marginTop: wipList.length > 0 || pubList.length > 0 ? '30px' : '0' }}>
+                          <div className="library-section-title-wrap" style={{ marginBottom: '14px' }}>
+                            <span className="title-vertical-bar gold" style={{ background: '#64748b' }}></span>
+                            <h3 className="library-section-title">ARCHIVED CURRICULUM ({archivedList.length})</h3>
+                          </div>
+
+                          <div className="elice-course-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+                            {archivedList.map((sess) => (
+                              <div 
+                                key={sess.session_id} 
+                                className="elice-course-card playful-card" 
+                                style={{ opacity: 0.85 }}
+                                onDoubleClick={() => handleResumeSession(sess)}
+                                onTouchEnd={(e) => {
+                                  const now = Date.now();
+                                  if (window._lastCardTap && (now - window._lastCardTap) < 350) {
+                                    handleResumeSession(sess);
+                                  }
+                                  window._lastCardTap = now;
+                                }}
+                              >
+                                <div className="card-top">
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span className="card-tag" style={{ background: '#f1f5f9', color: '#475569' }}>📦 ARCHIVED</span>
+                                    <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
+                                      <button 
+                                        className="ai-pill-btn" 
+                                        style={{ padding: '2px 6px', fontSize: '0.7rem', background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' }}
+                                        title="Restore to Draft"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          await fetch(`${API_BASE}/courses/sessions/${sess.session_id}/status`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ status: 'completed' })
+                                          });
+                                          fetchSessions();
+                                        }}
+                                      >
+                                        Restore ↩️
+                                      </button>
+                                      <button 
+                                        className="icon-btn-tool" 
+                                        title="Delete Permanently"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setDeleteTargetSession(sess);
+                                        }}
+                                      >
+                                        <IconTrash />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <h3 className="card-title">{sess.title || sess.prompt}</h3>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </>
@@ -2230,128 +2561,183 @@ export default function App() {
             </div>
 
             <div className="review-summary-grid">
-              {/* Card 1: Prerequisites */}
-              <div className="review-card">
-                <div className="review-card-header">
-                  <h4 className="review-card-title">What they should know (Prerequisites)</h4>
+              {/* Card 1: Prerequisites (Green Accent Theme) */}
+              <div className="review-card" style={{ borderTop: '4px solid #10b981', borderRadius: '16px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.08)' }}>
+                <div className="review-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ background: '#dcfce7', color: '#15803d', padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.04em' }}>PREREQUISITES</span>
+                    <h4 className="review-card-title" style={{ margin: 0, fontSize: '0.98rem' }}>What they should know</h4>
+                  </div>
+                  <span style={{ fontSize: '1.2rem' }}>✅</span>
                 </div>
-                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {prerequisites.map((item, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        className="prompt-textarea"
-                        style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1 }}
-                        value={item}
-                        onChange={(e) => {
-                          const updated = [...prerequisites];
-                          updated[idx] = e.target.value;
+                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
+                  {prerequisites.length === 0 ? (
+                    <div style={{ background: '#f0fdf4', border: '1px dashed #a7f3d0', padding: '16px', borderRadius: '12px', textAlign: 'center', color: '#166534', fontSize: '0.85rem' }}>
+                      <p style={{ fontWeight: 600, marginBottom: '4px' }}>No prerequisites added yet</p>
+                      <p style={{ fontSize: '0.78rem', color: '#15803d', opacity: 0.8 }}>Add basic skills learners need or click <strong>AI Suggest ✨</strong> below!</p>
+                    </div>
+                  ) : (
+                    prerequisites.map((item, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#dcfce7', color: '#15803d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 800, flexShrink: 0 }}>✓</span>
+                        <input
+                          type="text"
+                          className="prompt-textarea"
+                          style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#14532d', fontWeight: 600 }}
+                          value={item}
+                          onChange={(e) => {
+                            const updated = [...prerequisites];
+                            updated[idx] = e.target.value;
+                            setPrerequisites(updated);
+                          }}
+                          placeholder="e.g. Basic Python programming, Functions"
+                        />
+                        <button className="icon-btn-tool danger" onClick={() => {
+                          const updated = prerequisites.filter((_, i) => i !== idx);
                           setPrerequisites(updated);
-                        }}
-                      />
-                      <button className="icon-btn danger" style={{ padding: '8px' }} onClick={() => {
-                        const updated = prerequisites.filter((_, i) => i !== idx);
-                        setPrerequisites(updated);
-                      }}>
-                        <IconTrash />
-                      </button>
-                    </div>
-                  ))}
+                        }}>
+                          <IconTrash />
+                        </button>
+                      </div>
+                    ))
+                  )}
                   <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-                    <button className="file-upload-btn" style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center' }} onClick={() => {
-                      setPrerequisites([...prerequisites, '']);
-                    }}>
+                    <button 
+                      className="file-upload-btn" 
+                      style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center', borderColor: '#a7f3d0', color: '#047857', background: '#ffffff', fontWeight: 700 }} 
+                      onClick={() => setPrerequisites([...prerequisites, ''])}
+                    >
                       + Add Item
                     </button>
-                    <button className="action-btn" style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', boxShadow: 'none', justifyContent: 'center' }} onClick={() => {
-                      handleAutoSuggestGrounding('prerequisites', prerequisites, setPrerequisites);
-                    }} disabled={isLoading}>
-                      {isLoading ? <IconSpinner /> : '🤖 AI Suggest'}
+                    <button 
+                      className="action-btn" 
+                      style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', justifyContent: 'center', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#ffffff', border: 'none', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)', fontWeight: 700 }} 
+                      onClick={() => handleAutoSuggestGrounding('prerequisites', prerequisites, setPrerequisites)} 
+                      disabled={loadingField !== null}
+                    >
+                      {loadingField === 'prerequisites' ? <><IconSpinner /> Generating…</> : '✨ AI Suggest'}
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Card 2: Boundaries */}
-              <div className="review-card">
-                <div className="review-card-header">
-                  <h4 className="review-card-title">Topics they will not be learning about (Boundaries)</h4>
+              {/* Card 2: Boundaries (Red Accent Theme) */}
+              <div className="review-card" style={{ borderTop: '4px solid #ef4444', borderRadius: '16px', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.08)' }}>
+                <div className="review-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.04em' }}>OUT OF SCOPE</span>
+                    <h4 className="review-card-title" style={{ margin: 0, fontSize: '0.98rem' }}>Topics NOT covered</h4>
+                  </div>
+                  <span style={{ fontSize: '1.2rem' }}>⛔</span>
                 </div>
-                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {boundaries.map((item, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        className="prompt-textarea"
-                        style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1 }}
-                        value={item}
-                        onChange={(e) => {
-                          const updated = [...boundaries];
-                          updated[idx] = e.target.value;
+                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
+                  {boundaries.length === 0 ? (
+                    <div style={{ background: '#fef2f2', border: '1px dashed #fca5a5', padding: '16px', borderRadius: '12px', textAlign: 'center', color: '#991b1b', fontSize: '0.85rem' }}>
+                      <p style={{ fontWeight: 600, marginBottom: '4px' }}>No boundaries defined yet</p>
+                      <p style={{ fontSize: '0.78rem', color: '#b91c1c', opacity: 0.8 }}>Define topics excluded to focus learning, or click <strong>AI Suggest ✨</strong>!</p>
+                    </div>
+                  ) : (
+                    boundaries.map((item, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fee2e2', color: '#b91c1c', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 800, flexShrink: 0 }}>✕</span>
+                        <input
+                          type="text"
+                          className="prompt-textarea"
+                          style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1, border: '1px solid #fca5a5', background: '#fef2f2', color: '#7f1d1d', fontWeight: 600 }}
+                          value={item}
+                          onChange={(e) => {
+                            const updated = [...boundaries];
+                            updated[idx] = e.target.value;
+                            setBoundaries(updated);
+                          }}
+                          placeholder="e.g. Advanced Django, Mobile App Development"
+                        />
+                        <button className="icon-btn-tool danger" onClick={() => {
+                          const updated = boundaries.filter((_, i) => i !== idx);
                           setBoundaries(updated);
-                        }}
-                      />
-                      <button className="icon-btn-tool danger" onClick={() => {
-                        const updated = boundaries.filter((_, i) => i !== idx);
-                        setBoundaries(updated);
-                      }}>
-                        <IconTrash />
-                      </button>
-                    </div>
-                  ))}
+                        }}>
+                          <IconTrash />
+                        </button>
+                      </div>
+                    ))
+                  )}
                   <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-                    <button className="file-upload-btn" style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center' }} onClick={() => {
-                      setBoundaries([...boundaries, '']);
-                    }}>
+                    <button 
+                      className="file-upload-btn" 
+                      style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center', borderColor: '#fca5a5', color: '#b91c1c', background: '#ffffff', fontWeight: 700 }} 
+                      onClick={() => setBoundaries([...boundaries, ''])}
+                    >
                       + Add Item
                     </button>
-                    <button className="action-btn" style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', boxShadow: 'none', justifyContent: 'center' }} onClick={() => {
-                      handleAutoSuggestGrounding('boundaries', boundaries, setBoundaries);
-                    }} disabled={isLoading}>
-                      {isLoading ? <IconSpinner /> : '🤖 AI Suggest'}
+                    <button 
+                      className="action-btn" 
+                      style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', justifyContent: 'center', background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', color: '#ffffff', border: 'none', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)', fontWeight: 700 }} 
+                      onClick={() => handleAutoSuggestGrounding('boundaries', boundaries, setBoundaries)} 
+                      disabled={loadingField !== null}
+                    >
+                      {loadingField === 'boundaries' ? <><IconSpinner /> Generating…</> : '✨ AI Suggest'}
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Card 3: Learning Outcomes */}
-              <div className="review-card" style={{ gridColumn: 'span 2' }}>
-                <div className="review-card-header">
-                  <h4 className="review-card-title">Learning Outcomes</h4>
+              {/* Card 3: Learning Outcomes (Purple/Indigo Accent Theme) */}
+              <div className="review-card" style={{ gridColumn: 'span 2', borderTop: '4px solid #8b5cf6', borderRadius: '16px', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.08)' }}>
+                <div className="review-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ background: '#f3e8ff', color: '#6b21a8', padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.04em' }}>TARGET OUTCOMES</span>
+                    <h4 className="review-card-title" style={{ margin: 0, fontSize: '0.98rem' }}>What learners will master</h4>
+                  </div>
+                  <span style={{ fontSize: '1.2rem' }}>🎯</span>
                 </div>
-                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {learningOutcomes.map((item, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700, minWidth: '24px', color: 'var(--blue)' }}>{idx + 1}.</span>
-                      <input
-                        type="text"
-                        className="prompt-textarea"
-                        style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1 }}
-                        value={item}
-                        onChange={(e) => {
-                          const updated = [...learningOutcomes];
-                          updated[idx] = e.target.value;
-                          setLearningOutcomes(updated);
-                        }}
-                      />
-                      <button className="icon-btn-tool danger" onClick={() => {
-                        const updated = learningOutcomes.filter((_, i) => i !== idx);
-                        setLearningOutcomes(updated);
-                      }}>
-                        <IconTrash />
-                      </button>
+                <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
+                  {learningOutcomes.length === 0 ? (
+                    <div style={{ background: '#faf5ff', border: '1px dashed #ddd6fe', padding: '16px', borderRadius: '12px', textAlign: 'center', color: '#581c87', fontSize: '0.85rem' }}>
+                      <p style={{ fontWeight: 600, marginBottom: '4px' }}>No learning outcomes added yet</p>
+                      <p style={{ fontSize: '0.78rem', color: '#6b21a8', opacity: 0.8 }}>Add skills learners will achieve or click <strong>AI Suggest ✨</strong> below!</p>
                     </div>
-                  ))}
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '8px', maxWidth: '400px' }}>
-                    <button className="file-upload-btn" style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center' }} onClick={() => {
-                      setLearningOutcomes([...learningOutcomes, '']);
-                    }}>
+                  ) : (
+                    learningOutcomes.map((item, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ minWidth: '26px', height: '26px', borderRadius: '50%', background: '#f3e8ff', color: '#6b21a8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', fontWeight: 800, flexShrink: 0 }}>
+                          {idx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          className="prompt-textarea"
+                          style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1, border: '1px solid #c4b5fd', background: '#faf5ff', color: '#3b0764', fontWeight: 600 }}
+                          value={item}
+                          onChange={(e) => {
+                            const updated = [...learningOutcomes];
+                            updated[idx] = e.target.value;
+                            setLearningOutcomes(updated);
+                          }}
+                          placeholder="e.g. Build a complete REST API using FastAPI and SQL"
+                        />
+                        <button className="icon-btn-tool danger" onClick={() => {
+                          const updated = learningOutcomes.filter((_, i) => i !== idx);
+                          setLearningOutcomes(updated);
+                        }}>
+                          <IconTrash />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '8px', maxWidth: '420px' }}>
+                    <button 
+                      className="file-upload-btn" 
+                      style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center', borderColor: '#c4b5fd', color: '#6b21a8', background: '#ffffff', fontWeight: 700 }} 
+                      onClick={() => setLearningOutcomes([...learningOutcomes, ''])}
+                    >
                       + Add Item
                     </button>
-                    <button className="action-btn" style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', boxShadow: 'none', justifyContent: 'center' }} onClick={() => {
-                      handleAutoSuggestGrounding('learning_outcomes', learningOutcomes, setLearningOutcomes);
-                    }} disabled={isLoading}>
-                      {isLoading ? <IconSpinner /> : '🤖 AI Suggest'}
+                    <button 
+                      className="action-btn" 
+                      style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', justifyContent: 'center', background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', color: '#ffffff', border: 'none', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.25)', fontWeight: 700 }} 
+                      onClick={() => handleAutoSuggestGrounding('learning_outcomes', learningOutcomes, setLearningOutcomes)} 
+                      disabled={loadingField !== null}
+                    >
+                      {loadingField === 'learning_outcomes' ? <><IconSpinner /> Generating…</> : '✨ AI Suggest'}
                     </button>
                   </div>
                 </div>
@@ -2384,20 +2770,43 @@ export default function App() {
             <div className="proposal-grid">
               {proposals.map((prop) => {
                 const isRec = prop.id === 2;
+                const isSelected = selectedProposalId === prop.id;
+                const isThisLoading = isLoading && isSelected;
                 const diffList = prop.differentiators ? prop.differentiators.split(',').map(s => s.trim()).filter(Boolean) : [];
                 return (
                   <div
                     key={prop.id}
-                    className={`proposal-card ${isRec ? 'recommended' : ''} ${selectedProposalId === prop.id ? 'selected' : ''} ${isLoading ? 'disabled' : ''}`}
+                    className={`proposal-card ${isRec ? 'recommended' : ''} ${isSelected ? 'selected' : ''}`}
                     onClick={() => !isLoading && handleSelectProposal(prop.id)}
-                    style={{ border: isRec ? '2px solid var(--gold)' : '', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+                    style={{ 
+                      border: isThisLoading ? '2.5px solid var(--blue)' : isRec ? '2px solid var(--gold)' : isSelected ? '2px solid var(--blue)' : '1px solid var(--border-color)', 
+                      boxShadow: isThisLoading ? '0 10px 30px rgba(37, 99, 235, 0.25)' : isRec ? '0 8px 24px rgba(245, 158, 11, 0.15)' : '',
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      justify: 'space-between',
+                      opacity: isLoading && !isSelected ? 0.6 : 1,
+                      transition: 'all 0.25s ease',
+                      cursor: isLoading ? 'default' : 'pointer'
+                    }}
                   >
                     <div>
-                      {isRec && (
-                        <span className="tag-badge" style={{ background: 'var(--navy)', color: 'var(--gold)', border: '1.5px solid var(--gold)', fontSize: '0.75rem', padding: '3px 10px', marginBottom: '12px', display: 'inline-block' }}>
-                          Recommended
-                        </span>
-                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        {isRec ? (
+                          <span className="tag-badge" style={{ background: 'var(--navy)', color: 'var(--gold)', border: '1.5px solid var(--gold)', fontSize: '0.75rem', padding: '3px 10px', display: 'inline-block' }}>
+                            ⭐ Recommended
+                          </span>
+                        ) : (
+                          <span className="tag-badge" style={{ background: '#f1f5f9', color: '#475569', fontSize: '0.75rem', padding: '3px 10px', display: 'inline-block' }}>
+                            Option {prop.id}
+                          </span>
+                        )}
+                        {isSelected && (
+                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--blue)', background: 'var(--blue-light)', padding: '2px 8px', borderRadius: '12px' }}>
+                            ✓ Selected
+                          </span>
+                        )}
+                      </div>
+
                       <h3>{prop.title}</h3>
                       <p style={{ color: 'var(--text-secondary)', lineHeight: '1.6', fontSize: '0.9rem', marginBottom: '20px' }}>
                         {prop.description}
@@ -2423,7 +2832,7 @@ export default function App() {
                     </div>
 
                     <button
-                      className={isRec ? "purple-start-btn" : "file-upload-btn"}
+                      className={isThisLoading ? "action-btn" : isRec ? "purple-start-btn" : "file-upload-btn"}
                       style={{ marginTop: '24px', width: '100%', justifyContent: 'center' }}
                       disabled={isLoading}
                       onClick={(e) => {
@@ -2431,7 +2840,7 @@ export default function App() {
                         if (!isLoading) handleSelectProposal(prop.id);
                       }}
                     >
-                      {isLoading && selectedProposalId === prop.id ? <><IconSpinner /> Selecting…</> : 'Select This Option'}
+                      {isThisLoading ? <><IconSpinner /> Selecting Option {prop.id}…</> : isSelected ? '✓ Selected Direction' : 'Select This Option'}
                     </button>
                   </div>
                 );
@@ -3106,31 +3515,43 @@ export default function App() {
             </div>
 
             {/* Live Progress Banner with Animated Progress Bar */}
-            <div className="live-status-box" style={{ marginBottom: '24px', background: 'var(--white)', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-xl)', padding: '18px 24px', boxShadow: 'var(--shadow-sm)' }}>
+            <div className="live-status-box" style={{ marginBottom: '24px', background: 'var(--white)', border: generationProgress >= 100 ? '1.5px solid #86EFAC' : '1.5px solid var(--border-color)', borderRadius: 'var(--radius-xl)', padding: '18px 24px', boxShadow: 'var(--shadow-sm)' }}>
               <div className="live-status-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <div className="live-status-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800, color: 'var(--navy)', fontSize: '0.95rem' }}>
-                  <IconSpinner />
-                  <span>GENERATING:</span>
-                  <span style={{ color: 'var(--blue)' }}>{generationStatusText || 'Assembling Course Content...'}</span>
+                  {generationProgress >= 100 ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '22px', height: '22px', borderRadius: '50%', background: '#22c55e', color: '#ffffff' }}>
+                      <IconCheck />
+                    </span>
+                  ) : (
+                    <IconSpinner />
+                  )}
+                  <span style={{ color: generationProgress >= 100 ? '#16a34a' : 'var(--navy)' }}>
+                    {generationProgress >= 100 ? 'GENERATED:' : 'GENERATING:'}
+                  </span>
+                  <span style={{ color: generationProgress >= 100 ? '#16a34a' : 'var(--blue)' }}>
+                    {generationStatusText || 'Assembling Course Content...'}
+                  </span>
                 </div>
-                <button 
-                  className="cancel-gen-btn"
-                  style={{ background: 'transparent', border: '1.5px solid #F87171', color: '#EF4444', fontWeight: 700, padding: '4px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-                  onClick={() => {
-                    if (confirm('Are you sure you want to cancel the generation?')) {
-                      setCurrentStep('review');
-                    }
-                  }}
-                >
-                  Cancel
-                </button>
+                {generationProgress < 100 && (
+                  <button 
+                    className="cancel-gen-btn"
+                    style={{ background: 'transparent', border: '1.5px solid #F87171', color: '#EF4444', fontWeight: 700, padding: '4px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                    onClick={() => {
+                      if (confirm('Are you sure you want to cancel the generation?')) {
+                        setCurrentStep('review');
+                      }
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
               </div>
               
               <div className="progress-bar-container" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 <div className="progress-bar-outer" style={{ flex: 1, height: '10px', background: 'var(--surface-3)', borderRadius: '9999px', overflow: 'hidden' }}>
-                  <div className="progress-bar-inner" style={{ width: `${generationProgress}%`, height: '100%', background: 'linear-gradient(90deg, var(--navy) 0%, var(--blue) 100%)', borderRadius: '9999px', transition: 'width 0.4s ease' }} />
+                  <div className="progress-bar-inner" style={{ width: `${generationProgress}%`, height: '100%', background: generationProgress >= 100 ? 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)' : 'linear-gradient(90deg, var(--navy) 0%, var(--blue) 100%)', borderRadius: '9999px', transition: 'width 0.4s ease' }} />
                 </div>
-                <span style={{ fontWeight: 800, fontSize: '0.88rem', color: 'var(--navy)', minWidth: '42px', textAlign: 'right' }}>{generationProgress}%</span>
+                <span style={{ fontWeight: 800, fontSize: '0.88rem', color: generationProgress >= 100 ? '#16a34a' : 'var(--navy)', minWidth: '42px', textAlign: 'right' }}>{generationProgress}%</span>
               </div>
             </div>
 
@@ -3175,21 +3596,21 @@ export default function App() {
                   <button 
                     className={`tab-btn ${activeRole === 'creator' ? 'active' : ''}`}
                     style={{ borderRadius: '9999px', padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}
-                    onClick={() => { setActiveRole('creator'); setActiveSubSection('overview'); }}
+                    onClick={() => { setActiveRole('creator'); setActiveSubSection('all'); }}
                   >
                     <span>🎨</span> CREATOR
                   </button>
                   <button 
                     className={`tab-btn ${activeRole === 'student' ? 'active' : ''}`}
                     style={{ borderRadius: '9999px', padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}
-                    onClick={() => { setActiveRole('student'); setActiveSubSection('brief'); }}
+                    onClick={() => { setActiveRole('student'); setActiveSubSection('all'); }}
                   >
                     <span>🎓</span> STUDENT
                   </button>
                   <button 
                     className={`tab-btn ${activeRole === 'educator' ? 'active' : ''}`}
                     style={{ borderRadius: '9999px', padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}
-                    onClick={() => { setActiveRole('educator'); setActiveSubSection('facilitator'); }}
+                    onClick={() => { setActiveRole('educator'); setActiveSubSection('all'); }}
                   >
                     <span>🏫</span> EDUCATOR
                   </button>
@@ -3198,38 +3619,37 @@ export default function App() {
 
               {/* Workspace Split Layout */}
               <div className="structure-split-layout" style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '24px', alignItems: 'start' }}>
-                {/* Left Side: ON THIS PAGE Sections Navigator */}
+                {/* Left Side: ON THIS PAGE Sections Navigator (Table of Contents) */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'sticky', top: '90px' }}>
                   <span style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '8px' }}>ON THIS PAGE</span>
                   {(() => {
                     const secList = activeRole === 'creator' ? [
-                      { id: 'overview', title: 'Project Overview' },
-                      { id: 'andragogy', title: 'Andragogy Mindset' },
-                      { id: 'rubrics', title: 'Marking Rubrics' },
-                      { id: 'templates', title: 'Client Needs Assessment Templates' },
-                      { id: 'scripting', title: 'Agile Iteration Scripting Tools' }
+                      { id: 'overview', title: 'Lesson Overview' },
+                      { id: 'learning_outcomes', title: 'Learning Outcomes' },
+                      { id: 'core_content', title: 'Core Technical Material' },
+                      { id: 'exercises', title: 'Hands-On Exercises' },
+                      { id: 'quizzes', title: 'Assessment Quiz' }
                     ] : activeRole === 'student' ? [
-                      { id: 'brief', title: 'Project Brief' },
-                      { id: 'stack', title: 'Technology Stack' },
-                      { id: 'functional', title: 'Functional Requirements' },
-                      { id: 'non_functional', title: 'Non Functional Requirements' },
-                      { id: 'deliverables', title: 'Deliverables' },
-                      { id: 'peer_review', title: 'Peer Review Frameworks' },
-                      { id: 'presentation', title: 'Stakeholder Presentation Checklists' }
+                      { id: 'why_this_matters', title: 'Why This Matters' },
+                      { id: 'practice', title: 'Interactive Coding Practice' },
+                      { id: 'debugging', title: 'Debugging Pitfalls' },
+                      { id: 'ethics', title: 'Ethics & Code Principles' }
                     ] : [
-                      { id: 'facilitator', title: 'Facilitator Guide' },
+                      { id: 'facilitator_guide', title: 'Facilitator Guide' },
                       { id: 'lesson_plan', title: 'Lesson Plan & Timing' },
                       { id: 'rubric', title: 'Assessment Rubric' },
-                      { id: 'teaching_tips', title: 'Teaching Tips' },
-                      { id: 'discussion', title: 'Discussion Questions' }
+                      { id: 'discussion_questions', title: 'Discussion Questions' }
                     ];
 
                     return secList.map((sec) => (
                       <button
                         key={sec.id}
                         className={`filter-nav-item ${activeSubSection === sec.id ? 'active' : ''}`}
-                        style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.85rem' }}
-                        onClick={() => setActiveSubSection(sec.id)}
+                        style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.85rem', transition: 'all 0.2s ease' }}
+                        onClick={() => {
+                          setActiveSubSection(sec.id);
+                          document.getElementById(`step7-sec-${sec.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -3240,34 +3660,13 @@ export default function App() {
                   })()}
                 </div>
 
-                {/* Right Side: Interactive Editable Section Viewer Card */}
+                {/* Right Side: Interactive Editable Section Viewer Card (Full Document View) */}
                 <div style={{ background: 'var(--white)', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: '28px', minHeight: '500px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <svg width="18" height="18" fill="none" stroke="var(--navy)" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                       <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--navy)', margin: 0 }}>
-                        {(() => {
-                          const allSecs = [
-                            { id: 'overview', title: 'Project Overview' },
-                            { id: 'andragogy', title: 'Andragogy Mindset' },
-                            { id: 'rubrics', title: 'Marking Rubrics' },
-                            { id: 'templates', title: 'Client Needs Assessment Templates' },
-                            { id: 'scripting', title: 'Agile Iteration Scripting Tools' },
-                            { id: 'brief', title: 'Project Brief' },
-                            { id: 'stack', title: 'Technology Stack' },
-                            { id: 'functional', title: 'Functional Requirements' },
-                            { id: 'non_functional', title: 'Non Functional Requirements' },
-                            { id: 'deliverables', title: 'Deliverables' },
-                            { id: 'peer_review', title: 'Peer Review Frameworks' },
-                            { id: 'presentation', title: 'Stakeholder Presentation Checklists' },
-                            { id: 'facilitator', title: 'Facilitator Guide' },
-                            { id: 'lesson_plan', title: 'Lesson Plan & Timing' },
-                            { id: 'rubric', title: 'Assessment Rubric' },
-                            { id: 'teaching_tips', title: 'Teaching Tips' },
-                            { id: 'discussion', title: 'Discussion Questions' }
-                          ];
-                          return allSecs.find(s => s.id === activeSubSection)?.title || 'Project Overview';
-                        })()}
+                        {activeRole === 'creator' ? 'Full Curriculum Specification (Creator View)' : activeRole === 'student' ? 'Student Learning Guide' : 'Educator Facilitator Guide'}
                       </h3>
                     </div>
 
@@ -3364,10 +3763,10 @@ export default function App() {
                       return (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
                           
-                          {/* Creator POV Workspace */}
+                          {/* Creator POV Workspace (Full Document View) */}
                           {activeRole === 'creator' && (
                             <>
-                              <div id="step7-sec-overview" className="content-block">
+                              <div id="step7-sec-overview" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Lesson Overview</h3>
                                   {editingSection === 'overview' ? (
@@ -3383,7 +3782,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-learning_outcomes" className="content-block">
+                              <div id="step7-sec-learning_outcomes" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Learning Outcomes</h3>
                                   {editingSection === 'learning_outcomes' ? (
@@ -3403,7 +3802,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-core_content" className="content-block">
+                              <div id="step7-sec-core_content" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Core Technical Material</h3>
                                   {editingSection === 'core_content' ? (
@@ -3419,7 +3818,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-exercises" className="content-block">
+                              <div id="step7-sec-exercises" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Hands-On Exercises</h3>
                                   {editingSection === 'exercises' ? (
@@ -3450,7 +3849,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-quizzes" className="content-block">
+                              <div id="step7-sec-quizzes" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Assessment Quiz</h3>
                                   {editingSection === 'quizzes' ? (
@@ -3488,10 +3887,10 @@ export default function App() {
                             </>
                           )}
 
-                          {/* Student POV Workspace */}
+                          {/* Student POV Workspace (Full Document View) */}
                           {activeRole === 'student' && (
                             <>
-                              <div id="step7-sec-why_this_matters" className="why-matters-card">
+                              <div id="step7-sec-why_this_matters" className="why-matters-card" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h4 style={{ margin: 0, color: 'var(--navy)' }}>💡 Why This Matters</h4>
                                   {editingSection === 'why_this_matters' ? (
@@ -3507,7 +3906,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-practice" className="content-block">
+                              <div id="step7-sec-practice" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Interactive Coding Sandbox</h3>
                                   {editingSection === 'practice' ? (
@@ -3541,7 +3940,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-debugging" className="content-block">
+                              <div id="step7-sec-debugging" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Debugging Pitfalls</h3>
                                   {editingSection === 'debugging' ? (
@@ -3557,7 +3956,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-ethics" className="content-block">
+                              <div id="step7-sec-ethics" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Ethics &amp; Code Principles</h3>
                                   {editingSection === 'ethics' ? (
@@ -3575,10 +3974,10 @@ export default function App() {
                             </>
                           )}
 
-                          {/* Educator POV Workspace */}
+                          {/* Educator POV Workspace (Full Document View) */}
                           {activeRole === 'educator' && (
                             <>
-                              <div id="step7-sec-facilitator_guide" className="content-block">
+                              <div id="step7-sec-facilitator_guide" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Facilitator Guide</h3>
                                   {editingSection === 'facilitator_guide' ? (
@@ -3594,7 +3993,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-lesson_plan" className="content-block">
+                              <div id="step7-sec-lesson_plan" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Lesson Plan &amp; Timing</h3>
                                   {editingSection === 'lesson_plan' ? (
@@ -3626,7 +4025,7 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-rubric" className="content-block">
+                              <div id="step7-sec-rubric" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Grading Rubric</h3>
                                   {editingSection === 'rubric' ? (
@@ -3668,16 +4067,16 @@ export default function App() {
                                 )}
                               </div>
 
-                              <div id="step7-sec-discussion" className="content-block">
+                              <div id="step7-sec-discussion_questions" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>Discussion Questions</h3>
-                                  {editingSection === 'discussion' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('discussion', editingText.split('\n').filter(Boolean))}>Save</button>
+                                  {editingSection === 'discussion_questions' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('discussion_questions', editingText.split('\n').filter(Boolean))}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('discussion'); setEditingText(activeLessonContent.discussion_questions.join('\n')); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('discussion_questions'); setEditingText(activeLessonContent.discussion_questions.join('\n')); }}>Edit</button>
                                   )}
                                 </div>
-                                {editingSection === 'discussion' ? (
+                                {editingSection === 'discussion_questions' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} placeholder="One question per line..." />
                                 ) : (
                                   <ol className="discussion-list">
@@ -4149,6 +4548,97 @@ export default function App() {
         )}
       </>
     )}
+      {/* Global Delete Confirmation Modal Popup */}
+      {deleteTargetSession && (
+        <div 
+          className="modal-overlay" 
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999 }}
+          onClick={(e) => { if (e.target.className === 'modal-overlay') setDeleteTargetSession(null); }}
+        >
+          <div 
+            style={{ 
+              background: '#ffffff', 
+              padding: '36px 32px', 
+              borderRadius: '24px', 
+              maxWidth: '440px', 
+              width: '90%', 
+              textAlign: 'center', 
+              boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)', 
+              border: '1px solid rgba(226, 232, 240, 0.9)' 
+            }}
+          >
+            {/* Sleek Gradient Icon Circle */}
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', border: '1px solid #fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto', boxShadow: '0 4px 14px rgba(239, 68, 68, 0.15)' }}>
+              <svg width="28" height="28" fill="none" stroke="#dc2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                <line x1="10" y1="11" x2="10" y2="17"></line>
+                <line x1="14" y1="11" x2="14" y2="17"></line>
+              </svg>
+            </div>
+
+            <h3 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a', marginBottom: '10px', letterSpacing: '-0.02em' }}>
+              Delete Course?
+            </h3>
+            
+            <p style={{ fontSize: '0.92rem', color: '#64748b', marginBottom: '16px', lineHeight: 1.5 }}>
+              Are you sure you want to delete this course from your library?
+            </p>
+
+            {/* Clean Highlighted Title Card */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '12px 16px', borderRadius: '12px', marginBottom: '28px', textAlign: 'center' }}>
+              <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', wordBreak: 'break-word' }}>
+                "{deleteTargetSession.title || deleteTargetSession.prompt}"
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button 
+                type="button"
+                style={{ 
+                  flex: 1, 
+                  padding: '12px 20px', 
+                  borderRadius: '12px', 
+                  background: '#ffffff', 
+                  color: '#475569', 
+                  border: '1px solid #cbd5e1',
+                  fontWeight: 700,
+                  fontSize: '0.92rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                onClick={() => setDeleteTargetSession(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                style={{ 
+                  flex: 1, 
+                  padding: '12px 20px', 
+                  borderRadius: '12px', 
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', 
+                  color: '#ffffff', 
+                  border: 'none', 
+                  fontWeight: 700, 
+                  fontSize: '0.92rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)',
+                  transition: 'all 0.2s ease'
+                }}
+                onClick={async () => {
+                  const id = deleteTargetSession.session_id;
+                  setDeleteTargetSession(null);
+                  await fetch(`${API_BASE}/courses/sessions/${id}`, { method: 'DELETE' });
+                  fetchSessions();
+                }}
+              >
+                Delete Course
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

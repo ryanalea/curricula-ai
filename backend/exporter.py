@@ -1,6 +1,8 @@
 import json
 import io
 import zipfile
+import re
+import html as html_lib
 
 try:
     import docx
@@ -30,12 +32,77 @@ def get_role_label(role: str) -> str:
     }
     return mapping.get(role.lower(), role.capitalize())
 
+def clean_lesson_title(title: str) -> str:
+    if not title:
+        return "Untitled Lesson"
+    cleaned = re.sub(r'^\s*Lesson\s*\d+\s*[:\-\.]*\s*', '', title, flags=re.IGNORECASE).strip()
+    return cleaned if cleaned else title
+
+def format_section_content_to_md(content, indent: int = 0) -> list[str]:
+    lines = []
+    pad = "  " * indent
+
+    if isinstance(content, str):
+        lines.append(f"{pad}{content}")
+    elif isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                if "question" in item:  # Quiz item
+                    q = item.get("question", "")
+                    lines.append(f"{pad}- **Question:** {q}")
+                    if "options" in item and isinstance(item["options"], list):
+                        for opt in item["options"]:
+                            correct_marker = " ✅" if opt == item.get("answer") else ""
+                            lines.append(f"{pad}  - {opt}{correct_marker}")
+                    if item.get("explanation"):
+                        lines.append(f"{pad}  - *Explanation:* {item['explanation']}")
+                elif "criteria" in item:  # Rubric item
+                    c = item.get("criteria", "")
+                    lines.append(f"{pad}- **Criteria:** {c}")
+                    for k in ["excellent", "good", "needs_improvement"]:
+                        if item.get(k):
+                            lines.append(f"{pad}  - *{k.replace('_', ' ').capitalize()}:* {item[k]}")
+                elif "title" in item or "name" in item:  # Exercise or activity item
+                    t = item.get("title") or item.get("name")
+                    lines.append(f"{pad}- **{t}**")
+                    for k, v in item.items():
+                        if k in ["title", "name"]:
+                            continue
+                        if isinstance(v, (str, int, float)):
+                            lines.append(f"{pad}  - *{k.replace('_', ' ').capitalize()}:* {v}")
+                        elif isinstance(v, list):
+                            lines.append(f"{pad}  - *{k.replace('_', ' ').capitalize()}:* {', '.join(map(str, v))}")
+                else:
+                    parts = []
+                    for k, v in item.items():
+                        if isinstance(v, (str, int, float)):
+                            parts.append(f"*{k.replace('_', ' ').capitalize()}:* {v}")
+                    if parts:
+                        lines.append(f"{pad}- " + " | ".join(parts))
+                    else:
+                        lines.append(f"{pad}- {json.dumps(item)}")
+            else:
+                lines.append(f"{pad}- {item}")
+    elif isinstance(content, dict):
+        for k, v in content.items():
+            k_label = k.replace('_', ' ').capitalize()
+            if isinstance(v, (str, int, float)):
+                lines.append(f"{pad}**{k_label}:** {v}")
+            elif isinstance(v, (list, dict)):
+                lines.append(f"{pad}**{k_label}:**")
+                lines.extend(format_section_content_to_md(v, indent + 1))
+            else:
+                lines.append(f"{pad}**{k_label}:** {v}")
+    else:
+        lines.append(f"{pad}{content}")
+    return lines
+
 def get_resolved_lesson_sections(lesson: dict, role: str) -> dict:
     sections = lesson.get("sections", {}).get(role, {})
     if sections and len(sections) > 0:
         return sections
         
-    title = lesson.get("title", "Lesson Content")
+    title = clean_lesson_title(lesson.get("title", "Lesson Content"))
     if role == "creator":
         return {
             "overview": f"This lesson provides a comprehensive overview and practical foundation for {title}. Students will explore core concepts, industry use-cases, and implementation patterns necessary for real-world projects.",
@@ -84,7 +151,7 @@ def export_to_markdown(course_data: dict, role: str) -> str:
     md = []
     md.append(f"# 🎓 {course_data.get('title', 'Untitled Course')}")
     md.append(f"**Difficulty:** {course_data.get('config', {}).get('difficulty', 'Beginner')} | **Audience:** {course_data.get('config', {}).get('target_audience', 'Student')}\n")
-    md.append("--- \n")
+    md.append("---\n")
 
     roles_to_export = ["creator", "student", "educator"] if role == "all" else [role]
     lessons = course_data.get("lessons", [])
@@ -97,67 +164,116 @@ def export_to_markdown(course_data: dict, role: str) -> str:
     for r in roles_to_export:
         md.append(f"## 📘 {get_role_label(r)}")
         for idx, lesson in enumerate(lessons):
-            md.append(f"### Lesson {idx + 1}: {lesson.get('title', 'Untitled Lesson')}")
+            clean_t = clean_lesson_title(lesson.get('title', 'Untitled Lesson'))
+            md.append(f"### Lesson {idx + 1}: {clean_t}")
             sections = get_resolved_lesson_sections(lesson, r)
             
             for sec_type, content in sections.items():
                 title = sec_type.replace("_", " ").capitalize()
                 md.append(f"#### {title}")
-                if isinstance(content, str):
-                    md.append(content)
-                elif isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict):
-                            # For quizzes or rubric rows
-                            q_text = item.get("question", item.get("criteria", item.get("title", "")))
-                            md.append(f"- **{q_text}**")
-                            if "description" in item:
-                                md.append(f"  {item['description']}")
-                            if "options" in item:
-                                for opt in item["options"]:
-                                    correct_marker = " ✅" if opt == item.get("answer") else ""
-                                    md.append(f"  - {opt}{correct_marker}")
-                                if item.get("explanation"):
-                                    md.append(f"    *Explanation:* {item['explanation']}")
-                        else:
-                            md.append(f"- {item}")
-                elif isinstance(content, dict):
-                    for k, v in content.items():
-                        md.append(f"**{k.replace('_', ' ').capitalize()}:** {v}\n")
+                formatted_lines = format_section_content_to_md(content)
+                md.extend(formatted_lines)
                 md.append("")
-        md.append("--- \n")
+        md.append("---\n")
     return "\n".join(md)
+
+def _inline_markdown_to_html(text: str) -> str:
+    """Converts inline markdown (bold, italics, inline code) to HTML."""
+    # Inline code first, so markers inside `code` aren't picked up as bold/italic
+    text = re.sub(r'`([^`]+?)`', r"<code style='background:#F1F5F9;color:#BE185D;padding:1px 5px;border-radius:4px;font-family:Consolas,monospace;font-size:0.9em;'>\1</code>", text)
+    # Bold (**text** or __text__)
+    text = re.sub(r'\*\*(.+?)\*\*', r"<strong>\1</strong>", text)
+    text = re.sub(r'__(.+?)__', r"<strong>\1</strong>", text)
+    # Italics (*text* or _text_) - avoid matching leftover single asterisks used as bullets
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r"<em>\1</em>", text)
+    return text
 
 def export_to_html(course_data: dict, role: str) -> str:
     md_content = export_to_markdown(course_data, role)
-    
+
     # Sanitize emojis that wkhtmltopdf cannot render in default Windows fonts
-    import re
     md_content = re.sub(r'[\U00010000-\U0010ffff]', '', md_content)
     md_content = re.sub(r'[\u2600-\u27BF]', '', md_content)
 
     html_lines = []
-    for line in md_content.split("\n"):
-        line_clean = line.strip()
+    in_code_block = False
+    code_buffer = []
+    list_mode = None  # None | "ul" | "ul-nested"
+
+    def close_list():
+        nonlocal list_mode
+        if list_mode == "ul":
+            html_lines.append("</ul>")
+        elif list_mode == "ul-nested":
+            html_lines.append("</ul></li></ul>")
+        list_mode = None
+
+    lines = md_content.split("\n")
+    for raw_line in lines:
+        line_clean = raw_line.strip()
+
+        # --- Fenced code blocks (```lang ... ```) ---
+        if line_clean.startswith("```"):
+            if not in_code_block:
+                close_list()
+                in_code_block = True
+                code_buffer = []
+            else:
+                in_code_block = False
+                code_text = html_lib.escape("\n".join(code_buffer))
+                html_lines.append(
+                    f"<pre style='background:#1E293B;color:#E2E8F0;padding:14px 16px;border-radius:8px;"
+                    f"overflow-x:auto;font-family:Consolas,Menlo,monospace;font-size:11.5px;line-height:1.5;"
+                    f"margin:10px 0;white-space:pre-wrap;word-wrap:break-word;'><code>{code_text}</code></pre>"
+                )
+            continue
+        if in_code_block:
+            code_buffer.append(raw_line)
+            continue
+
+        # Escape HTML special chars in normal (non-code) content, then apply inline markdown
+        escaped = html_lib.escape(line_clean)
+
         if line_clean.startswith("# "):
-            html_lines.append(f"<h1 style='color:#1A2040;font-family:sans-serif;font-size:24px;border-bottom:2px solid #6366F1;padding-bottom:8px;'>{line_clean[2:]}</h1>")
+            close_list()
+            html_lines.append(f"<h1 style='color:#1A2040;font-family:sans-serif;font-size:24px;border-bottom:2px solid #6366F1;padding-bottom:8px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[2:]))}</h1>")
         elif line_clean.startswith("## "):
-            html_lines.append(f"<div className='page-break' style='page-break-before:always;'><h2 style='color:#6366F1;font-family:sans-serif;margin-top:28px;font-size:18px;'>{line_clean[3:]}</h2></div>")
+            close_list()
+            html_lines.append(f"<div class='page-break' style='page-break-before:always;'><h2 style='color:#6366F1;font-family:sans-serif;margin-top:28px;font-size:18px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[3:]))}</h2></div>")
         elif line_clean.startswith("### "):
-            html_lines.append(f"<h3 style='color:#1A2040;font-family:sans-serif;margin-top:20px;font-size:15px;'>{line_clean[4:]}</h3>")
+            close_list()
+            html_lines.append(f"<h3 style='color:#1A2040;font-family:sans-serif;margin-top:20px;font-size:15px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[4:]))}</h3>")
         elif line_clean.startswith("#### "):
-            html_lines.append(f"<h4 style='color:#334155;font-family:sans-serif;margin-top:14px;font-size:13px;'>{line_clean[5:]}</h4>")
+            close_list()
+            html_lines.append(f"<h4 style='color:#334155;font-family:sans-serif;margin-top:14px;font-size:13px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[5:]))}</h4>")
+        elif raw_line.startswith("  - ") or raw_line.startswith("    - "):
+            item = _inline_markdown_to_html(html_lib.escape(line_clean[2:]))
+            if list_mode != "ul-nested":
+                close_list()
+                html_lines.append("<ul style='margin:4px 0 8px 0;padding-left:20px;'><li style='list-style:none;'><ul style='margin:2px 0;padding-left:18px;'>")
+                list_mode = "ul-nested"
+            html_lines.append(f"<li style='font-family:sans-serif;line-height:1.5;color:#475569;margin-bottom:3px;'>{item}</li>")
         elif line_clean.startswith("- "):
-            html_lines.append(f"<li style='font-family:sans-serif;line-height:1.6;color:#334155;margin-bottom:4px;'>{line_clean[2:]}</li>")
-        elif line_clean.startswith("  - "):
-            html_lines.append(f"<li style='margin-left:24px;font-family:sans-serif;line-height:1.5;color:#475569;'>{line_clean[4:]}</li>")
+            item = _inline_markdown_to_html(html_lib.escape(line_clean[2:]))
+            if list_mode != "ul":
+                close_list()
+                html_lines.append("<ul style='margin:4px 0 8px 0;padding-left:20px;'>")
+                list_mode = "ul"
+            html_lines.append(f"<li style='font-family:sans-serif;line-height:1.6;color:#334155;margin-bottom:4px;'>{item}</li>")
+        elif re.match(r'^\d+\.\s', line_clean):
+            close_list()
+            html_lines.append(f"<p style='font-family:sans-serif;line-height:1.65;color:#334155;margin-bottom:8px;font-weight:600;'>{_inline_markdown_to_html(escaped)}</p>")
         elif line_clean == "---":
+            close_list()
             html_lines.append("<hr style='border: none; border-top: 1px solid #E2E8F0; margin: 24px 0;'>")
         elif line_clean == "":
-            html_lines.append("<br/>")
+            close_list()
+            html_lines.append("<div style='height:8px;'></div>")
         else:
-            html_lines.append(f"<p style='font-family:sans-serif;line-height:1.65;color:#334155;margin-bottom:10px;'>{line}</p>")
-            
+            close_list()
+            html_lines.append(f"<p style='font-family:sans-serif;line-height:1.65;color:#334155;margin-bottom:10px;'>{_inline_markdown_to_html(escaped)}</p>")
+
+    close_list()
     body = "\n".join(html_lines)
     title = course_data.get('title', 'Exported Course')
     return f"""<!DOCTYPE html>
@@ -198,7 +314,6 @@ def export_to_html(course_data: dict, role: str) -> str:
 </body>
 </html>"""
 
-
 def export_to_docx(course_data: dict, role: str) -> io.BytesIO:
     output = io.BytesIO()
     if not docx:
@@ -222,27 +337,34 @@ def export_to_docx(course_data: dict, role: str) -> io.BytesIO:
     for r in roles_to_export:
         doc.add_heading(get_role_label(r), level=1)
         for idx, lesson in enumerate(lessons):
-            doc.add_heading(f"Lesson {idx + 1}: {lesson.get('title', 'Untitled Lesson')}", level=2)
+            clean_t = clean_lesson_title(lesson.get('title', 'Untitled Lesson'))
+            doc.add_heading(f"Lesson {idx + 1}: {clean_t}", level=2)
             sections = get_resolved_lesson_sections(lesson, r)
             
             for sec_type, content in sections.items():
                 doc.add_heading(sec_type.replace("_", " ").capitalize(), level=3)
-                if isinstance(content, str):
-                    doc.add_paragraph(content)
-                elif isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict):
-                            q_text = item.get("question", item.get("criteria", item.get("title", "")))
-                            doc.add_paragraph(f"• {q_text}", style='List Bullet')
-                        else:
-                            doc.add_paragraph(f"• {item}", style='List Bullet')
-                elif isinstance(content, dict):
-                    for k, v in content.items():
-                        doc.add_paragraph(f"{k.capitalize()}: {v}")
+                formatted_lines = format_section_content_to_md(content)
+                for line in formatted_lines:
+                    line_clean = line.strip()
+                    if line_clean.startswith('- '):
+                        doc.add_paragraph(line_clean[2:], style='List Bullet')
+                    else:
+                        doc.add_paragraph(line_clean)
                         
     doc.save(output)
     output.seek(0)
     return output
+
+def md_to_reportlab_html(text: str) -> str:
+    if not text:
+        return ""
+    s = html_lib.escape(text)
+    s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s)
+    s = re.sub(r'__(.+?)__', r'<b>\1</b>', s)
+    s = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', s)
+    s = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', r'<i>\1</i>', s)
+    s = re.sub(r'`([^`]+?)`', r'<font name="Courier" color="#BE185D">\1</font>', s)
+    return s
 
 def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
     html_content = export_to_html(course_data, role)
@@ -301,10 +423,8 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
     except Exception:
         pass
 
-
     # 3. ReportLab Multi-page Document Builder
     if SimpleDocTemplate:
-        import html as html_lib
         out3 = io.BytesIO()
         doc = SimpleDocTemplate(
             out3, 
@@ -321,8 +441,8 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             'DocTitle',
             parent=styles['Title'],
             fontName='Helvetica-Bold',
-            fontSize=20,
-            leading=24,
+            fontSize=18,
+            leading=22,
             textColor=colors.HexColor('#1A2040'),
             spaceAfter=10
         )
@@ -332,9 +452,10 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             fontName='Helvetica-Bold',
             fontSize=15,
             leading=18,
-            textColor=colors.HexColor('#6366F1'),
+            textColor=colors.HexColor('#4F46E5'),
             spaceBefore=14,
-            spaceAfter=8
+            spaceAfter=8,
+            keepWithNext=True
         )
         h2_style = ParagraphStyle(
             'Heading2Custom',
@@ -344,31 +465,112 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             leading=15,
             textColor=colors.HexColor('#1A2040'),
             spaceBefore=10,
-            spaceAfter=6
+            spaceAfter=6,
+            keepWithNext=True
+        )
+        h3_style = ParagraphStyle(
+            'Heading3Custom',
+            parent=styles['Heading3'],
+            fontName='Helvetica-Bold',
+            fontSize=10.5,
+            leading=13,
+            textColor=colors.HexColor('#334155'),
+            spaceBefore=8,
+            spaceAfter=4,
+            keepWithNext=True
         )
         body_style = ParagraphStyle(
             'BodyCustom',
             parent=styles['Normal'],
             fontName='Helvetica',
-            fontSize=10,
-            leading=14,
+            fontSize=9.5,
+            leading=13.5,
             textColor=colors.HexColor('#334155'),
+            spaceAfter=5
+        )
+        bullet_style_1 = ParagraphStyle(
+            'Bullet1',
+            parent=body_style,
+            leftIndent=15,
+            firstLineIndent=-10,
+            spaceAfter=3
+        )
+        bullet_style_2 = ParagraphStyle(
+            'Bullet2',
+            parent=body_style,
+            leftIndent=30,
+            firstLineIndent=-10,
+            spaceAfter=2
+        )
+        code_style = ParagraphStyle(
+            'CodeBlockStyle',
+            parent=body_style,
+            fontName='Courier',
+            fontSize=8.5,
+            leading=11,
+            textColor=colors.HexColor('#E2E8F0'),
+            backColor=colors.HexColor('#1E293B'),
+            borderPadding=8,
+            spaceBefore=6,
             spaceAfter=6
         )
 
         txt = export_to_markdown(course_data, role)
-        for line in txt.split('\n'):
-            escaped_line = html_lib.escape(line)
-            if line.startswith('# '):
-                story.append(Paragraph(escaped_line[2:], title_style))
-            elif line.startswith('## '):
-                story.append(Paragraph(escaped_line[3:], h1_style))
-            elif line.startswith('### '):
-                story.append(Paragraph(escaped_line[4:], h2_style))
-            elif line.startswith('#### '):
-                story.append(Paragraph(escaped_line[5:], h2_style))
-            elif line.strip() != "":
-                story.append(Paragraph(escaped_line, body_style))
+        
+        # Clean emojis for ReportLab standard Helvetica font
+        txt = re.sub(r'[\U00010000-\U0010ffff]', '', txt)
+        txt = re.sub(r'[\u2600-\u27BF]', '', txt)
+
+        in_code = False
+        code_lines = []
+
+        for raw_line in txt.split('\n'):
+            line_str = raw_line.rstrip()
+            line_clean = line_str.strip()
+
+            if line_clean.startswith('```'):
+                if not in_code:
+                    in_code = True
+                    code_lines = []
+                else:
+                    in_code = False
+                    code_text = html_lib.escape("\n".join(code_lines))
+                    story.append(Paragraph(code_text.replace("\n", "<br/>").replace(" ", "&nbsp;"), code_style))
+                continue
+
+            if in_code:
+                code_lines.append(raw_line)
+                continue
+
+            if not line_clean:
+                story.append(Spacer(1, 4))
+                continue
+
+            if line_clean.startswith('# '):
+                story.append(Paragraph(md_to_reportlab_html(line_clean[2:]), title_style))
+            elif line_clean.startswith('## '):
+                story.append(Paragraph(md_to_reportlab_html(line_clean[3:]), h1_style))
+            elif line_clean.startswith('### '):
+                story.append(Paragraph(md_to_reportlab_html(line_clean[4:]), h2_style))
+            elif line_clean.startswith('#### '):
+                story.append(Paragraph(md_to_reportlab_html(line_clean[5:]), h3_style))
+            elif line_clean == '---':
+                try:
+                    from reportlab.platypus import HRFlowable
+                    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#CBD5E1'), spaceBefore=8, spaceAfter=8))
+                except Exception:
+                    story.append(Spacer(1, 8))
+            elif line_str.startswith('    - ') or line_str.startswith('\t- '):
+                item_text = line_clean[2:].strip()
+                story.append(Paragraph(f"&bull;&nbsp;{md_to_reportlab_html(item_text)}", bullet_style_2))
+            elif line_str.startswith('  - '):
+                item_text = line_clean[2:].strip()
+                story.append(Paragraph(f"&bull;&nbsp;{md_to_reportlab_html(item_text)}", bullet_style_1))
+            elif line_clean.startswith('- ') or line_clean.startswith('* '):
+                item_text = line_clean[2:].strip()
+                story.append(Paragraph(f"&bull;&nbsp;{md_to_reportlab_html(item_text)}", bullet_style_1))
+            else:
+                story.append(Paragraph(md_to_reportlab_html(line_clean), body_style))
 
         try:
             doc.build(story)

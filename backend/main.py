@@ -41,6 +41,61 @@ def get_db():
     finally:
         db.close()
 
+class ProgressPublisher:
+    def __init__(self):
+        self._subscribers: dict[str, list[asyncio.Queue]] = {}
+
+    def subscribe(self, session_id: str) -> asyncio.Queue:
+        if session_id not in self._subscribers:
+            self._subscribers[session_id] = []
+        q = asyncio.Queue()
+        self._subscribers[session_id].append(q)
+        return q
+
+    def unsubscribe(self, session_id: str, q: asyncio.Queue):
+        if session_id in self._subscribers and q in self._subscribers[session_id]:
+            self._subscribers[session_id].remove(q)
+            if not self._subscribers[session_id]:
+                del self._subscribers[session_id]
+
+    async def publish(self, session_id: str, data: dict):
+        if session_id in self._subscribers:
+            for q in list(self._subscribers[session_id]):
+                await q.put(data)
+
+progress_publisher = ProgressPublisher()
+
+@app.get("/api/v1/courses/sessions/{session_id}/stream-progress")
+async def stream_progress(session_id: str):
+    async def event_generator():
+        q = progress_publisher.subscribe(session_id)
+        db = SessionLocal()
+        try:
+            db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+            if db_session:
+                init_data = {
+                    "progress": db_session.progress,
+                    "status": db_session.status,
+                    "status_text": db_session.status_text,
+                    "step": db_session.step
+                }
+                yield f"data: {json.dumps(init_data)}\n\n"
+        finally:
+            db.close()
+
+        try:
+            while True:
+                data = await q.get()
+                yield f"data: {json.dumps(data)}\n\n"
+                if data.get("status") in ["completed", "error"]:
+                    break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            progress_publisher.unsubscribe(session_id, q)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to AI Course Generator API"}
@@ -50,9 +105,18 @@ def list_sessions(db: Session = Depends(get_db)):
     sessions = db.query(DbSession).order_by(DbSession.id.desc()).all()
     result = []
     for s in sessions:
-        # Try to get course title from Course entity
         course = db.query(Course).filter(Course.id == s.id).first()
         title = course.title if course else s.prompt
+        
+        tags = []
+        if s.tech_tags:
+            try:
+                tags = json.loads(s.tech_tags)
+            except Exception:
+                tags = []
+        if not tags:
+            tags = pipeline.get_default_candidate_tags(s.prompt or title or "AI Course", [])
+            
         result.append({
             "session_id": s.id,
             "title": title or s.prompt or "Untitled Course",
@@ -62,6 +126,7 @@ def list_sessions(db: Session = Depends(get_db)):
             "progress": s.progress,
             "difficulty": s.config_difficulty,
             "audience": s.config_audience,
+            "tech_tags": tags
         })
     return result
 
@@ -167,6 +232,31 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
         "status_text": db_session.status_text,
         "lessons": lessons_data
     }
+
+@app.delete("/api/v1/courses/sessions/{session_id}")
+def delete_session(session_id: str, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    course = db.query(Course).filter(Course.id == session_id).first()
+    if course:
+        db.delete(course)
+    db.delete(db_session)
+    db.commit()
+    return {"message": "Session deleted successfully"}
+
+@app.patch("/api/v1/courses/sessions/{session_id}/status")
+def update_session_status(session_id: str, payload: dict, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    new_status = payload.get("status")
+    if new_status:
+        db_session.status = new_status
+        db.commit()
+    return {"message": "Status updated successfully", "status": db_session.status}
 
 @app.post("/api/v1/courses/sessions/{session_id}/grounding")
 def save_grounding(session_id: str, grounding_data: schemas.GroundingInput, db: Session = Depends(get_db)):
@@ -303,6 +393,12 @@ async def generate_course_content_task_async(session_id: str):
         db_session.progress = 10
         db_session.status_text = "Initializing Course Generation..."
         db.commit()
+        await progress_publisher.publish(session_id, {
+            "progress": 10,
+            "status": "generating",
+            "status_text": db_session.status_text,
+            "step": db_session.step
+        })
         
         # Create course entity
         proposals_list = json.loads(db_session.proposals)
@@ -325,9 +421,19 @@ async def generate_course_content_task_async(session_id: str):
         total_lessons = len(lessons_outline)
         
         for idx, item in enumerate(lessons_outline):
-            db_session.status_text = f"Generating content for Lesson {idx+1}/{total_lessons}: {item['title']}"
-            db_session.progress = int(10 + (idx / total_lessons) * 80)
+            status_msg = f"Generating content for Lesson {idx+1}/{total_lessons}: {item['title']}"
+            prog_val = int(10 + (idx / total_lessons) * 80)
+            db_session.status_text = status_msg
+            db_session.progress = prog_val
             db.commit()
+            await progress_publisher.publish(session_id, {
+                "progress": prog_val,
+                "status": "generating",
+                "status_text": status_msg,
+                "step": db_session.step,
+                "current_lesson": idx + 1,
+                "total_lessons": total_lessons
+            })
             
             # Check or create Lesson
             lesson = db.query(Lesson).filter(Lesson.course_id == session_id, Lesson.order == idx + 1).first()
@@ -411,8 +517,23 @@ async def generate_course_content_task_async(session_id: str):
         db_session.status_text = "Course Generation Completed!"
         db_session.step = "generated"
         db.commit()
+        await progress_publisher.publish(session_id, {
+            "progress": 100,
+            "status": "completed",
+            "status_text": "Course Generation Completed!",
+            "step": "generated"
+        })
         
     except Exception as e:
+        db_session.status = "error"
+        db_session.status_text = f"Error during generation: {str(e)}"
+        db.commit()
+        await progress_publisher.publish(session_id, {
+            "progress": db_session.progress or 0,
+            "status": "error",
+            "status_text": f"Error during generation: {str(e)}",
+            "step": db_session.step
+        })
         db_session.status = "error"
         db_session.status_text = f"Error during generation: {str(e)}"
         db.commit()
