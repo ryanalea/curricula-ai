@@ -987,21 +987,27 @@ export default function App() {
   }, [currentStep, activeRole, currentGeneratingLessonIdx]);
 
   // ── Agent Auto-Workflow Orchestrator ──
-  const runAgentPipeline = async (sessId) => {
+  const runAgentPipeline = async (sessId, sessionObj) => {
     try {
       // 1. Technical Foundations completed. Move to Stage 2: Educational Grounding.
       setAgentProgressStage(2);
+
+      const subjCtx = sessionObj?.subject_context || subjectContext || '';
+      const numLessons = sessionObj?.config?.lessons_count || configLessons || 5;
+      const durMins = sessionObj?.config?.duration || configDuration || 60;
+      const diffLvl = sessionObj?.config?.difficulty || configDifficulty || 'Beginner';
+      const audTarget = sessionObj?.config?.target_audience || configAudience || 'Student';
 
       // Save Config & Generate proposals
       await fetch(`${API_BASE}/courses/sessions/${sessId}/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          lessons_count: 5,
-          duration: 60,
-          difficulty: 'Beginner',
-          target_audience: 'Student',
-          subject_context: ''
+          lessons_count: numLessons,
+          duration: durMins,
+          difficulty: diffLvl,
+          target_audience: audTarget,
+          subject_context: subjCtx
         })
       });
 
@@ -1105,7 +1111,7 @@ export default function App() {
         fetchSessions();
 
         if (isAgentMode === 'agent') {
-          await runAgentPipeline(data.session_id);
+          await runAgentPipeline(data.session_id, data);
         } else {
           setCurrentStep('context');
           setIsLoading(false);
