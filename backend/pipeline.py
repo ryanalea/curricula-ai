@@ -8,12 +8,23 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Initialize client (OpenAI)
-api_key = os.environ.get("OPENAI_API_KEY", "MOCK_KEY_FOR_DEVELOPMENT")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+# Initialize client (OpenAI / OpenRouter)
+openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+openai_api_key = os.environ.get("OPENAI_API_KEY", "MOCK_KEY_FOR_DEVELOPMENT")
+
 client = None
-if api_key and api_key != "MOCK_KEY_FOR_DEVELOPMENT":
-    client = OpenAI(api_key=api_key)
+if openrouter_api_key:
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=openrouter_api_key
+    )
+    OPENAI_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+else:
+    if openai_api_key and openai_api_key != "MOCK_KEY_FOR_DEVELOPMENT":
+        client = OpenAI(api_key=openai_api_key)
+        OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    else:
+        OPENAI_MODEL = "gpt-4o-mini"
 
 def safe_load_json(raw_text: str):
     """Safely cleans and loads JSON strings, ignoring markdown code blocks if present."""
