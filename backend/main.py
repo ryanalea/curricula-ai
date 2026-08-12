@@ -362,7 +362,13 @@ def save_structure(session_id: str, payload: schemas.StructureUpdate, db: Sessio
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    structure_list = [{"id": l.id, "title": l.title, "order": l.order} for l in payload.lessons]
+    structure_list = []
+    for l in payload.lessons:
+        lesson_dict = {"id": l.id, "title": l.title, "order": l.order}
+        if l.sections is not None:
+            lesson_dict["sections"] = l.sections
+        structure_list.append(lesson_dict)
+        
     db_session.structure = json.dumps(structure_list)
     db_session.step = "review"
     db.commit()
@@ -450,9 +456,10 @@ async def generate_course_content_task_async(session_id: str):
             # Run RTFC master prompting calls in parallel for faster speed
             grounding_data = db_session.prerequisites or ""
             lesson_structure = db_session.structure or ""
+            lesson_duration = db_session.config_duration or "60 mins"
             
             try:
-                creator_json = await pipeline.generate_creator_content(lesson.title, grounding_data, lesson_structure)
+                creator_json = await pipeline.generate_creator_content(lesson.title, grounding_data, lesson_structure, lesson_duration=lesson_duration)
                 if not isinstance(creator_json, dict):
                     creator_json = {}
             except Exception as e_creator:
@@ -471,11 +478,10 @@ async def generate_course_content_task_async(session_id: str):
                 sec = Section(lesson_id=lesson.id, role="creator", section_type=k, content_text=json.dumps(v))
                 db.add(sec)
                 
-            # 2 & 3. Student and Educator Content concurrently
+            # 2 & 3. Student and Educator Content concurrently (grounded in Creator content)
             try:
-                lesson_duration = db_session.config_duration or "60 mins"
-                student_task = pipeline.generate_student_content(lesson.title, creator_json.get("core_content", ""))
-                educator_task = pipeline.generate_educator_content(lesson.title, creator_json.get("core_content", ""), lesson_duration=lesson_duration)
+                student_task = pipeline.generate_student_content(lesson.title, creator_json, lesson_duration=lesson_duration)
+                educator_task = pipeline.generate_educator_content(lesson.title, creator_json, lesson_duration=lesson_duration)
                 student_json, educator_json = await asyncio.gather(student_task, educator_task, return_exceptions=True)
                 
                 if isinstance(student_json, Exception) or not isinstance(student_json, dict):
@@ -510,6 +516,34 @@ async def generate_course_content_task_async(session_id: str):
                 db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "educator", Section.section_type == k).delete()
                 sec = Section(lesson_id=lesson.id, role="educator", section_type=k, content_text=json.dumps(v))
                 db.add(sec)
+                
+            # 4. Generate custom/unlocked sections from lessons_outline
+            sections_dict = item.get("sections", {})
+            for role_name in ["creator", "student", "educator"]:
+                role_sects = sections_dict.get(role_name, [])
+                for s in role_sects:
+                    if not s.get("locked", False) and s.get("type"):
+                        try:
+                            cs_content = await pipeline.generate_custom_section_content(
+                                lesson.title, 
+                                s.get("title"), 
+                                s.get("instruction", "Write curriculum content."), 
+                                grounding_data
+                            )
+                            db.query(Section).filter(
+                                Section.lesson_id == lesson.id, 
+                                Section.role == role_name, 
+                                Section.section_type == s.get("type")
+                            ).delete()
+                            sec = Section(
+                                lesson_id=lesson.id, 
+                                role=role_name, 
+                                section_type=s.get("type"), 
+                                content_text=json.dumps(cs_content)
+                            )
+                            db.add(sec)
+                        except Exception as e_cs:
+                            print(f"Error generating custom section '{s.get('title')}': {e_cs}")
                 
             db.commit()
             
