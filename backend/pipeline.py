@@ -309,19 +309,19 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
     
     fallback_sections = {
         "creator": [
-            {"title": "Technical Deep Dive", "instruction": "Explain the underlying architecture and theoretical details of this lesson's concepts."},
-            {"title": "Industry Implementation Patterns", "instruction": "Discuss real-world production setups and architectural patterns used in the industry."},
-            {"title": "Performance Optimization Tips", "instruction": "Provide advice on profiling, optimizing, and scaling this topic's implementations."}
+            {"type": "custom_creator_1", "id": "custom-creator-1", "title": "Technical Deep Dive", "instruction": "Explain the underlying architecture and theoretical details of this lesson's concepts.", "locked": False},
+            {"type": "custom_creator_2", "id": "custom-creator-2", "title": "Industry Implementation Patterns", "instruction": "Discuss real-world production setups and architectural patterns used in the industry.", "locked": False},
+            {"type": "custom_creator_3", "id": "custom-creator-3", "title": "Performance Optimization Tips", "instruction": "Provide advice on profiling, optimizing, and scaling this topic's implementations.", "locked": False}
         ],
         "student": [
-            {"title": "Hands-on Guided Lab", "instruction": "Provide a step-by-step programming exercise or setup guide for students."},
-            {"title": "Self-Assessment Challenge", "instruction": "Formulate a challenge scenario to test the student's understanding."},
-            {"title": "Real-World Case Study", "instruction": "Explain how this specific concept was applied in a real-world tech industry situation."}
+            {"type": "custom_student_1", "id": "custom-student-1", "title": "Hands-on Guided Lab", "instruction": "Provide a step-by-step programming exercise or setup guide for students.", "locked": False},
+            {"type": "custom_student_2", "id": "custom-student-2", "title": "Self-Assessment Challenge", "instruction": "Formulate a challenge scenario to test the student's understanding.", "locked": False},
+            {"type": "custom_student_3", "id": "custom-student-3", "title": "Real-World Case Study", "instruction": "Explain how this specific concept was applied in a real-world tech industry situation.", "locked": False}
         ],
         "educator": [
-            {"title": "Active Learning Strategy", "instruction": "Describe an interactive class activity or roleplay scenario."},
-            {"title": "Common Misconceptions", "instruction": "Detail top 3 misconceptions students have about this topic and how to correct them."},
-            {"title": "Peer Review Activity", "instruction": "Outline a 10-minute peer-review discussion template for the class."}
+            {"type": "custom_educator_1", "id": "custom-educator-1", "title": "Active Learning Strategy", "instruction": "Describe an interactive class activity or roleplay scenario.", "locked": False},
+            {"type": "custom_educator_2", "id": "custom-educator-2", "title": "Common Misconceptions", "instruction": "Detail top 3 misconceptions students have about this topic and how to correct them.", "locked": False},
+            {"type": "custom_educator_3", "id": "custom-educator-3", "title": "Peer Review Activity", "instruction": "Outline a 10-minute peer-review discussion template for the class.", "locked": False}
         ]
     }
     
@@ -414,8 +414,8 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
                     if not isinstance(sec, dict):
                         sec = {}
                     title = sec.get("title", f"Custom Topic {idx+1}")
-                    slug = re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')
-                    sec_type = sec.get("type") or f"custom_{role_key}_{slug}"
+                    slug = re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:30]
+                    sec_type = (sec.get("type") or f"custom_{role_key}_{slug}")[:50]
                     processed.append({
                         "id": sec.get("id") or f"custom-{role_key}-{idx+1}-{uuid.uuid4().hex[:6]}",
                         "type": sec_type,

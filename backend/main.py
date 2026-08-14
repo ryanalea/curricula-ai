@@ -562,6 +562,10 @@ async def generate_course_content_task_async(session_id: str):
         })
         
     except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         db_session.status = "error"
         db_session.status_text = f"Error during generation: {str(e)}"
         db.commit()
@@ -571,9 +575,6 @@ async def generate_course_content_task_async(session_id: str):
             "status_text": f"Error during generation: {str(e)}",
             "step": db_session.step
         })
-        db_session.status = "error"
-        db_session.status_text = f"Error during generation: {str(e)}"
-        db.commit()
     finally:
         db.close()
 

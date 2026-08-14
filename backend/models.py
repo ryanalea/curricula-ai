@@ -33,7 +33,7 @@ class Section(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     lesson_id: Mapped[int] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(20))
-    section_type: Mapped[str] = mapped_column(String(50))
+    section_type: Mapped[str] = mapped_column(String(100))
     content_text: Mapped[str] = mapped_column(Text)
     lesson: Mapped["Lesson"] = relationship(back_populates="sections")
 
@@ -68,7 +68,7 @@ class History(Base):
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
     lesson_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="SET NULL"), nullable=True)
     role: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    section_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    section_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     content_snapshot: Mapped[str] = mapped_column(Text)
     label: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[str] = mapped_column(String(32))
