@@ -3767,8 +3767,9 @@ export default function App() {
                       const roleSectionsMap = new Map();
                       structure.forEach(l => {
                         (l.sections?.[role] || []).forEach(s => {
-                          if (s.title && !roleSectionsMap.has(s.title.toUpperCase())) {
-                            roleSectionsMap.set(s.title.toUpperCase(), s);
+                          const key = s.type || s.title?.toUpperCase();
+                          if (key && !roleSectionsMap.has(key)) {
+                            roleSectionsMap.set(key, s);
                           }
                         });
                       });
@@ -3787,6 +3788,9 @@ export default function App() {
                               <span>{role.toUpperCase()}</span>
                             </div>
                             <span className="persona-count-badge">{displayList.length} Sections</span>
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '10px', fontStyle: 'italic' }}>
+                            Applied to all {structure.length} lesson{structure.length > 1 ? 's' : ''} (same structure, per-lesson content)
                           </div>
                           <div className="persona-tags-wrap">
                             {displayList.map(sec => (

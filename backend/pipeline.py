@@ -3,6 +3,7 @@ import json
 import asyncio
 import re
 import uuid
+import copy
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -343,18 +344,16 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         You are a Curriculum Architect designing the lesson-by-lesson roadmap for a course.
 
         [TASK]
-        Design exactly {lessons_count} DISTINCT lessons for the course '{proposal_title}'.
+        1. Design exactly {lessons_count} DISTINCT lessons for the course '{proposal_title}'.
         Grounding parameters (prerequisites, learning outcomes, tech tags, out-of-scope topics): {json.dumps(grounding_data)}.
+        2. Design exactly 3 custom-tailored, highly relevant additional sections for EACH of the 3 roles (creator, student, educator). These 3 sections per role apply to the WHOLE course and will be used in EVERY lesson, so they must be topic-appropriate for the course as a whole, not for a single lesson.
 
         [RULES]
         - Each lesson title MUST be completely unique and specific (CRITICAL: NEVER repeat generic prefixes like 'Introduction to...' or repeat the exact same title across lessons).
-        - For EACH lesson, generate custom-tailored, highly relevant additional sections to supplement the base curriculum:
-          * Exactly 3 additional sections for the 'creator' role.
-          * Exactly 3 additional sections for the 'student' role.
-          * Exactly 3 additional sections for the 'educator' role.
-        - These additional sections must focus on specific, concrete technical topics related directly to the lesson's main concept.
-        - Write a detailed instruction (1-2 sentences) for each additional section detailing what the AI should write in that section.
         - Do NOT repeat the full course title verbatim inside every lesson name.
+        - The custom sections must focus on specific, concrete technical topics related directly to the course concept.
+        - Write a detailed instruction (1-2 sentences) for each custom section detailing what the AI should write in that section.
+        - Exactly 3 custom sections per role. Do not add more.
 
         [FORMAT]
         Return a pure JSON object, no preamble, exactly:
@@ -363,26 +362,31 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
             {{
               "id": 1,
               "title": "Lesson 1: Specific distinct foundational topic",
-              "order": 1,
-              "sections": {{
-                "creator": [
-                  {{"title": "Custom Topic Title 1", "instruction": "Detailed instruction for AI content generation about this topic."}},
-                  {{"title": "Custom Topic Title 2", "instruction": "Detailed instruction."}},
-                  {{"title": "Custom Topic Title 3", "instruction": "Detailed instruction."}}
-                ],
-                "student": [
-                  {{"title": "Student Challenge Title 1", "instruction": "Instruction."}},
-                  {{"title": "Student Tool Guide Title 2", "instruction": "Instruction."}},
-                  {{"title": "Student Case Study Title 3", "instruction": "Instruction."}}
-                ],
-                "educator": [
-                  {{"title": "Classroom Activity Title 1", "instruction": "Instruction."}},
-                  {{"title": "Misconceptions Guide Title 2", "instruction": "Instruction."}},
-                  {{"title": "Peer Review Guide Title 3", "instruction": "Instruction."}}
-                ]
-              }}
+              "order": 1
+            }},
+            {{
+              "id": 2,
+              "title": "Lesson 2: Another distinct topic",
+              "order": 2
             }}
-          ]
+          ],
+          "sections": {{
+            "creator": [
+              {{"title": "Custom Topic Title 1", "instruction": "Detailed instruction for AI content generation about this topic."}},
+              {{"title": "Custom Topic Title 2", "instruction": "Detailed instruction."}},
+              {{"title": "Custom Topic Title 3", "instruction": "Detailed instruction."}}
+            ],
+            "student": [
+              {{"title": "Student Challenge Title 1", "instruction": "Instruction."}},
+              {{"title": "Student Tool Guide Title 2", "instruction": "Instruction."}},
+              {{"title": "Student Case Study Title 3", "instruction": "Instruction."}}
+            ],
+            "educator": [
+              {{"title": "Classroom Activity Title 1", "instruction": "Instruction."}},
+              {{"title": "Misconceptions Guide Title 2", "instruction": "Instruction."}},
+              {{"title": "Peer Review Guide Title 3", "instruction": "Instruction."}}
+            ]
+          }}
         }}
         The "lessons" array must contain exactly {lessons_count} items, ordered 1..{lessons_count}.
         """
@@ -394,24 +398,46 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
             temperature=0.7
         )
         data = safe_load_json(response.choices[0].message.content)
-        if "lessons" in data and isinstance(data["lessons"], list) and len(data["lessons"]) > 0:
-            for l in data["lessons"]:
-                if "sections" in l and isinstance(l["sections"], dict):
-                    for role_key in ["creator", "student", "educator"]:
-                        if role_key in l["sections"] and isinstance(l["sections"][role_key], list):
-                            processed_sec = []
-                            for idx, sec in enumerate(l["sections"][role_key]):
-                                title = sec.get("title", f"Custom Topic {idx+1}")
-                                sec_type = sec.get("type") or f"custom_{role_key}_{re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')}"
-                                processed_sec.append({
-                                    "id": sec.get("id") or f"custom-{role_key}-{idx+1}-{uuid.uuid4().hex[:6]}",
-                                    "type": sec_type,
-                                    "title": title,
-                                    "instruction": sec.get("instruction", "Write curriculum content."),
-                                    "locked": False
-                                })
-                            l["sections"][role_key] = processed_sec
-            return data["lessons"]
+        lessons = data.get("lessons")
+        if isinstance(lessons, list) and len(lessons) > 0:
+            # Build ONE shared set of custom sections per role, applied to ALL lessons
+            shared = data.get("sections")
+            if not isinstance(shared, dict):
+                shared = lessons[0].get("sections") or {}
+            processed_shared = {}
+            for role_key in ["creator", "student", "educator"]:
+                role_list = shared.get(role_key, []) if isinstance(shared, dict) else []
+                if not isinstance(role_list, list):
+                    role_list = []
+                processed = []
+                for idx, sec in enumerate(role_list):
+                    if not isinstance(sec, dict):
+                        sec = {}
+                    title = sec.get("title", f"Custom Topic {idx+1}")
+                    slug = re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')
+                    sec_type = sec.get("type") or f"custom_{role_key}_{slug}"
+                    processed.append({
+                        "id": sec.get("id") or f"custom-{role_key}-{idx+1}-{uuid.uuid4().hex[:6]}",
+                        "type": sec_type,
+                        "title": title,
+                        "instruction": sec.get("instruction", "Write curriculum content."),
+                        "locked": False
+                    })
+                processed_shared[role_key] = processed
+
+            if not any(processed_shared.get(r) for r in ["creator", "student", "educator"]):
+                return fallback_lessons
+
+            out_lessons = []
+            for i, l in enumerate(lessons):
+                title = l.get("title") or fallback_topics[i % len(fallback_topics)]
+                out_lessons.append({
+                    "id": l.get("id") or i + 1,
+                    "title": title,
+                    "order": l.get("order") or i + 1,
+                    "sections": copy.deepcopy(processed_shared)
+                })
+            return out_lessons
         return fallback_lessons
     except Exception as e:
         print(f"Error generating structure: {e}")
