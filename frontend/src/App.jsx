@@ -422,45 +422,36 @@ export default function App() {
     const baseSections = JSON.parse(JSON.stringify(defaultSections));
     if (!lessonSections) return baseSections;
     
-    // If it is already a fully populated sections object containing locked fields:
-    if (lessonSections.creator && lessonSections.creator.some(s => s.locked === true)) {
-      return lessonSections;
-    }
-    
-    // Otherwise, it is the raw custom outline from backend.
-    // Let's merge them!
-    return {
-      creator: [
-        ...baseSections.creator,
-        ...(lessonSections.creator || []).map((s, idx) => ({
-          id: s.id || `custom-gen-creator-${idx}-${Date.now()}`,
-          type: s.type || `custom-${s.title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
-          title: s.title,
-          instruction: s.instruction || 'Write curriculum content.',
-          locked: false
-        }))
-      ],
-      student: [
-        ...baseSections.student,
-        ...(lessonSections.student || []).map((s, idx) => ({
-          id: s.id || `custom-gen-student-${idx}-${Date.now()}`,
-          type: s.type || `custom-${s.title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
-          title: s.title,
-          instruction: s.instruction || 'Write student practice tips.',
-          locked: false
-        }))
-      ],
-      educator: [
-        ...baseSections.educator,
-        ...(lessonSections.educator || []).map((s, idx) => ({
-          id: s.id || `custom-gen-educator-${idx}-${Date.now()}`,
-          type: s.type || `custom-${s.title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`,
-          title: s.title,
-          instruction: s.instruction || 'Write educator guide tips.',
-          locked: false
-        }))
-      ]
-    };
+    const merged = {};
+    ['creator', 'student', 'educator'].forEach(role => {
+      const baseRoleSecs = baseSections[role] || [];
+      const inputRoleSecs = lessonSections[role] || [];
+
+      if (!inputRoleSecs.length) {
+        merged[role] = baseRoleSecs;
+        return;
+      }
+
+      const baseTypes = new Set(baseRoleSecs.map(b => b.type));
+      const updatedBase = baseRoleSecs.map(b => {
+        const match = inputRoleSecs.find(i => i.type === b.type || i.id === b.id);
+        return match ? { ...b, ...match } : b;
+      });
+
+      const customSecs = inputRoleSecs
+        .filter(i => !baseTypes.has(i.type) && !['overview', 'outcomes', 'core_content', 'exercises', 'quiz', 'why_matters', 'journey', 'practice', 'debugging', 'ethics', 'facilitator', 'engagement', 'rubric', 'assessment', 'teaching_tips', 'discussion'].includes(i.type))
+        .map((s, idx) => ({
+          id: s.id || `custom-gen-${role}-${idx}-${Date.now()}`,
+          type: s.type || `custom_${role}_${s.title ? s.title.toLowerCase().replace(/[^a-z0-9]+/g, '_') : 'section'}`,
+          title: s.title || 'Custom Section',
+          instruction: s.instruction || 'Write section content.',
+          locked: Boolean(s.locked)
+        }));
+
+      merged[role] = [...updatedBase, ...customSecs];
+    });
+
+    return merged;
   };
 
   // ── Phase 3: Interactive Course Content Handlers ──
@@ -1270,9 +1261,22 @@ export default function App() {
     }
   };
 
+  // ── Input Snapshot Tracking for Smart Cache Preservation ──
+  const [configSnapshot, setConfigSnapshot] = useState(null);
+  const [groundingSnapshot, setGroundingSnapshot] = useState(null);
+
   // ── Step 2: Save Config & Generate Proposals ──
   const handleGenerateProposals = async () => {
     setIsLoading(true);
+    const currentConfigHash = JSON.stringify({
+      configLessons,
+      configDuration,
+      configDifficulty,
+      configAudience,
+      subjectContext,
+      techTags
+    });
+
     try {
       await fetch(`${API_BASE}/courses/sessions/${sessionId}/config`, {
         method: 'POST',
@@ -1283,8 +1287,17 @@ export default function App() {
           difficulty: configDifficulty,
           target_audience: configAudience,
           subject_context: subjectContext,
+          tech_tags: techTags,
         }),
       });
+
+      // If proposals already exist AND config inputs were untouched, preserve cached proposals
+      if (proposals.length > 0 && configSnapshot === currentConfigHash) {
+        setCurrentStep('grounding');
+        return;
+      }
+
+      // If config changed or proposals missing, trigger fresh proposal generation
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
         method: 'POST',
       });
@@ -1293,6 +1306,7 @@ export default function App() {
         setProposals(data.proposals || []);
         setSelectedProposalId(null);
         setStructure([]);
+        setConfigSnapshot(currentConfigHash);
         // Fetch fresh session data to populate grounding from AI
         const sessionRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
         if (sessionRes.ok) {
@@ -1315,6 +1329,14 @@ export default function App() {
   // ── Step 3: Save Grounding ──
   const handleSaveGrounding = async () => {
     setIsLoading(true);
+    const currentGroundingHash = JSON.stringify({
+      techTags,
+      prerequisites,
+      boundaries,
+      learningOutcomes,
+      configAudience
+    });
+
     try {
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding`, {
         method: 'POST',
@@ -1328,18 +1350,24 @@ export default function App() {
         }),
       });
       if (res.ok) {
-        if (proposals.length > 0) {
-          const genRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
-            method: 'POST',
-          });
-          if (genRes.ok) {
-            const genData = await genRes.json();
-            setProposals(genData.proposals || []);
-            setSelectedProposalId(null);
-            setStructure([]);
-          } else {
-            alert('Grounding saved, but failed to refresh proposals.');
-          }
+        // If proposals already exist AND grounding inputs were untouched, skip re-generation
+        if (proposals.length > 0 && groundingSnapshot === currentGroundingHash) {
+          setCurrentStep('proposal');
+          return;
+        }
+
+        // If grounding changed or proposals missing, trigger fresh proposal generation
+        const genRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
+          method: 'POST',
+        });
+        if (genRes.ok) {
+          const genData = await genRes.json();
+          setProposals(genData.proposals || []);
+          setSelectedProposalId(null);
+          setStructure([]);
+          setGroundingSnapshot(currentGroundingHash);
+        } else {
+          alert('Grounding saved, but failed to generate proposals.');
         }
         setCurrentStep('proposal');
       } else {
@@ -2531,7 +2559,7 @@ export default function App() {
               </div>
 
               <div className="tech-tags-pills-grid">
-                {allSuggestedTags.slice(0, 20).map((tag, idx) => {
+                {Array.from(new Set([...techTags, ...allSuggestedTags])).slice(0, 35).map((tag, idx) => {
                   const isSelected = techTags.includes(tag);
                   return (
                     <button
@@ -3599,7 +3627,7 @@ export default function App() {
                   <div className="review-card-v2-body">
                     <div className="concept-hero-box">
                       <h3 className="concept-hero-title">{promptText || 'Rapid Prototyping for Real-World Impact'}</h3>
-                      <p className="concept-hero-subtitle">"{promptText ? `Course focus: ${promptText}` : 'apakabar kamu'}"</p>
+                      <p className="concept-hero-subtitle">"{promptText ? `Course focus: ${promptText}` : 'Comprehensive Course Concept'}"</p>
                     </div>
 
                     <div className="concept-description-text" style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.65', margin: '16px 0' }}>
@@ -3728,61 +3756,45 @@ export default function App() {
                   </div>
 
                   <div className="review-card-v2-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {/* Creator Persona */}
-                    <div className="persona-role-box">
-                      <div className="persona-role-header">
-                        <div className="persona-role-name">
-                          <span className="persona-dot purple"></span>
-                          <span>CREATOR</span>
-                        </div>
-                        <span className="persona-count-badge">5 Sections</span>
-                      </div>
-                      <div className="persona-tags-wrap">
-                        <span className="persona-section-tag">PROJECT OVERVIEW</span>
-                        <span className="persona-section-tag">ANDRAGOGY MINDSET</span>
-                        <span className="persona-section-tag">MARKING RUBRICS</span>
-                        <span className="persona-section-tag">CLIENT NEEDS ASSESSMENT TEMPLATES</span>
-                        <span className="persona-section-tag">AGILE ITERATION SCRIPTING TOOLS</span>
-                      </div>
-                    </div>
+                    {['creator', 'student', 'educator'].map(role => {
+                      const roleSectionsMap = new Map();
+                      structure.forEach(l => {
+                        (l.sections?.[role] || []).forEach(s => {
+                          if (s.title && !roleSectionsMap.has(s.title.toUpperCase())) {
+                            roleSectionsMap.set(s.title.toUpperCase(), s);
+                          }
+                        });
+                      });
+                      const secList = Array.from(roleSectionsMap.values());
+                      const displayList = secList.length > 0 ? secList : (
+                        role === 'creator' ? defaultSections.creator :
+                        role === 'student' ? defaultSections.student : defaultSections.educator
+                      );
+                      const colorClass = role === 'creator' ? 'purple' : role === 'student' ? 'blue' : 'green';
 
-                    {/* Student Persona */}
-                    <div className="persona-role-box">
-                      <div className="persona-role-header">
-                        <div className="persona-role-name">
-                          <span className="persona-dot blue"></span>
-                          <span>STUDENT</span>
+                      return (
+                        <div key={role} className="persona-role-box">
+                          <div className="persona-role-header">
+                            <div className="persona-role-name">
+                              <span className={`persona-dot ${colorClass}`}></span>
+                              <span>{role.toUpperCase()}</span>
+                            </div>
+                            <span className="persona-count-badge">{displayList.length} Sections</span>
+                          </div>
+                          <div className="persona-tags-wrap">
+                            {displayList.map(sec => (
+                              <span 
+                                key={sec.id || sec.title} 
+                                className="persona-section-tag"
+                                style={!sec.locked ? { border: '1.5px solid var(--gold)', background: '#fff8e6', fontWeight: 700, color: 'var(--navy)' } : {}}
+                              >
+                                {sec.title.toUpperCase()} {!sec.locked ? '✨ (CUSTOM)' : ''}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                        <span className="persona-count-badge">7 Sections</span>
-                      </div>
-                      <div className="persona-tags-wrap">
-                        <span className="persona-section-tag">PROJECT BRIEF</span>
-                        <span className="persona-section-tag">TECHNOLOGY STACK</span>
-                        <span className="persona-section-tag">FUNCTIONAL REQUIREMENTS</span>
-                        <span className="persona-section-tag">NON FUNCTIONAL REQUIREMENTS</span>
-                        <span className="persona-section-tag">DELIVERABLES</span>
-                        <span className="persona-section-tag">PEER REVIEW FRAMEWORKS</span>
-                        <span className="persona-section-tag">STAKEHOLDER PRESENTATION CHECKLISTS</span>
-                      </div>
-                    </div>
-
-                    {/* Educator Persona */}
-                    <div className="persona-role-box">
-                      <div className="persona-role-header">
-                        <div className="persona-role-name">
-                          <span className="persona-dot green"></span>
-                          <span>EDUCATOR</span>
-                        </div>
-                        <span className="persona-count-badge">5 Sections</span>
-                      </div>
-                      <div className="persona-tags-wrap">
-                        <span className="persona-section-tag">FACILITATOR GUIDE</span>
-                        <span className="persona-section-tag">ANDRAGOGY IN PRACTICE</span>
-                        <span className="persona-section-tag">ENGAGEMENT STRATEGIES</span>
-                        <span className="persona-section-tag">INDUSTRY SIMULATION DEBRIEF GUIDES</span>
-                        <span className="persona-section-tag">MVP TESTING EVALUATION CRITERIA</span>
-                      </div>
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
 

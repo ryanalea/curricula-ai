@@ -298,6 +298,8 @@ def update_config(session_id: str, config_data: schemas.CourseConfigUpdate, db: 
     db_session.config_difficulty = config_data.difficulty
     db_session.config_audience = config_data.target_audience
     db_session.subject_context = config_data.subject_context
+    if config_data.tech_tags is not None:
+        db_session.tech_tags = json.dumps(config_data.tech_tags)
     db.commit()
     
     return {"message": "Config updated successfully"}
@@ -309,11 +311,12 @@ def generate_proposals_api(session_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Session not found")
         
     grounding = {
-        "tech_tags": json.loads(db_session.tech_tags),
-        "prerequisites": json.loads(db_session.prerequisites),
-        "out_of_scope": json.loads(db_session.boundaries),
-        "learning_outcomes": json.loads(db_session.learning_outcomes),
-        "target_audience": db_session.config_audience
+        "tech_tags": json.loads(db_session.tech_tags) if db_session.tech_tags else [],
+        "prerequisites": json.loads(db_session.prerequisites) if db_session.prerequisites else [],
+        "out_of_scope": json.loads(db_session.boundaries) if db_session.boundaries else [],
+        "learning_outcomes": json.loads(db_session.learning_outcomes) if db_session.learning_outcomes else [],
+        "target_audience": db_session.config_audience or "Student",
+        "subject_context": db_session.subject_context or ""
     }
     
     proposals = pipeline.generate_proposals(db_session.prompt, grounding)
@@ -338,11 +341,12 @@ def select_proposal(session_id: str, payload: schemas.ProposalSelect, db: Sessio
     
     # Generate initial course structure/lessons outline
     grounding = {
-        "tech_tags": json.loads(db_session.tech_tags),
-        "prerequisites": json.loads(db_session.prerequisites),
-        "out_of_scope": json.loads(db_session.boundaries),
-        "learning_outcomes": json.loads(db_session.learning_outcomes),
-        "target_audience": db_session.config_audience
+        "tech_tags": json.loads(db_session.tech_tags) if db_session.tech_tags else [],
+        "prerequisites": json.loads(db_session.prerequisites) if db_session.prerequisites else [],
+        "out_of_scope": json.loads(db_session.boundaries) if db_session.boundaries else [],
+        "learning_outcomes": json.loads(db_session.learning_outcomes) if db_session.learning_outcomes else [],
+        "target_audience": db_session.config_audience or "Student",
+        "subject_context": db_session.subject_context or ""
     }
     config = {
         "lessons_count": db_session.config_lessons,
@@ -454,7 +458,14 @@ async def generate_course_content_task_async(session_id: str):
                 db.refresh(lesson)
                 
             # Run RTFC master prompting calls in parallel for faster speed
-            grounding_data = db_session.prerequisites or ""
+            grounding_data = json.dumps({
+                "tech_tags": json.loads(db_session.tech_tags) if db_session.tech_tags else [],
+                "subject_context": db_session.subject_context or "",
+                "prerequisites": json.loads(db_session.prerequisites) if db_session.prerequisites else [],
+                "out_of_scope": json.loads(db_session.boundaries) if db_session.boundaries else [],
+                "learning_outcomes": json.loads(db_session.learning_outcomes) if db_session.learning_outcomes else [],
+                "target_audience": db_session.config_audience or "Student"
+            })
             lesson_structure = db_session.structure or ""
             lesson_duration = db_session.config_duration or "60 mins"
             

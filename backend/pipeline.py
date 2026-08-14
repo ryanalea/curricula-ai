@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import re
+import uuid
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -394,6 +395,22 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         )
         data = safe_load_json(response.choices[0].message.content)
         if "lessons" in data and isinstance(data["lessons"], list) and len(data["lessons"]) > 0:
+            for l in data["lessons"]:
+                if "sections" in l and isinstance(l["sections"], dict):
+                    for role_key in ["creator", "student", "educator"]:
+                        if role_key in l["sections"] and isinstance(l["sections"][role_key], list):
+                            processed_sec = []
+                            for idx, sec in enumerate(l["sections"][role_key]):
+                                title = sec.get("title", f"Custom Topic {idx+1}")
+                                sec_type = sec.get("type") or f"custom_{role_key}_{re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')}"
+                                processed_sec.append({
+                                    "id": sec.get("id") or f"custom-{role_key}-{idx+1}-{uuid.uuid4().hex[:6]}",
+                                    "type": sec_type,
+                                    "title": title,
+                                    "instruction": sec.get("instruction", "Write curriculum content."),
+                                    "locked": False
+                                })
+                            l["sections"][role_key] = processed_sec
             return data["lessons"]
         return fallback_lessons
     except Exception as e:
