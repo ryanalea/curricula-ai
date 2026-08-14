@@ -53,13 +53,13 @@ The platform follows an **8-step AI-guided workflow** (RTFC pipeline) to ensure 
 - ✅ Empty states with graceful fallback messages
 - ✅ Responsive sidebar with section labels and nav badges
 
-### Backend (FastAPI + SQLite)
+### Backend (FastAPI + MySQL)
 - ✅ Session-based workflow state machine
 - ✅ Async AI content generation (non-blocking via `BackgroundTasks`)
 - ✅ Real-time progress polling endpoint
 - ✅ Modular pipeline: Concept → Grounding → Proposals → Structure → Content
 - ✅ 3-role content generator (Creator, Student, Educator) per lesson
-- ✅ SQLite persistence (Course, Lesson, Section, Session models)
+- ✅ MySQL persistence (Course, Lesson, Section, Session models) with Alembic migrations
 - ✅ OpenAI-compatible with mock fallback for offline development
 - ✅ CORS configured for local development
 
@@ -70,7 +70,7 @@ The platform follows an **8-step AI-guided workflow** (RTFC pipeline) to ensure 
 | Layer | Technology |
 |-------|-----------|
 | **Frontend** | React 18, Vite, Vanilla CSS |
-| **Backend** | FastAPI, SQLAlchemy, SQLite |
+| **Backend** | FastAPI, SQLAlchemy 2.0, Alembic, MySQL |
 | **AI** | OpenAI GPT-4o-mini (via `openai` SDK) |
 | **Fonts** | Outfit + Plus Jakarta Sans (Google Fonts) |
 | **State** | React `useState` / `useEffect` |
@@ -84,11 +84,14 @@ The platform follows an **8-step AI-guided workflow** (RTFC pipeline) to ensure 
 ai-course-generator/
 ├── backend/
 │   ├── main.py          # FastAPI app, all API endpoints
+│   ├── database.py      # DB connection (MySQL), Base, SessionLocal
 │   ├── pipeline.py      # AI generation pipeline (all stages)
-│   ├── models.py        # SQLAlchemy ORM models
+│   ├── models.py        # SQLAlchemy 2.0 ORM models
 │   ├── schemas.py       # Pydantic request/response schemas
-│   ├── .env             # API keys (not committed)
-│   └── course_generator.db  # SQLite database (auto-created)
+│   ├── alembic.ini      # Alembic configuration
+│   ├── alembic/         # Migration scripts (env.py, versions/)
+│   ├── .env             # API keys & DB credentials (not committed)
+│   └── .env.example     # Env variable template
 │
 └── frontend/
     ├── public/
@@ -108,6 +111,7 @@ ai-course-generator/
 - Node.js 18+
 - Python 3.10+
 - pip
+- MySQL 8+ (running)
 
 ### 1. Clone the repository
 
@@ -127,16 +131,24 @@ venv\Scripts\activate  # Windows
 # source venv/bin/activate  # Mac/Linux
 
 # Install dependencies
-pip install fastapi uvicorn sqlalchemy openai python-dotenv
+pip install -r requirements.txt
 
-# Create .env file
-echo OPENAI_API_KEY=your_key_here > .env
+# Create .env file from template and fill in DB credentials + API key
+cp .env.example .env
+
+# Create the database (one-time)
+mysql -u root -p -e "CREATE DATABASE curricula_ai CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+# Apply database migrations
+alembic upgrade head
 
 # Start the server
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-> 💡 **No API key?** The app runs in **mock mode** — all AI steps return realistic demo data. Perfect for UI development.
+> 💡 **No API key?** The app runs in **mock mode** — all AI steps return realistic demo data. Perfect for UI development. Set `OPENAI_API_KEY=MOCK_KEY_FOR_DEVELOPMENT` in `.env`.
+
+> 🗄️ **Database migrations:** any schema change goes through Alembic. After editing models, generate a migration with `alembic revision --autogenerate -m "description"` then apply it with `alembic upgrade head`.
 
 ### 3. Frontend Setup
 
@@ -161,13 +173,22 @@ npm run dev
 
 ## 🔑 Environment Variables
 
-Create `backend/.env`:
+Create `backend/.env` (see `.env.example`):
 
 ```env
+# Database (MySQL)
+DB_USER=root
+DB_PASSWORD=your_password
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=curricula_ai
+
+# AI Provider (OpenRouter is used if OPENROUTER_API_KEY is set)
 OPENAI_API_KEY=sk-...your-key-here...
+OPENAI_MODEL=gpt-4o-mini
 ```
 
-If `OPENAI_API_KEY` is not set or set to `MOCK_KEY_FOR_DEVELOPMENT`, the app runs fully in **mock/demo mode**.
+If `OPENAI_API_KEY` is not set or set to `MOCK_KEY_FOR_DEVELOPMENT`, the app runs fully in **mock/demo mode**. Database credentials can alternatively be supplied as a single `DATABASE_URL` (e.g. `mysql+pymysql://user:pass@host:3306/curricula_ai?charset=utf8mb4`).
 
 ---
 

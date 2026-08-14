@@ -1,143 +1,74 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey, Table
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker
-import json
+from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-Base = declarative_base()
+from database import Base
 
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    email = Column(String, unique=True, index=True)
-
-class Project(Base):
-    __tablename__ = "projects"
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String)
-    description = Column(Text, nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
 
 class Course(Base):
     __tablename__ = "courses"
-    id = Column(String, primary_key=True, index=True)
-    title = Column(String)
-    description = Column(Text, nullable=True)
-    difficulty = Column(String)
-    duration = Column(Integer)
-    audience = Column(String)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
-    lessons = relationship("Lesson", back_populates="course", cascade="all, delete-orphan")
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    difficulty: Mapped[str] = mapped_column(String(50))
+    duration: Mapped[int] = mapped_column(Integer)
+    audience: Mapped[str] = mapped_column(String(100))
+    lessons: Mapped[list["Lesson"]] = relationship(back_populates="course", cascade="all, delete-orphan")
+
 
 class Lesson(Base):
     __tablename__ = "lessons"
-    id = Column(Integer, primary_key=True, index=True)
-    course_id = Column(String, ForeignKey("courses.id"))
-    title = Column(String)
-    order = Column(Integer)
-    course = relationship("Course", back_populates="lessons")
-    sections = relationship("Section", back_populates="lesson", cascade="all, delete-orphan")
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    course_id: Mapped[str] = mapped_column(String(36), ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    position: Mapped[int] = mapped_column(Integer)
+    course: Mapped["Course"] = relationship(back_populates="lessons")
+    sections: Mapped[list["Section"]] = relationship(back_populates="lesson", cascade="all, delete-orphan")
+
 
 class Section(Base):
     __tablename__ = "sections"
-    id = Column(Integer, primary_key=True, index=True)
-    lesson_id = Column(Integer, ForeignKey("lessons.id"))
-    role = Column(String)  # 'creator', 'student', 'educator'
-    section_type = Column(String)  # e.g., 'overview', 'core_content', 'learning_journey', etc.
-    content_text = Column(Text)
-    lesson = relationship("Lesson", back_populates="sections")
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lesson_id: Mapped[int] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    section_type: Mapped[str] = mapped_column(String(50))
+    content_text: Mapped[str] = mapped_column(Text)
+    lesson: Mapped["Lesson"] = relationship(back_populates="sections")
+
 
 class Session(Base):
     __tablename__ = "sessions"
-    id = Column(String, primary_key=True, index=True)
-    step = Column(String, default="dashboard")
-    prompt = Column(Text, nullable=True)
-    tech_tags = Column(Text, default="[]")  # JSON string list
-    config_lessons = Column(Integer, default=5)
-    config_duration = Column(Integer, default=60)
-    config_difficulty = Column(String, default="Beginner")
-    config_audience = Column(String, default="Student")
-    subject_context = Column(Text, default="")
-    prerequisites = Column(Text, default="[]")  # JSON string list
-    boundaries = Column(Text, default="[]")  # JSON string list
-    learning_outcomes = Column(Text, default="[]")  # JSON string list
-    proposals = Column(Text, default="[]")  # JSON string of 3 proposals
-    selected_proposal_id = Column(Integer, nullable=True)
-    structure = Column(Text, default="[]")  # JSON string outline of lessons
-    status = Column(String, default="idle")
-    progress = Column(Integer, default=0)
-    status_text = Column(String, default="")
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    step: Mapped[str] = mapped_column(String(30), default="dashboard")
+    prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tech_tags: Mapped[str] = mapped_column(Text, default="[]")
+    config_lessons: Mapped[int] = mapped_column(Integer, default=5)
+    config_duration: Mapped[int] = mapped_column(Integer, default=60)
+    config_difficulty: Mapped[str] = mapped_column(String(30), default="Beginner")
+    config_audience: Mapped[str] = mapped_column(String(100), default="Student")
+    subject_context: Mapped[str] = mapped_column(Text, default="")
+    prerequisites: Mapped[str] = mapped_column(Text, default="[]")
+    boundaries: Mapped[str] = mapped_column(Text, default="[]")
+    learning_outcomes: Mapped[str] = mapped_column(Text, default="[]")
+    proposals: Mapped[str] = mapped_column(Text, default="[]")
+    selected_proposal_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    structure: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(30), default="idle")
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    status_text: Mapped[str] = mapped_column(Text, default="")
+
 
 class History(Base):
     __tablename__ = "history"
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(String)
-    lesson_id = Column(Integer, nullable=True)
-    section_type = Column(String, nullable=True)
-    role = Column(String, nullable=True)
-    content_snapshot = Column(Text)
-    label = Column(String, nullable=True)
-    created_at = Column(String)
 
-class Quiz(Base):
-    __tablename__ = "quizzes"
-    id = Column(Integer, primary_key=True, index=True)
-    lesson_id = Column(Integer, ForeignKey("lessons.id"))
-    question = Column(String)
-    options = Column(Text)  # JSON list
-    answer = Column(String)
-    explanation = Column(Text, nullable=True)
-    difficulty = Column(String, nullable=True)
-    type = Column(String, nullable=True)
-
-class Exercise(Base):
-    __tablename__ = "exercises"
-    id = Column(Integer, primary_key=True, index=True)
-    lesson_id = Column(Integer, ForeignKey("lessons.id"))
-    title = Column(String)
-    instruction = Column(Text)
-    difficulty = Column(String, nullable=True)
-    type = Column(String, nullable=True)  # hands-on, case-study
-
-class PromptTemplate(Base):
-    __tablename__ = "prompt_templates"
-    id = Column(Integer, primary_key=True, index=True)
-    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=True)
-    role = Column(String)
-    content = Column(Text)
-    is_favorite = Column(Integer, default=0)
-
-class Document(Base):
-    __tablename__ = "documents"
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(String, ForeignKey("sessions.id"))
-    filename = Column(String)
-    file_type = Column(String)
-    storage_path = Column(String)
-    created_at = Column(String)
-
-class Template(Base):
-    __tablename__ = "templates"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String)
-    description = Column(Text, nullable=True)
-    structure = Column(Text)  # JSON string
-    is_public = Column(Integer, default=0)
-
-class AIJob(Base):
-    __tablename__ = "ai_jobs"
-    id = Column(String, primary_key=True, index=True)
-    session_id = Column(String, ForeignKey("sessions.id"))
-    job_type = Column(String)
-    status = Column(String)
-    started_at = Column(String)
-    completed_at = Column(String, nullable=True)
-    error_msg = Column(Text, nullable=True)
-
-DATABASE_URL = "sqlite:///./course_generator.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-def init_db():
-    Base.metadata.create_all(bind=engine)
-
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    lesson_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="SET NULL"), nullable=True)
+    role: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    section_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    content_snapshot: Mapped[str] = mapped_column(Text)
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(32))

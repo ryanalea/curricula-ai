@@ -9,13 +9,12 @@ from typing import List
 import datetime
 import io
 
-from models import SessionLocal, init_db, Session as DbSession, Course, Lesson, Section, History
+from database import SessionLocal, get_db
+from models import Session as DbSession, Course, Lesson, Section, History
 import schemas
 import pipeline
 import exporter
 import document_parser
-
-init_db()
 
 app = FastAPI(title="AI Course Generator API", version="1.0.0")
 
@@ -32,14 +31,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Dependency to get db session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 class ProgressPublisher:
     def __init__(self):
@@ -183,7 +174,7 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
     lessons_data = []
     course = db.query(Course).filter(Course.id == session_id).first()
     if course:
-        for lesson in sorted(course.lessons, key=lambda l: l.order):
+        for lesson in sorted(course.lessons, key=lambda l: l.position):
             sections_data = {}
             for sec in lesson.sections:
                 if sec.role not in sections_data:
@@ -195,7 +186,7 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
             lessons_data.append({
                 "id": lesson.id,
                 "title": lesson.title,
-                "order": lesson.order,
+                "order": lesson.position,
                 "sections": sections_data
             })
             
@@ -298,6 +289,8 @@ def update_config(session_id: str, config_data: schemas.CourseConfigUpdate, db: 
     db_session.config_difficulty = config_data.difficulty
     db_session.config_audience = config_data.target_audience
     db_session.subject_context = config_data.subject_context
+    if config_data.tech_tags is not None:
+        db_session.tech_tags = json.dumps(config_data.tech_tags)
     db.commit()
     
     return {"message": "Config updated successfully"}
@@ -436,12 +429,12 @@ async def generate_course_content_task_async(session_id: str):
             })
             
             # Check or create Lesson
-            lesson = db.query(Lesson).filter(Lesson.course_id == session_id, Lesson.order == idx + 1).first()
+            lesson = db.query(Lesson).filter(Lesson.course_id == session_id, Lesson.position == idx + 1).first()
             if not lesson:
                 lesson = Lesson(
                     course_id=session_id,
                     title=item["title"],
-                    order=idx + 1
+                    position=idx + 1
                 )
                 db.add(lesson)
                 db.commit()
@@ -695,7 +688,7 @@ def export_course(session_id: str, format: str = "markdown", role: str = "all", 
     lessons_data = []
     course = db.query(Course).filter(Course.id == session_id).first()
     if course:
-        for lesson in sorted(course.lessons, key=lambda l: l.order):
+        for lesson in sorted(course.lessons, key=lambda l: l.position):
             sections_data = {}
             for sec in lesson.sections:
                 if sec.role not in sections_data:
@@ -707,7 +700,7 @@ def export_course(session_id: str, format: str = "markdown", role: str = "all", 
             lessons_data.append({
                 "id": lesson.id,
                 "title": lesson.title,
-                "order": lesson.order,
+                "order": lesson.position,
                 "sections": sections_data
             })
             

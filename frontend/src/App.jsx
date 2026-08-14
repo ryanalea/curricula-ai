@@ -1007,7 +1007,8 @@ export default function App() {
           duration: durMins,
           difficulty: diffLvl,
           target_audience: audTarget,
-          subject_context: subjCtx
+          subject_context: subjCtx,
+          tech_tags: techTags
         })
       });
 
@@ -1139,6 +1140,7 @@ export default function App() {
           difficulty: configDifficulty,
           target_audience: configAudience,
           subject_context: subjectContext,
+          tech_tags: techTags,
         }),
       });
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
@@ -2315,19 +2317,25 @@ export default function App() {
               </div>
 
               <div className="tech-tags-pills-grid">
-                {allSuggestedTags.slice(0, 20).map((tag, idx) => {
-                  const isSelected = techTags.includes(tag);
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      className={`tech-tag-pill ${isSelected ? 'selected' : ''}`}
-                      onClick={() => toggleTag(tag)}
-                    >
-                      {tag}
-                    </button>
-                  );
-                })}
+                {(() => {
+                  const displayTags = Array.from(new Set([
+                    ...techTags,
+                    ...allSuggestedTags.filter(t => !techTags.includes(t)).slice(0, 20)
+                  ]));
+                  return displayTags.map((tag, idx) => {
+                    const isSelected = techTags.includes(tag);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`tech-tag-pill ${isSelected ? 'selected' : ''}`}
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  });
+                })()}
               </div>
 
               <div className="tech-tags-input-container">

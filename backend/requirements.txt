@@ -1,6 +1,9 @@
 fastapi
 uvicorn
 sqlalchemy
+alembic
+pymysql
+cryptography
 openai
 python-dotenv
 python-docx

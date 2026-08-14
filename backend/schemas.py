@@ -17,6 +17,7 @@ class CourseConfigUpdate(BaseModel):
     difficulty: str
     target_audience: str
     subject_context: str
+    tech_tags: Optional[List[str]] = None
 
 class ProposalSelect(BaseModel):
     selected_proposal_id: int
