@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import re
+import uuid
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -304,8 +305,32 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         f"Security & Enterprise Best Practices",
         f"Maintenance & Future Roadmap"
     ]
+    
+    fallback_sections = {
+        "creator": [
+            {"title": "Technical Deep Dive", "instruction": "Explain the underlying architecture and theoretical details of this lesson's concepts."},
+            {"title": "Industry Implementation Patterns", "instruction": "Discuss real-world production setups and architectural patterns used in the industry."},
+            {"title": "Performance Optimization Tips", "instruction": "Provide advice on profiling, optimizing, and scaling this topic's implementations."}
+        ],
+        "student": [
+            {"title": "Hands-on Guided Lab", "instruction": "Provide a step-by-step programming exercise or setup guide for students."},
+            {"title": "Self-Assessment Challenge", "instruction": "Formulate a challenge scenario to test the student's understanding."},
+            {"title": "Real-World Case Study", "instruction": "Explain how this specific concept was applied in a real-world tech industry situation."}
+        ],
+        "educator": [
+            {"title": "Active Learning Strategy", "instruction": "Describe an interactive class activity or roleplay scenario."},
+            {"title": "Common Misconceptions", "instruction": "Detail top 3 misconceptions students have about this topic and how to correct them."},
+            {"title": "Peer Review Activity", "instruction": "Outline a 10-minute peer-review discussion template for the class."}
+        ]
+    }
+    
     fallback_lessons = [
-        {"id": i, "title": f"Lesson {i}: {fallback_topics[(i-1) % len(fallback_topics)]} ({proposal_title})", "order": i}
+        {
+            "id": i, 
+            "title": f"Lesson {i}: {fallback_topics[(i-1) % len(fallback_topics)]} ({proposal_title})", 
+            "order": i,
+            "sections": fallback_sections
+        }
         for i in range(1, lessons_count + 1)
     ]
     
@@ -323,19 +348,40 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
 
         [RULES]
         - Each lesson title MUST be completely unique and specific (CRITICAL: NEVER repeat generic prefixes like 'Introduction to...' or repeat the exact same title across lessons).
-        - Titles must progress logically from foundational concepts to advanced practical implementation:
-          * Lesson 1: Foundations & Architecture
-          * Lesson 2: Core Workflows & Hands-On Concepts
-          * Lesson 3: Advanced Optimization & Implementation
-          * Lesson 4+: Practical Capstone & Real-World Deployment
+        - For EACH lesson, generate custom-tailored, highly relevant additional sections to supplement the base curriculum:
+          * Exactly 3 additional sections for the 'creator' role.
+          * Exactly 3 additional sections for the 'student' role.
+          * Exactly 3 additional sections for the 'educator' role.
+        - These additional sections must focus on specific, concrete technical topics related directly to the lesson's main concept.
+        - Write a detailed instruction (1-2 sentences) for each additional section detailing what the AI should write in that section.
         - Do NOT repeat the full course title verbatim inside every lesson name.
 
         [FORMAT]
         Return a pure JSON object, no preamble, exactly:
         {{
           "lessons": [
-            {{"id": 1, "title": "Lesson 1: Specific, distinct foundational topic", "order": 1}},
-            {{"id": 2, "title": "Lesson 2: Specific, distinct intermediate topic", "order": 2}}
+            {{
+              "id": 1,
+              "title": "Lesson 1: Specific distinct foundational topic",
+              "order": 1,
+              "sections": {{
+                "creator": [
+                  {{"title": "Custom Topic Title 1", "instruction": "Detailed instruction for AI content generation about this topic."}},
+                  {{"title": "Custom Topic Title 2", "instruction": "Detailed instruction."}},
+                  {{"title": "Custom Topic Title 3", "instruction": "Detailed instruction."}}
+                ],
+                "student": [
+                  {{"title": "Student Challenge Title 1", "instruction": "Instruction."}},
+                  {{"title": "Student Tool Guide Title 2", "instruction": "Instruction."}},
+                  {{"title": "Student Case Study Title 3", "instruction": "Instruction."}}
+                ],
+                "educator": [
+                  {{"title": "Classroom Activity Title 1", "instruction": "Instruction."}},
+                  {{"title": "Misconceptions Guide Title 2", "instruction": "Instruction."}},
+                  {{"title": "Peer Review Guide Title 3", "instruction": "Instruction."}}
+                ]
+              }}
+            }}
           ]
         }}
         The "lessons" array must contain exactly {lessons_count} items, ordered 1..{lessons_count}.
@@ -344,18 +390,34 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
             model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            max_tokens=1200,
+            max_tokens=1500,
             temperature=0.7
         )
         data = safe_load_json(response.choices[0].message.content)
         if "lessons" in data and isinstance(data["lessons"], list) and len(data["lessons"]) > 0:
+            for l in data["lessons"]:
+                if "sections" in l and isinstance(l["sections"], dict):
+                    for role_key in ["creator", "student", "educator"]:
+                        if role_key in l["sections"] and isinstance(l["sections"][role_key], list):
+                            processed_sec = []
+                            for idx, sec in enumerate(l["sections"][role_key]):
+                                title = sec.get("title", f"Custom Topic {idx+1}")
+                                sec_type = sec.get("type") or f"custom_{role_key}_{re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')}"
+                                processed_sec.append({
+                                    "id": sec.get("id") or f"custom-{role_key}-{idx+1}-{uuid.uuid4().hex[:6]}",
+                                    "type": sec_type,
+                                    "title": title,
+                                    "instruction": sec.get("instruction", "Write curriculum content."),
+                                    "locked": False
+                                })
+                            l["sections"][role_key] = processed_sec
             return data["lessons"]
-        return list(data.values())[0] if isinstance(data, dict) and isinstance(list(data.values())[0], list) else fallback_lessons
+        return fallback_lessons
     except Exception as e:
         print(f"Error generating structure: {e}")
         return fallback_lessons
 
-async def generate_creator_content(lesson_title: str, grounding_data: str, lesson_structure: str):
+async def generate_creator_content(lesson_title: str, grounding_data: str, lesson_structure: str, lesson_duration: str = "60 mins"):
     if not client:
         await asyncio.sleep(0.5)
         return {
@@ -370,22 +432,29 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     prompt = f"""
     [ROLE]
     Anda adalah Curriculum Architect & Technical Content Creator Senior yang bertugas merancang dokumen induk teknis dan instruksional untuk modul kursus.
-
+ 
     [TASK]
     Berdasarkan struktur kurikulum dan parameter grounding berikut, hasilkan konten utama untuk POV CREATOR pada Lesson: "{lesson_title}".
+    Target Durasi Belajar: {lesson_duration} per lesson.
     Parameter Grounding: {grounding_data}
-    Struktur Lesson (daftar seluruh lesson dalam course ini, untuk konteks urutan & agar tidak tumpang tindih materi antar lesson): {lesson_structure}
-
+    Struktur Lesson (daftar seluruh lesson dalam course ini, untuk konteks urutan & agar tidak tumpang tidak): {lesson_structure}
+ 
+    [RULES]
+    - Sesuaikan kedalaman materi core_content agar setara dengan materi bacaan/studi mandiri selama 40% dari total {lesson_duration} durasi pelajaran.
+    - Tulis materi secara teknis, presisi, mendalam, dan komprehensif. Dilarang menulis ringkasan singkat atau hanya garis besar saja.
+    - Berikan minimal dua sub-topik mendalam dalam core_content lengkap dengan penjelasan arsitektur dan contoh kasus nyata di industri.
+    - Sertakan minimal satu blok kode implementasi teknis yang utuh. DILARANG KERAS menggunakan placeholder seperti '// TODO' atau 'pass' di dalam kode. Kode harus fungsional dan siap pakai.
+ 
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
     {{
       "overview": "2-3 kalimat deskripsi teknis yang spesifik untuk lesson '{lesson_title}' ini saja (bukan deskripsi umum tentang course secara keseluruhan)",
       "learning_outcomes": ["Outcome spesifik 1", "Outcome spesifik 2", "Outcome spesifik 3"],
-      "core_content": "Materi lengkap dalam format MARKDOWN memakai heading '### ' untuk tiap sub-topik (minimal 2 sub-topik). Sertakan penjelasan konsep, contoh nyata/kasus penggunaan, dan minimal satu blok kode relevan dalam ```bahasa\\nkode\\n```. Panjang: 4-6 paragraf setara.",
+      "core_content": "Materi lengkap dalam format MARKDOWN memakai heading '### ' untuk tiap sub-topik (minimal 2 sub-topik). Harus sangat mendalam dan lengkap sesuai target durasi {lesson_duration}.",
       "exercises": [
         {{
           "title": "Nama latihan yang spesifik untuk topik lesson ini",
-          "instruction": "Instruksi latihan yang detail dan actionable, merujuk langsung ke konsep di core_content",
+          "instruction": "Instruksi latihan yang detail, langkah-demi-langkah, dan actionable, merujuk langsung ke konsep di core_content",
           "difficulty": "Easy/Medium/Hard"
         }}
       ],
@@ -399,13 +468,11 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
       ],
       "prompt_templates": ["Contoh prompt AI yang bisa dipakai siswa untuk eksplorasi lebih lanjut terkait topik lesson ini"]
     }}
-
+ 
     [CONSTRAINT]
-    - WAJIB spesifik ke topik lesson "{lesson_title}" — DILARANG memakai kalimat generik/template seperti "materi ini penting untuk fondasi" tanpa menyebutkan konsep konkretnya.
-    - Konten antar lesson TIDAK BOLEH duplikat; gunakan Struktur Lesson di atas sebagai referensi supaya tiap lesson punya fokus materi berbeda.
+    - WAJIB spesifik ke topik lesson "{lesson_title}" — DILARANG memakai kalimat generik/template tanpa menyebutkan konsep konkretnya.
     - Sediakan minimal 2 exercises dan minimal 3 quiz.
-    - Gunakan bahasa yang teknis, presisi, dan komprehensif.
-    - Tanpa salam pengantar, berikan respons JSON valid murni (tanpa markdown code fence di luar field core_content).
+    - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
@@ -420,7 +487,10 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     )
     return safe_load_json(response.choices[0].message.content)
 
-async def generate_student_content(lesson_title: str, core_content_creator: str):
+async def generate_student_content(lesson_title: str, creator_content: dict, lesson_duration: str = "60 mins"):
+    core_content_creator = creator_content.get("core_content", "")
+    creator_exercises = creator_content.get("exercises", [])
+    
     if not client:
         await asyncio.sleep(0.5)
         return {
@@ -428,7 +498,7 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
             "learning_journey": f"Follow these interactive steps to master {lesson_title}.",
             "practice": {
                 "interactive_exercise": "Try changing the parameters in the starter template.",
-                "code_block": "def run():\n    # TODO: Fill in details\n    pass",
+                "code_block": "def run():\n    # Implement practice logic\n    print('Demo')",
                 "checklist": ["Identify key features", "Run the sample script"]
             },
             "debugging": "Common bug: IndentationError. Fix: Ensure 4 spaces are used for indentation.",
@@ -438,29 +508,36 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
     prompt = f"""
     [ROLE]
     Anda adalah Lead Learning Experience Designer (LX Designer) & Tutor AI Interaktif yang ahli menyajikan materi pembelajaran yang menyenangkan, intuitif, dan *hands-on*.
-
+ 
     [TASK]
-    Berdasarkan materi induk berikut, transformasi materi Lesson: "{lesson_title}" menjadi modul belajar interaktif khusus untuk POV STUDENT.
+    Berdasarkan materi induk dan daftar latihan Creator berikut, transformasikan materi Lesson: "{lesson_title}" menjadi modul belajar interaktif khusus untuk POV STUDENT.
+    Target Durasi Belajar: {lesson_duration} per lesson.
     Materi Induk: {core_content_creator}
-
+    Daftar Latihan Creator: {json.dumps(creator_exercises)}
+ 
+    [RULES]
+    - Rancang latihan interaktif dan draf kode awal (*starter code*) yang secara logis membutuhkan waktu pengerjaan 40% dari total {lesson_duration} durasi pelajaran (hands-on practice).
+    - Bagian 'practice.code_block' HARUS berupa draf kode awal yang utuh, fungsional, dan **berhubungan langsung dengan Latihan Creator**: {json.dumps(creator_exercises)}.
+    - DILARANG menggunakan placeholder kosong seperti '// TODO' atau 'pass' di dalam draf kode. Tulis kode templat awal yang bisa langsung dicoba oleh siswa dengan menyisakan area parameter/fungsi logis tertentu untuk mereka selesaikan.
+    - Bagian 'debugging' harus menyajikan minimal 2 kesalahan umum teknis yang nyata beserta cuplikan kode salah, pesan error, dan solusi perbaikannya yang spesifik untuk bab ini.
+ 
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
     {{
       "why_this_matters": "Penjelasan intuitif dan analogi konkret (bukan generik) mengapa materi lesson INI spesifik penting di dunia nyata",
       "learning_journey": "Langkah-langkah belajar berformat MARKDOWN dengan list bernomor (1. 2. 3.), merujuk konsep konkret dari Materi Induk, bukan langkah generik",
       "practice": {{
-        "interactive_exercise": "Panduan praktik langkah demi langkah yang merujuk langsung ke konsep di Materi Induk",
-        "code_block": "Draf kode awal (starter code) yang relevan dengan topik, siap diisi siswa",
+        "interactive_exercise": "Panduan praktik langkah demi langkah yang membimbing siswa menyelesaikan Latihan Creator di atas",
+        "code_block": "Kode starter teknis yang lengkap, fungsional, dan siap pakai siswa (TANPA placeholder kosong)",
         "checklist": ["Checklist pemahaman spesifik 1", "Checklist pemahaman spesifik 2", "Checklist pemahaman spesifik 3"]
       }},
-      "debugging": "Minimal 2 kesalahan umum (common bugs/errors) YANG SPESIFIK untuk topik ini beserta cara mengatasinya, format markdown list",
+      "debugging": "Kesalahan umum teknis (common bugs) spesifik bab ini dengan cuplikan log error dan solusinya, format markdown",
       "ethics": "Pertimbangan etika atau best practice yang relevan dengan topik lesson ini secara spesifik"
     }}
-
+ 
     [CONSTRAINT]
     - JANGAN sertakan jawaban kuis, rubrik penilaian pengajar, atau panduan fasilitator.
-    - JANGAN gunakan kalimat generik yang bisa berlaku untuk topik apapun — semua harus merujuk konsep konkret dari Materi Induk di atas.
-    - Gunakan bahasa yang suportif, mudah dipahami, dan berorientasi pada penyelesaian masalah nyata.
+    - JANGAN gunakan kalimat generik yang bisa berlaku untuk topik apapun.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
     """
     loop = asyncio.get_running_loop()
@@ -470,13 +547,16 @@ async def generate_student_content(lesson_title: str, core_content_creator: str)
             model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            max_tokens=2000,
+            max_tokens=2500,
             temperature=0.7
         )
     )
     return safe_load_json(response.choices[0].message.content)
 
-async def generate_educator_content(lesson_title: str, core_content_creator: str, lesson_duration: str = "60 mins"):
+async def generate_educator_content(lesson_title: str, creator_content: dict, lesson_duration: str = "60 mins"):
+    core_content_creator = creator_content.get("core_content", "")
+    creator_exercises = creator_content.get("exercises", [])
+    
     if not client:
         await asyncio.sleep(0.5)
         return {
@@ -494,23 +574,29 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
     prompt = f"""
     [ROLE]
     Anda adalah Master Pedagogi & Instructional Coach Senior yang membimbing dosen, mentor, dan fasilitator kelas dalam membawakan materi pembelajaran.
-
+ 
     [TASK]
-    Berdasarkan materi induk dan struktur lesson berikut, buatlah Panduan Mengajar (Facilitator Guide) khusus untuk POV EDUCATOR/MENTOR pada Lesson: "{lesson_title}".
+    Berdasarkan materi induk dan daftar latihan Creator berikut, buatlah Panduan Mengajar (Facilitator Guide) khusus untuk POV EDUCATOR/MENTOR pada Lesson: "{lesson_title}".
     Durasi Target Pelajaran: {lesson_duration} per lesson.
     Materi Induk: {core_content_creator}
-
+    Daftar Latihan Creator: {json.dumps(creator_exercises)}
+ 
+    [RULES]
+    - Rancang rencana pembelajaran mengajar (lesson plan timing) secara mendetail agar total alokasi waktunya **persis sama dengan durasi target ({lesson_duration})**.
+    - Kriteria penilaian di bagian 'rubric' HARUS spesifik dan **berhubungan langsung untuk menilai pengerjaan siswa terhadap Latihan Creator ini**: {json.dumps(creator_exercises)}.
+    - Panduan evaluasi di bagian 'assessment' harus memberikan instruksi penilaian/homework nyata yang secara langsung mengevaluasi hasil pengerjaan Latihan Creator tersebut.
+ 
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
     {{
-      "facilitator_guide": "Panduan spesifik cara membawakan sesi lesson INI dengan durasi total {lesson_duration}, pembukaan kelas, dan poin krusial (konsep dari Materi Induk) yang harus ditekankan",
+      "facilitator_guide": "Panduan spesifik cara membawakan sesi lesson INI dengan durasi total {lesson_duration}, pembukaan kelas, dan poin krusial (konsep dari Latihan & Materi Induk) yang harus ditekankan",
       "lesson_plan": {{
-        "timing": "Rincian alokasi waktu yang totalnya HARUS PERSIS SAMA DENGAN DURASI TARGET ({lesson_duration}) per lesson (contoh jika durasi 60m: 10m Pembukaan, 35m Penjelasan & Praktik, 15m Q&A)",
+        "timing": "Rincian alokasi waktu yang totalnya HARUS PERSIS SAMA DENGAN DURASI TARGET ({lesson_duration}) per lesson (contoh jika durasi 60m: 10m Pembukaan, 35m Penjelasan & Praktik Latihan, 15m Q&A)",
         "ice_breaker": "Pertanyaan pemantik atau aktivitas singkat yang relevan dengan topik lesson ini, bukan generik"
       }},
       "rubric": [
         {{
-          "criteria": "Kriteria Penilaian yang spesifik untuk exercise/topik lesson ini",
+          "criteria": "Kriteria Penilaian yang spesifik untuk menilai Latihan Creator di atas",
           "excellent": "Indikator nilai A",
           "good": "Indikator nilai B",
           "needs_improvement": "Indikator perbaikan"
@@ -518,9 +604,9 @@ async def generate_educator_content(lesson_title: str, core_content_creator: str
       ],
       "teaching_tips": ["Tips menangani miskonsepsi umum yang SPESIFIK untuk topik ini", "Tips menjawab pertanyaan sulit terkait topik ini"],
       "discussion_questions": ["Pertanyaan diskusi kelas 1 yang spesifik ke topik", "Pertanyaan diskusi kelas 2 yang spesifik ke topik"],
-      "assessment": "Panduan evaluasi tugas akhir/homework yang merujuk langsung ke exercise di Materi Induk"
+      "assessment": "Panduan evaluasi tugas akhir/homework yang merujuk langsung ke Latihan Creator"
     }}
-
+ 
     [CONSTRAINT]
     - Minimal 2 kriteria di rubric.
     - Fokus sepenuhnya pada strategi pedagogi, alokasi waktu kelas (*timing*), rubrik penilaian, dan tips mengajar di kelas.
@@ -694,3 +780,38 @@ async def generate_single_grounding_item(keyword: str, field_type: str, existing
     )
     data = safe_load_json(response.choices[0].message.content)
     return data.get("suggestion", f"Understanding of {keyword} concepts")
+
+async def generate_custom_section_content(lesson_title: str, section_title: str, instruction: str, grounding_data: str) -> str:
+    if not client:
+        await asyncio.sleep(0.3)
+        return f"This is auto-generated mockup content for custom section '{section_title}' based on instruction: {instruction}."
+    try:
+        prompt = f"""
+        [ROLE]
+        You are a Technical Content Creator. Write content for a custom course section.
+
+        [CONTEXT]
+        Lesson: "{lesson_title}"
+        Section Title: "{section_title}"
+        Instruction for this section: "{instruction}"
+        Course Prerequisites/Grounding: {grounding_data}
+
+        [TASK]
+        Write the section content in MARKDOWN format. Keep it technical, engaging, and highly informative.
+        Length: 2-3 paragraphs.
+        Do not include headers, just start writing the content.
+        """
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=600,
+                temperature=0.7
+            )
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error generating custom section content: {e}")
+        return f"Content for '{section_title}' could not be generated. Instruction: {instruction}."

@@ -87,14 +87,67 @@ function StepProgressBar({ currentStep, onStepClick }) {
 }
 
 // ─── Markdown-lite renderer ───────────────────────────────────────────────────
+function parseInlineMarkdown(text) {
+  if (!text) return '';
+  const tokens = [];
+  const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`|\[.*?\]\(.*?\))/g;
+  let match;
+  let lastIndex = 0;
+  while ((match = regex.exec(text)) !== null) {
+    const plainText = text.substring(lastIndex, match.index);
+    if (plainText) {
+      tokens.push(plainText);
+    }
+    const matchedToken = match[0];
+    if (matchedToken.startsWith('**') && matchedToken.endsWith('**')) {
+      tokens.push(<strong key={match.index}>{matchedToken.slice(2, -2)}</strong>);
+    } else if (matchedToken.startsWith('*') && matchedToken.endsWith('*')) {
+      tokens.push(<em key={match.index}>{matchedToken.slice(1, -1)}</em>);
+    } else if (matchedToken.startsWith('`') && matchedToken.endsWith('`')) {
+      tokens.push(<code key={match.index} className="inline-code">{matchedToken.slice(1, -1)}</code>);
+    } else if (matchedToken.startsWith('[') && matchedToken.includes('](')) {
+      const closingBracket = matchedToken.indexOf('](');
+      const linkText = matchedToken.slice(1, closingBracket);
+      const linkUrl = matchedToken.slice(closingBracket + 2, -1);
+      tokens.push(
+        <a key={match.index} href={linkUrl} target="_blank" rel="noopener noreferrer" className="content-link">
+          {linkText}
+        </a>
+      );
+    } else {
+      tokens.push(matchedToken);
+    }
+    lastIndex = regex.lastIndex;
+  }
+  const remainingText = text.substring(lastIndex);
+  if (remainingText) {
+    tokens.push(remainingText);
+  }
+  return tokens.length > 0 ? tokens : text;
+}
+
 function ContentRenderer({ text }) {
   if (!text) return <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No content available.</p>;
   const lines = String(text).split('\n');
   const elements = [];
   let codeBuffer = [];
   let inCode = false;
+  let listBuffer = [];
+
+  const flushList = (keyPrefix) => {
+    if (listBuffer.length > 0) {
+      elements.push(
+        <ul key={`ul-${keyPrefix}`} className="content-ul">
+          {listBuffer}
+        </ul>
+      );
+      listBuffer = [];
+    }
+  };
+
   lines.forEach((line, i) => {
     if (line.startsWith('```')) {
+      flushList(i);
       if (inCode) {
         elements.push(<pre key={`code-${i}`} className="code-block">{codeBuffer.join('\n')}</pre>);
         codeBuffer = []; inCode = false;
@@ -102,20 +155,27 @@ function ContentRenderer({ text }) {
       return;
     }
     if (inCode) { codeBuffer.push(line); return; }
-    if (line.startsWith('### ')) {
-      elements.push(<h4 key={i} className="content-h3">{line.slice(4)}</h4>);
-    } else if (line.startsWith('## ')) {
-      elements.push(<h3 key={i} className="content-h2">{line.slice(3)}</h3>);
-    } else if (line.startsWith('# ')) {
-      elements.push(<h2 key={i} className="content-h1">{line.slice(2)}</h2>);
-    } else if (line.startsWith('- ') || line.startsWith('* ')) {
-      elements.push(<li key={i} className="content-li">{line.slice(2)}</li>);
-    } else if (line.trim() === '') {
-      elements.push(<br key={i} />);
+
+    if (line.startsWith('- ') || line.startsWith('* ')) {
+      listBuffer.push(<li key={`li-${i}`} className="content-li">{parseInlineMarkdown(line.slice(2))}</li>);
     } else {
-      elements.push(<p key={i} className="content-p">{line}</p>);
+      flushList(i);
+      if (line.startsWith('### ')) {
+        elements.push(<h4 key={i} className="content-h3">{parseInlineMarkdown(line.slice(4))}</h4>);
+      } else if (line.startsWith('## ')) {
+        elements.push(<h3 key={i} className="content-h2">{parseInlineMarkdown(line.slice(3))}</h3>);
+      } else if (line.startsWith('# ')) {
+        elements.push(<h2 key={i} className="content-h1">{parseInlineMarkdown(line.slice(2))}</h2>);
+      } else if (line.trim() === '') {
+        elements.push(<br key={i} />);
+      } else {
+        elements.push(<p key={i} className="content-p">{parseInlineMarkdown(line)}</p>);
+      }
     }
   });
+
+  flushList('end');
+
   return <div className="content-renderer">{elements}</div>;
 }
 
@@ -271,6 +331,9 @@ export default function App() {
   const [structure, setStructure] = useState([]);
   const [activeStructureRole, setActiveStructureRole] = useState('creator');
   const [selectedStructureLessonId, setSelectedStructureLessonId] = useState(null);
+  const [draggingIdx, setDraggingIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
   const [isAddSectionModalOpen, setIsAddSectionModalOpen] = useState(false);
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [newSectionInstruction, setNewSectionInstruction] = useState('');
@@ -353,6 +416,42 @@ export default function App() {
       { id: 'sec-15', type: 'teaching_tips', title: 'Teaching Tips', locked: true, instruction: 'Instructor shortcuts.' },
       { id: 'sec-16', type: 'discussion', title: 'Discussion Questions', locked: true, instruction: 'Formulate open questions.' }
     ]
+  };
+
+  const mergeSections = (lessonSections) => {
+    const baseSections = JSON.parse(JSON.stringify(defaultSections));
+    if (!lessonSections) return baseSections;
+    
+    const merged = {};
+    ['creator', 'student', 'educator'].forEach(role => {
+      const baseRoleSecs = baseSections[role] || [];
+      const inputRoleSecs = lessonSections[role] || [];
+
+      if (!inputRoleSecs.length) {
+        merged[role] = baseRoleSecs;
+        return;
+      }
+
+      const baseTypes = new Set(baseRoleSecs.map(b => b.type));
+      const updatedBase = baseRoleSecs.map(b => {
+        const match = inputRoleSecs.find(i => i.type === b.type || i.id === b.id);
+        return match ? { ...b, ...match } : b;
+      });
+
+      const customSecs = inputRoleSecs
+        .filter(i => !baseTypes.has(i.type) && !['overview', 'outcomes', 'core_content', 'exercises', 'quiz', 'why_matters', 'journey', 'practice', 'debugging', 'ethics', 'facilitator', 'engagement', 'rubric', 'assessment', 'teaching_tips', 'discussion'].includes(i.type))
+        .map((s, idx) => ({
+          id: s.id || `custom-gen-${role}-${idx}-${Date.now()}`,
+          type: s.type || `custom_${role}_${s.title ? s.title.toLowerCase().replace(/[^a-z0-9]+/g, '_') : 'section'}`,
+          title: s.title || 'Custom Section',
+          instruction: s.instruction || 'Write section content.',
+          locked: Boolean(s.locked)
+        }));
+
+      merged[role] = [...updatedBase, ...customSecs];
+    });
+
+    return merged;
   };
 
   // ── Phase 3: Interactive Course Content Handlers ──
@@ -477,74 +576,79 @@ export default function App() {
     if (!courseData) return;
     const title = courseData.title || 'Course_Curriculum';
     const roleText = activeRole.toLowerCase();
+    setIsExporting(true);
 
-    // 1. Try real API export from FastAPI backend
-    if (sessionId) {
-      try {
-        const response = await fetch(`http://localhost:8000/api/v1/courses/${sessionId}/export?format=${exportFormat}&role=${roleText}`);
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${title.replace(/\s+/g, '_')}_${roleText}.${exportFormat === 'markdown' ? 'md' : exportFormat}`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          window.URL.revokeObjectURL(url);
-          setIsExportModalOpen(false);
-          return;
+    try {
+      // 1. Try real API export from FastAPI backend
+      if (sessionId) {
+        try {
+          const response = await fetch(`http://localhost:8000/api/v1/courses/${sessionId}/export?format=${exportFormat}&role=${roleText}`);
+          if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${title.replace(/\s+/g, '_')}_${roleText}.${exportFormat === 'markdown' ? 'md' : exportFormat}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            setIsExportModalOpen(false);
+            return;
+          }
+        } catch (err) {
+          console.error("API export error, falling back to local exporter:", err);
         }
-      } catch (err) {
-        console.error("API export error, falling back to local exporter:", err);
       }
-    }
 
-    // 2. Local fallback if offline or no sessionId
-    const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0];
-    const lessonTitle = curLesson?.title || 'Lesson_Content';
-    let contentString = `# ${title}\n## ${activeRole.toUpperCase()} POV - ${lessonTitle}\n\n`;
-    const curSecs = curLesson?.sections?.[activeRole] || {};
+      // 2. Local fallback if offline or no sessionId
+      const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0];
+      const lessonTitle = curLesson?.title || 'Lesson_Content';
+      let contentString = `# ${title}\n## ${activeRole.toUpperCase()} POV - ${lessonTitle}\n\n`;
+      const curSecs = curLesson?.sections?.[activeRole] || {};
 
-    Object.entries(curSecs).forEach(([secKey, secVal]) => {
-      contentString += `### ${secKey.toUpperCase()}\n`;
-      if (typeof secVal === 'string') {
-        contentString += `${secVal}\n\n`;
-      } else if (Array.isArray(secVal)) {
-        secVal.forEach(item => {
-          contentString += `- ${typeof item === 'object' ? JSON.stringify(item) : item}\n`;
-        });
-        contentString += '\n';
-      } else {
-        contentString += `${JSON.stringify(secVal, null, 2)}\n\n`;
+      Object.entries(curSecs).forEach(([secKey, secVal]) => {
+        contentString += `### ${secKey.toUpperCase()}\n`;
+        if (typeof secVal === 'string') {
+          contentString += `${secVal}\n\n`;
+        } else if (Array.isArray(secVal)) {
+          secVal.forEach(item => {
+            contentString += `- ${typeof item === 'object' ? JSON.stringify(item) : item}\n`;
+          });
+          contentString += '\n';
+        } else {
+          contentString += `${JSON.stringify(secVal, null, 2)}\n\n`;
+        }
+      });
+
+      let mimeType = 'text/plain';
+      let fileExt = 'txt';
+
+      if (exportFormat === 'markdown' || exportFormat === 'md') {
+        mimeType = 'text/markdown';
+        fileExt = 'md';
+      } else if (exportFormat === 'html') {
+        mimeType = 'text/html';
+        fileExt = 'html';
+        contentString = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:sans-serif;padding:30px;color:#2D3561;}</style></head><body><pre>${contentString}</pre></body></html>`;
+      } else if (exportFormat === 'pdf' || exportFormat === 'docx') {
+        mimeType = 'application/octet-stream';
+        fileExt = exportFormat;
       }
-    });
 
-    let mimeType = 'text/plain';
-    let fileExt = 'txt';
-
-    if (exportFormat === 'markdown' || exportFormat === 'md') {
-      mimeType = 'text/markdown';
-      fileExt = 'md';
-    } else if (exportFormat === 'html') {
-      mimeType = 'text/html';
-      fileExt = 'html';
-      contentString = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:sans-serif;padding:30px;color:#2D3561;}</style></head><body><pre>${contentString}</pre></body></html>`;
-    } else if (exportFormat === 'pdf' || exportFormat === 'docx') {
-      mimeType = 'application/octet-stream';
-      fileExt = exportFormat;
+      const blob = new Blob([contentString], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title.replace(/\s+/g, '_')}_${activeRole.toUpperCase()}_${lessonTitle.replace(/\s+/g, '_')}.${fileExt}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setIsExportModalOpen(false);
+    } finally {
+      setIsExporting(false);
     }
-
-    const blob = new Blob([contentString], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${title.replace(/\s+/g, '_')}_${activeRole.toUpperCase()}_${lessonTitle.replace(/\s+/g, '_')}.${fileExt}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setIsExportModalOpen(false);
   };
 
   // ── Phase 5: Knowledge Base File Upload Handlers ──
@@ -659,8 +763,39 @@ export default function App() {
     );
   };
 
+  const renderCustomSections = () => {
+    const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
+    const curSecs = curLesson?.sections?.[activeRole] || {};
+    
+    // Find the custom sections from the structure state
+    const structLesson = structure.find(l => l.id === curLesson?.id || l.title === curLesson?.title);
+    const customSecList = structLesson?.sections?.[activeRole]?.filter(s => !s.locked) || [];
+    
+    return customSecList.map((sec) => {
+      const secContent = curSecs[sec.type] || `Content for ${sec.title} is not generated yet.`;
+      const isEditing = editingSection === sec.type;
+      
+      return (
+        <div key={sec.type} id={`step7-sec-${sec.type}`} className="content-block" style={{ scrollMarginTop: '110px' }}>
+          <h3 style={{ marginBottom: '10px' }}>{sec.title}</h3>
+          {isEditing ? (
+            <textarea 
+              className="prompt-textarea" 
+              style={{ minHeight: '150px' }} 
+              value={editingText} 
+              onChange={(e) => setEditingText(e.target.value)} 
+            />
+          ) : (
+            <ContentRenderer text={typeof secContent === 'string' ? secContent : JSON.stringify(secContent, null, 2)} />
+          )}
+          {renderAIActionBar(sec.type, secContent)}
+        </div>
+      );
+    });
+  };
+
   const renderQuizManager = () => {
-    const quizzes = activeLessonContent.quiz || [];
+    const quizzes = activeLessonContent.quizzes || [];
     const isLoading = sectionLoading['quiz'];
 
     const handleUpdateQuizItem = (idx, field, value) => {
@@ -1054,7 +1189,7 @@ export default function App() {
       const structData = await structRes.json();
       const newStruct = (selData.structure || []).map(lesson => ({
         ...lesson,
-        sections: lesson.sections || defaultSections
+        sections: mergeSections(lesson.sections)
       }));
       setStructure(newStruct);
       if (newStruct.length > 0) {
@@ -1127,9 +1262,22 @@ export default function App() {
     }
   };
 
+  // ── Input Snapshot Tracking for Smart Cache Preservation ──
+  const [configSnapshot, setConfigSnapshot] = useState(null);
+  const [groundingSnapshot, setGroundingSnapshot] = useState(null);
+
   // ── Step 2: Save Config & Generate Proposals ──
   const handleGenerateProposals = async () => {
     setIsLoading(true);
+    const currentConfigHash = JSON.stringify({
+      configLessons,
+      configDuration,
+      configDifficulty,
+      configAudience,
+      subjectContext,
+      techTags
+    });
+
     try {
       await fetch(`${API_BASE}/courses/sessions/${sessionId}/config`, {
         method: 'POST',
@@ -1143,6 +1291,14 @@ export default function App() {
           tech_tags: techTags,
         }),
       });
+
+      // If proposals already exist AND config inputs were untouched, preserve cached proposals
+      if (proposals.length > 0 && configSnapshot === currentConfigHash) {
+        setCurrentStep('grounding');
+        return;
+      }
+
+      // If config changed or proposals missing, trigger fresh proposal generation
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
         method: 'POST',
       });
@@ -1151,6 +1307,7 @@ export default function App() {
         setProposals(data.proposals || []);
         setSelectedProposalId(null);
         setStructure([]);
+        setConfigSnapshot(currentConfigHash);
         // Fetch fresh session data to populate grounding from AI
         const sessionRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
         if (sessionRes.ok) {
@@ -1173,6 +1330,14 @@ export default function App() {
   // ── Step 3: Save Grounding ──
   const handleSaveGrounding = async () => {
     setIsLoading(true);
+    const currentGroundingHash = JSON.stringify({
+      techTags,
+      prerequisites,
+      boundaries,
+      learningOutcomes,
+      configAudience
+    });
+
     try {
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding`, {
         method: 'POST',
@@ -1186,18 +1351,24 @@ export default function App() {
         }),
       });
       if (res.ok) {
-        if (proposals.length > 0) {
-          const genRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
-            method: 'POST',
-          });
-          if (genRes.ok) {
-            const genData = await genRes.json();
-            setProposals(genData.proposals || []);
-            setSelectedProposalId(null);
-            setStructure([]);
-          } else {
-            alert('Grounding saved, but failed to refresh proposals.');
-          }
+        // If proposals already exist AND grounding inputs were untouched, skip re-generation
+        if (proposals.length > 0 && groundingSnapshot === currentGroundingHash) {
+          setCurrentStep('proposal');
+          return;
+        }
+
+        // If grounding changed or proposals missing, trigger fresh proposal generation
+        const genRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
+          method: 'POST',
+        });
+        if (genRes.ok) {
+          const genData = await genRes.json();
+          setProposals(genData.proposals || []);
+          setSelectedProposalId(null);
+          setStructure([]);
+          setGroundingSnapshot(currentGroundingHash);
+        } else {
+          alert('Grounding saved, but failed to generate proposals.');
         }
         setCurrentStep('proposal');
       } else {
@@ -1254,7 +1425,7 @@ export default function App() {
         setSelectedProposalId(propId);
         const newStruct = (data.structure || []).map(lesson => ({
           ...lesson,
-          sections: lesson.sections || defaultSections
+          sections: mergeSections(lesson.sections)
         }));
         setStructure(newStruct);
         if (newStruct.length > 0) {
@@ -1305,6 +1476,74 @@ export default function App() {
     }
   };
 
+  // ── Jump to Review background setup ──
+  const handleJumpToReview = async () => {
+    if (!sessionId) return;
+    setIsLoading(true);
+    try {
+      // 1. Save Config
+      await fetch(`${API_BASE}/courses/sessions/${sessionId}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lessons_count: configLessons,
+          duration: configDuration,
+          difficulty: configDifficulty,
+          target_audience: configAudience,
+          subject_context: subjectContext,
+        }),
+      });
+
+      // 2. Generate Proposals
+      const propRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
+        method: 'POST',
+      });
+      if (!propRes.ok) throw new Error('Failed to generate proposals');
+      const propData = await propRes.json();
+      const firstProposalId = propData.proposals?.[0]?.id || 1;
+
+      // 3. Select Proposal & Generate Structure
+      const selRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected_proposal_id: firstProposalId })
+      });
+      if (!selRes.ok) throw new Error('Failed to select proposal');
+      const selData = await selRes.json();
+
+      // 4. Save Structure
+      const structRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/structure/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lessons: selData.structure || [] })
+      });
+      if (!structRes.ok) throw new Error('Failed to save structure');
+
+      // Fetch fresh session details to local state
+      const sessRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
+      if (sessRes.ok) {
+        const fullSess = await sessRes.json();
+        setPrerequisites(fullSess.prerequisites || []);
+        setBoundaries(fullSess.out_of_scope || []);
+        setLearningOutcomes(fullSess.learning_outcomes || []);
+        setProposals(fullSess.proposals || []);
+        setSelectedProposalId(fullSess.selected_proposal_id);
+        const newStruct = (fullSess.structure || []).map(lesson => ({
+          ...lesson,
+          sections: mergeSections(lesson.sections)
+        }));
+        setStructure(newStruct);
+      }
+
+      setCurrentStep('review');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to quickly prepare review: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // ── Resume a session ──
   const handleResumeSession = async (sess) => {
     setIsLoading(true);
@@ -1330,7 +1569,7 @@ export default function App() {
         setSelectedProposalId(data.selected_proposal_id || null);
         const newStruct = (data.structure || []).map(lesson => ({
           ...lesson,
-          sections: lesson.sections || defaultSections
+          sections: mergeSections(lesson.sections)
         }));
         setStructure(newStruct);
         if (newStruct.length > 0) {
@@ -1341,6 +1580,10 @@ export default function App() {
           setCourseData(data);
           setActiveLessonId(data.lessons[0].id);
           setCurrentStep('generated');
+        } else if (data.status === 'generating' || data.status === 'queued') {
+          setGenerationProgress(data.progress || 5);
+          setGenerationStatusText(data.status_text || 'Resuming generation...');
+          setCurrentStep('generating');
         } else {
           // Resume at appropriate step
           const stepMap = { context: 'context', grounding: 'grounding', proposal: 'proposal', structure: 'structure', review: 'review', generated: 'review' };
@@ -1381,7 +1624,7 @@ export default function App() {
         setSelectedProposalId(data.selected_proposal_id || null);
         const newStruct = (data.structure || []).map(lesson => ({
           ...lesson,
-          sections: lesson.sections || defaultSections
+          sections: mergeSections(lesson.sections)
         }));
         setStructure(newStruct);
       }
@@ -1416,7 +1659,7 @@ export default function App() {
       id: Date.now(), 
       title: `${target.title} (Copy)`, 
       order: target.order + 1,
-      sections: JSON.parse(JSON.stringify(target.sections || defaultSections))
+      sections: JSON.parse(JSON.stringify(mergeSections(target.sections)))
     };
     const updated = [...structure];
     updated.splice(index + 1, 0, newItem);
@@ -1482,6 +1725,13 @@ export default function App() {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app-container">
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleFileUpload} 
+        style={{ display: 'none' }} 
+        accept=".pdf,.docx,.txt" 
+      />
       {/* ── Top Header Navigation ── */}
       <div className="top-header">
         <div className="header-logo-area" onClick={goToDashboard}>
@@ -2235,13 +2485,6 @@ export default function App() {
                   />
                   <div className="prompt-controls">
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        onChange={handleFileUpload} 
-                        style={{ display: 'none' }} 
-                        accept=".pdf,.docx,.txt" 
-                      />
                       <button className="file-upload-btn" onClick={handleFileUploadClick} disabled={isLoading} title="Upload Reference Document">
                         <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                         <span>Reference File</span>
@@ -2602,7 +2845,7 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <button className="file-upload-btn" onClick={() => setCurrentStep('dashboard')}>← Back</button>
-                  <button className="file-upload-btn" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }} onClick={() => setCurrentStep('review')}>Jump to Review</button>
+                  <button className="file-upload-btn" style={{ borderColor: 'var(--gold)', color: 'var(--gold)' }} onClick={handleJumpToReview} disabled={isLoading}>Jump to Review</button>
                 </div>
                 <button className="action-btn" onClick={handleGenerateProposals} disabled={isLoading}>
                   {isLoading ? <><IconSpinner /> Generating…</> : <>Save &amp; Continue <IconArrow /></>}
@@ -2848,9 +3091,10 @@ export default function App() {
                       boxShadow: isThisLoading ? '0 10px 30px rgba(37, 99, 235, 0.25)' : isRec ? '0 8px 24px rgba(245, 158, 11, 0.15)' : '',
                       display: 'flex', 
                       flexDirection: 'column', 
-                      justify: 'space-between',
+                      justifyContent: 'space-between',
                       opacity: isLoading && !isSelected ? 0.6 : 1,
-                      transition: 'all 0.25s ease',
+                      transform: isSelected ? 'scale(1.01)' : 'none',
+                      transition: 'all 0.32s cubic-bezier(0.34, 1.56, 0.64, 1)',
                       cursor: isLoading ? 'default' : 'pointer'
                     }}
                   >
@@ -2947,16 +3191,67 @@ export default function App() {
                       key={item.id} 
                       className={`structure-item ${selectedStructureLessonId === item.id ? 'active' : ''}`}
                       onClick={() => setSelectedStructureLessonId(item.id)}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', idx.toString());
+                        setDraggingIdx(idx);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingIdx(null);
+                        setDragOverIdx(null);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (draggingIdx !== null && draggingIdx !== idx) {
+                          setDragOverIdx(idx);
+                        }
+                      }}
+                      onDragLeave={() => {
+                        setDragOverIdx(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                        if (fromIdx === idx) return;
+                        const updated = [...structure];
+                        const [moved] = updated.splice(fromIdx, 1);
+                        updated.splice(idx, 0, moved);
+                        updated.forEach((lesson, oIdx) => { lesson.order = oIdx + 1; });
+                        setStructure(updated);
+                        setDraggingIdx(null);
+                        setDragOverIdx(null);
+                      }}
                       style={{ 
                         padding: '12px', 
                         borderRadius: 'var(--radius-md)', 
-                        background: selectedStructureLessonId === item.id ? 'var(--blue-light)' : 'var(--surface-2)',
-                        border: selectedStructureLessonId === item.id ? '1px solid rgba(72, 107, 245, 0.25)' : '1px solid var(--border-color)',
+                        background: draggingIdx === idx 
+                          ? 'rgba(72, 107, 245, 0.05)' 
+                          : dragOverIdx === idx 
+                            ? 'var(--blue-light)' 
+                            : selectedStructureLessonId === item.id 
+                              ? 'var(--blue-light)' 
+                              : 'var(--surface-2)',
+                        border: draggingIdx === idx 
+                          ? '2px dashed var(--blue)' 
+                          : dragOverIdx === idx 
+                            ? '2.2px solid var(--blue)' 
+                            : selectedStructureLessonId === item.id 
+                              ? '1px solid rgba(72, 107, 245, 0.25)' 
+                              : '1px solid var(--border-color)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        cursor: 'pointer',
-                        transition: 'var(--transition-smooth)'
+                        cursor: draggingIdx !== null ? 'grabbing' : 'pointer',
+                        opacity: draggingIdx === idx ? 0.45 : 1,
+                        transform: draggingIdx === idx 
+                          ? 'scale(0.95)' 
+                          : dragOverIdx === idx 
+                            ? 'translateY(-2px) scale(1.02)' 
+                            : 'none',
+                        boxShadow: dragOverIdx === idx 
+                          ? '0 6px 16px rgba(72, 107, 245, 0.12)' 
+                          : 'none',
+                        transition: 'all 0.28s cubic-bezier(0.34, 1.56, 0.64, 1)'
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
@@ -3190,10 +3485,10 @@ export default function App() {
                   if (sessionId) {
                     setIsLoading(true);
                     try {
-                      await fetch(`${API_BASE}/courses/sessions/${sessionId}/structure`, {
-                        method: 'PUT',
+                      await fetch(`${API_BASE}/courses/sessions/${sessionId}/structure/save`, {
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ structure })
+                        body: JSON.stringify({ lessons: structure.map(l => ({ id: l.id, title: l.title, order: l.order })) })
                       });
                     } catch (e) {
                       console.error('Failed to save structure:', e);
@@ -3339,7 +3634,7 @@ export default function App() {
                   <div className="review-card-v2-body">
                     <div className="concept-hero-box">
                       <h3 className="concept-hero-title">{promptText || 'Rapid Prototyping for Real-World Impact'}</h3>
-                      <p className="concept-hero-subtitle">"{promptText ? `Course focus: ${promptText}` : 'apakabar kamu'}"</p>
+                      <p className="concept-hero-subtitle">"{promptText ? `Course focus: ${promptText}` : 'Comprehensive Course Concept'}"</p>
                     </div>
 
                     <div className="concept-description-text" style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.65', margin: '16px 0' }}>
@@ -3468,61 +3763,45 @@ export default function App() {
                   </div>
 
                   <div className="review-card-v2-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {/* Creator Persona */}
-                    <div className="persona-role-box">
-                      <div className="persona-role-header">
-                        <div className="persona-role-name">
-                          <span className="persona-dot purple"></span>
-                          <span>CREATOR</span>
-                        </div>
-                        <span className="persona-count-badge">5 Sections</span>
-                      </div>
-                      <div className="persona-tags-wrap">
-                        <span className="persona-section-tag">PROJECT OVERVIEW</span>
-                        <span className="persona-section-tag">ANDRAGOGY MINDSET</span>
-                        <span className="persona-section-tag">MARKING RUBRICS</span>
-                        <span className="persona-section-tag">CLIENT NEEDS ASSESSMENT TEMPLATES</span>
-                        <span className="persona-section-tag">AGILE ITERATION SCRIPTING TOOLS</span>
-                      </div>
-                    </div>
+                    {['creator', 'student', 'educator'].map(role => {
+                      const roleSectionsMap = new Map();
+                      structure.forEach(l => {
+                        (l.sections?.[role] || []).forEach(s => {
+                          if (s.title && !roleSectionsMap.has(s.title.toUpperCase())) {
+                            roleSectionsMap.set(s.title.toUpperCase(), s);
+                          }
+                        });
+                      });
+                      const secList = Array.from(roleSectionsMap.values());
+                      const displayList = secList.length > 0 ? secList : (
+                        role === 'creator' ? defaultSections.creator :
+                        role === 'student' ? defaultSections.student : defaultSections.educator
+                      );
+                      const colorClass = role === 'creator' ? 'purple' : role === 'student' ? 'blue' : 'green';
 
-                    {/* Student Persona */}
-                    <div className="persona-role-box">
-                      <div className="persona-role-header">
-                        <div className="persona-role-name">
-                          <span className="persona-dot blue"></span>
-                          <span>STUDENT</span>
+                      return (
+                        <div key={role} className="persona-role-box">
+                          <div className="persona-role-header">
+                            <div className="persona-role-name">
+                              <span className={`persona-dot ${colorClass}`}></span>
+                              <span>{role.toUpperCase()}</span>
+                            </div>
+                            <span className="persona-count-badge">{displayList.length} Sections</span>
+                          </div>
+                          <div className="persona-tags-wrap">
+                            {displayList.map(sec => (
+                              <span 
+                                key={sec.id || sec.title} 
+                                className="persona-section-tag"
+                                style={!sec.locked ? { border: '1.5px solid var(--gold)', background: '#fff8e6', fontWeight: 700, color: 'var(--navy)' } : {}}
+                              >
+                                {sec.title.toUpperCase()} {!sec.locked ? '✨ (CUSTOM)' : ''}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                        <span className="persona-count-badge">7 Sections</span>
-                      </div>
-                      <div className="persona-tags-wrap">
-                        <span className="persona-section-tag">PROJECT BRIEF</span>
-                        <span className="persona-section-tag">TECHNOLOGY STACK</span>
-                        <span className="persona-section-tag">FUNCTIONAL REQUIREMENTS</span>
-                        <span className="persona-section-tag">NON FUNCTIONAL REQUIREMENTS</span>
-                        <span className="persona-section-tag">DELIVERABLES</span>
-                        <span className="persona-section-tag">PEER REVIEW FRAMEWORKS</span>
-                        <span className="persona-section-tag">STAKEHOLDER PRESENTATION CHECKLISTS</span>
-                      </div>
-                    </div>
-
-                    {/* Educator Persona */}
-                    <div className="persona-role-box">
-                      <div className="persona-role-header">
-                        <div className="persona-role-name">
-                          <span className="persona-dot green"></span>
-                          <span>EDUCATOR</span>
-                        </div>
-                        <span className="persona-count-badge">5 Sections</span>
-                      </div>
-                      <div className="persona-tags-wrap">
-                        <span className="persona-section-tag">FACILITATOR GUIDE</span>
-                        <span className="persona-section-tag">ANDRAGOGY IN PRACTICE</span>
-                        <span className="persona-section-tag">ENGAGEMENT STRATEGIES</span>
-                        <span className="persona-section-tag">INDUSTRY SIMULATION DEBRIEF GUIDES</span>
-                        <span className="persona-section-tag">MVP TESTING EVALUATION CRITERIA</span>
-                      </div>
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -3829,19 +4108,13 @@ export default function App() {
                           {activeRole === 'creator' && (
                             <>
                               <div id="step7-sec-overview" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Lesson Overview</h3>
-                                  {editingSection === 'overview' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('overview', editingText)}>Save</button>
-                                  ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('overview'); setEditingText(activeLessonContent.overview); }}>Edit</button>
-                                  )}
-                                </div>
+                                <h3 style={{ marginBottom: '10px' }}>Lesson Overview</h3>
                                 {editingSection === 'overview' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <ContentRenderer text={activeLessonContent.overview} />
                                 )}
+                                {renderAIActionBar('overview', activeLessonContent.overview)}
                               </div>
 
                               <div id="step7-sec-learning_outcomes" className="content-block" style={{ scrollMarginTop: '110px' }}>
@@ -3865,19 +4138,13 @@ export default function App() {
                               </div>
 
                               <div id="step7-sec-core_content" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Core Technical Material</h3>
-                                  {editingSection === 'core_content' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('core_content', editingText)}>Save</button>
-                                  ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('core_content'); setEditingText(activeLessonContent.core_content); }}>Edit</button>
-                                  )}
-                                </div>
+                                <h3 style={{ marginBottom: '10px' }}>Core Technical Material</h3>
                                 {editingSection === 'core_content' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '240px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <ContentRenderer text={activeLessonContent.core_content} />
                                 )}
+                                {renderAIActionBar('core_content', activeLessonContent.core_content)}
                               </div>
 
                               <div id="step7-sec-exercises" className="content-block" style={{ scrollMarginTop: '110px' }}>
@@ -3956,6 +4223,7 @@ export default function App() {
                                   </div>
                                 )}
                               </div>
+                              {renderCustomSections()}
                             </>
                           )}
 
@@ -3963,19 +4231,13 @@ export default function App() {
                           {activeRole === 'student' && (
                             <>
                               <div id="step7-sec-why_this_matters" className="why-matters-card" style={{ scrollMarginTop: '110px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h4 style={{ margin: 0, color: 'var(--navy)' }}>💡 Why This Matters</h4>
-                                  {editingSection === 'why_this_matters' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('why_this_matters', editingText)}>Save</button>
-                                  ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('why_this_matters'); setEditingText(activeLessonContent.why_this_matters || ''); }}>Edit</button>
-                                  )}
-                                </div>
+                                <h4 style={{ marginBottom: '10px', color: 'var(--navy)' }}>💡 Why This Matters</h4>
                                 {editingSection === 'why_this_matters' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '100px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <ContentRenderer text={activeLessonContent.why_this_matters} />
                                 )}
+                                {renderAIActionBar('why_this_matters', activeLessonContent.why_this_matters)}
                               </div>
 
                               <div id="step7-sec-practice" className="content-block" style={{ scrollMarginTop: '110px' }}>
@@ -4013,36 +4275,25 @@ export default function App() {
                               </div>
 
                               <div id="step7-sec-debugging" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Debugging Pitfalls</h3>
-                                  {editingSection === 'debugging' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('debugging', editingText)}>Save</button>
-                                  ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('debugging'); setEditingText(activeLessonContent.debugging || ''); }}>Edit</button>
-                                  )}
-                                </div>
+                                <h3 style={{ marginBottom: '10px' }}>Debugging Pitfalls</h3>
                                 {editingSection === 'debugging' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <ContentRenderer text={activeLessonContent.debugging} />
                                 )}
+                                {renderAIActionBar('debugging', activeLessonContent.debugging)}
                               </div>
 
                               <div id="step7-sec-ethics" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Ethics &amp; Code Principles</h3>
-                                  {editingSection === 'ethics' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('ethics', editingText)}>Save</button>
-                                  ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('ethics'); setEditingText(activeLessonContent.ethics || ''); }}>Edit</button>
-                                  )}
-                                </div>
+                                <h3 style={{ marginBottom: '10px' }}>Ethics &amp; Code Principles</h3>
                                 {editingSection === 'ethics' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <ContentRenderer text={activeLessonContent.ethics} />
                                 )}
+                                {renderAIActionBar('ethics', activeLessonContent.ethics)}
                               </div>
+                              {renderCustomSections()}
                             </>
                           )}
 
@@ -4050,19 +4301,13 @@ export default function App() {
                           {activeRole === 'educator' && (
                             <>
                               <div id="step7-sec-facilitator_guide" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Facilitator Guide</h3>
-                                  {editingSection === 'facilitator_guide' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('facilitator_guide', editingText)}>Save</button>
-                                  ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('facilitator_guide'); setEditingText(activeLessonContent.facilitator_guide || ''); }}>Edit</button>
-                                  )}
-                                </div>
+                                <h3 style={{ marginBottom: '10px' }}>Facilitator Guide</h3>
                                 {editingSection === 'facilitator_guide' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '150px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <ContentRenderer text={activeLessonContent.facilitator_guide} />
                                 )}
+                                {renderAIActionBar('facilitator_guide', activeLessonContent.facilitator_guide)}
                               </div>
 
                               <div id="step7-sec-lesson_plan" className="content-block" style={{ scrollMarginTop: '110px' }}>
@@ -4158,6 +4403,7 @@ export default function App() {
                                   </ol>
                                 )}
                               </div>
+                              {renderCustomSections()}
                             </>
                           )}
                         </div>
@@ -4563,8 +4809,10 @@ export default function App() {
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                    <button className="file-upload-btn" onClick={() => setIsExportModalOpen(false)}>Cancel</button>
-                    <button className="action-btn" onClick={handleExport}>📥 Download</button>
+                    <button className="file-upload-btn" onClick={() => setIsExportModalOpen(false)} disabled={isExporting}>Cancel</button>
+                    <button className="action-btn" onClick={handleExport} disabled={isExporting}>
+                      {isExporting ? <><IconSpinner /> Exporting…</> : '📥 Download'}
+                    </button>
                   </div>
                 </div>
               </div>

@@ -26,6 +26,7 @@ class LessonUpdate(BaseModel):
     id: int
     title: str
     order: int
+    sections: Optional[dict] = None
 
 class StructureUpdate(BaseModel):
     lessons: List[LessonUpdate]
