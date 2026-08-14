@@ -3488,7 +3488,7 @@ export default function App() {
                       await fetch(`${API_BASE}/courses/sessions/${sessionId}/structure/save`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lessons: structure.map(l => ({ id: l.id, title: l.title, order: l.order })) })
+                        body: JSON.stringify({ lessons: structure })
                       });
                     } catch (e) {
                       console.error('Failed to save structure:', e);
@@ -3964,7 +3964,7 @@ export default function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'sticky', top: '90px' }}>
                   <span style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '8px' }}>ON THIS PAGE</span>
                   {(() => {
-                    const secList = activeRole === 'creator' ? [
+                    const baseList = activeRole === 'creator' ? [
                       { id: 'overview', title: 'Lesson Overview' },
                       { id: 'learning_outcomes', title: 'Learning Outcomes' },
                       { id: 'core_content', title: 'Core Technical Material' },
@@ -3981,6 +3981,14 @@ export default function App() {
                       { id: 'rubric', title: 'Assessment Rubric' },
                       { id: 'discussion_questions', title: 'Discussion Questions' }
                     ];
+
+                    const curTocLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
+                    const structTocLesson = structure.find(l => l.id === curTocLesson?.id || l.title === curTocLesson?.title);
+                    const customList = (structTocLesson?.sections?.[activeRole] || [])
+                      .filter(s => !s.locked)
+                      .map(s => ({ id: s.type, title: s.title }));
+
+                    const secList = [...baseList, ...customList];
 
                     return secList.map((sec) => (
                       <button
