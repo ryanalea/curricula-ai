@@ -4,6 +4,7 @@ import asyncio
 import re
 import uuid
 import copy
+from typing import Any
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -176,32 +177,34 @@ def get_default_candidate_tags(keyword: str, tech_tags: list = None) -> list:
             combined.append(tag)
     return combined[:20]
 
-def generate_concept_and_grounding(keyword: str):
-    candidate_tags = get_default_candidate_tags(keyword)
-    selected_tags = candidate_tags[:3] if candidate_tags else ["Project-Based Learning", "Experiential Learning"]
+def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: str = "Beginner", audience: str = "Student"):
+    candidate_tags = get_default_candidate_tags(keyword, tags)
+    selected_tags = tags if tags and len(tags) > 0 else (candidate_tags[:3] if candidate_tags else ["Project-Based Learning", "Experiential Learning"])
     if not client:
         return {
             "subject_context": f"This course provides a comprehensive guide to {keyword}, covering setup, core APIs, and real-world projects.",
             "grounding": {
                 "tech_tags": selected_tags,
                 "all_suggested_tags": candidate_tags,
-                "prerequisites": ["Basic coding experience", "Familiarity with terminal"],
-                "out_of_scope": ["Advanced enterprise architectures", "Alternative legacy systems"],
-                "learning_outcomes": [f"Understand fundamental {keyword} syntax", "Build a production-ready application", "Debug common runtime errors"],
-                "target_audience": "Professional"
+                "prerequisites": [f"Basic understanding of {tags[0] if tags else keyword}", "Familiarity with terminal and basic programming"],
+                "out_of_scope": ["Advanced multi-region cluster scaling", "Alternative legacy tooling"],
+                "learning_outcomes": [f"Understand fundamental {tags[0] if tags else keyword} syntax and concepts", "Build a production-ready application", "Debug common runtime errors"],
+                "target_audience": audience or "Professional"
             }
         }
     
     try:
+        tags_str = ", ".join(selected_tags) if selected_tags else keyword
         prompt = f"""
-        Given the keyword '{keyword}', generate:
+        Given the course topic '{keyword}', target audience '{audience}', difficulty level '{difficulty}', and selected tech stack/tools '{tags_str}':
+        Generate:
         1. A rich text content overview/context for this topic (2-3 paragraphs).
-        2. Selected technical tags relevant to the topic (exactly 3 items).
+        2. Selected technical tags relevant to the topic (use or incorporate: {selected_tags}).
         3. All suggested technical & pedagogical candidate tags for selecting options (15-20 items).
-        4. Prerequisites required before starting.
-        5. Learning boundaries (out of scope topics).
-        6. Expected learning outcomes.
-        7. Target audience (Student, Professional, Employee, or Teacher).
+        4. 3 Prerequisites required before starting, perfectly calibrated for a {difficulty} level course aimed at {audience}.
+        5. 3 Learning boundaries (out of scope topics) that keep the scope focused.
+        6. 3 Expected learning outcomes centered around mastering {tags_str}.
+        7. Target audience: '{audience}'.
 
         Return your output as a JSON object with exactly these top-level keys:
         'subject_context' (string), 'grounding' (object with keys: 'tech_tags' (array), 'all_suggested_tags' (array), 'prerequisites' (array), 'out_of_scope' (array), 'learning_outcomes' (array), 'target_audience' (string)).
@@ -224,10 +227,10 @@ def generate_concept_and_grounding(keyword: str):
                     "prerequisites": data.get("prerequisites", []),
                     "out_of_scope": data.get("out_of_scope", []),
                     "learning_outcomes": data.get("learning_outcomes", []),
-                    "target_audience": data.get("target_audience", "Student")
+                    "target_audience": data.get("target_audience", audience or "Student")
                 }
             }
-        selected = data["grounding"].get("tech_tags", [])[:3]
+        selected = selected_tags if selected_tags else data["grounding"].get("tech_tags", [])[:3]
         data["grounding"]["tech_tags"] = selected
         if not data["grounding"].get("all_suggested_tags"):
             data["grounding"]["all_suggested_tags"] = get_default_candidate_tags(keyword, selected)
@@ -687,6 +690,72 @@ async def run_section_action(section_type: str, content: str, action: str, param
     )
     return response.choices[0].message.content.strip()
 
+async def translate_content(content: Any, target_language: str = "Indonesian") -> Any:
+    """Translates plain text, markdown, or JSON curriculum content fluently into target_language."""
+    if not client:
+        await asyncio.sleep(0.3)
+        return content
+    
+    if isinstance(content, (dict, list)):
+        text_to_translate = json.dumps(content, ensure_ascii=False)
+        is_json = True
+    else:
+        text_to_translate = str(content)
+        is_json = False
+
+    prompt = f"""
+    You are an expert instructional designer and translator.
+    Translate the following curriculum material into {target_language} fluently, professionally, and accurately.
+    
+    [CONTENT TO TRANSLATE]
+    {text_to_translate}
+    
+    [STRICT CONSTRAINTS]
+    - Maintain ALL Markdown structures (#, ##, bold, bullet points, numbered lists, tables, callouts) intact.
+    - If the input is JSON, return valid JSON with the exact same structure and keys, translating only the natural language string values into {target_language}.
+    - Do NOT translate programming code, syntax, keywords (e.g. `import`, `def`, `class`, `const`, `return`), CLI commands, package names, or technical terms like Docker, FastAPI, Python, SQL, REST API, Git.
+    - Output ONLY the translated content without any intro or outro.
+    """
+    # Only use gemma free model (confirmed working); fallback to nvidia if needed
+    models_to_try = [OPENAI_MODEL]
+    # Add free fallbacks (deduped)
+    for fm in ["google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-super-120b-a12b:free"]:
+        if fm not in models_to_try:
+            models_to_try.append(fm)
+
+    loop = asyncio.get_event_loop()
+    for m in models_to_try:
+        try:
+            response = await loop.run_in_executor(
+                None,
+                lambda target_m=m: client.chat.completions.create(
+                    model=target_m,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"} if is_json else None,
+                    max_tokens=1200,
+                    temperature=0.3
+                )
+            )
+            raw = response.choices[0].message.content.strip()
+            # Filter garbage pad tokens from small models
+            import re as _re
+            raw = _re.sub(r'<pad>', '', raw).strip()
+            # Validate: if result is mostly pad/empty, skip this model
+            if len(raw) < 10:
+                print(f"Model {m} returned empty/garbage, trying next...")
+                continue
+            if is_json:
+                parsed = safe_load_json(raw)
+                if parsed:
+                    return parsed
+                continue
+            return raw
+        except Exception as e:
+            print(f"Translation with model {m} failed ({e}), trying next model...")
+            continue
+
+    return content
+
 async def generate_more_quiz(lesson_title: str, core_content: str, count: int = 3):
     if not client:
         await asyncio.sleep(0.5)
@@ -771,8 +840,15 @@ async def generate_more_exercises(lesson_title: str, core_content: str, count: i
     )
     return safe_load_json(response.choices[0].message.content).get("exercises", [])
 
-async def generate_single_grounding_item(keyword: str, field_type: str, existing_items: list):
-    """Generates a single relevant grounding item (prerequisite, boundary, or outcome) using AI."""
+async def generate_single_grounding_item(
+    keyword: str, 
+    field_type: str, 
+    existing_items: list, 
+    difficulty: str = "Beginner", 
+    audience: str = "Student", 
+    tech_tags: list = None
+):
+    """Generates a single relevant grounding item (prerequisite, boundary, or outcome) tailored to user customization."""
     if not client:
         await asyncio.sleep(0.5)
         fallback = {
@@ -782,11 +858,20 @@ async def generate_single_grounding_item(keyword: str, field_type: str, existing
         }
         return fallback.get(field_type, "New grounding point")
 
+    tags_str = ", ".join(tech_tags) if tech_tags else "General concepts"
     prompt = f"""
-    Based on the course topic: '{keyword}', suggest one new, distinct, and highly relevant item for the grounding field '{field_type}'.
+    Course Topic: '{keyword}'
+    Target Audience: {audience}
+    Difficulty Level: {difficulty}
+    Tech Stack / Focus: {tags_str}
+
+    Task: Suggest one new, distinct, and highly relevant item for the grounding field '{field_type}'.
     Existing items in this field are: {json.dumps(existing_items)}
     
-    Make the suggestion short (1 sentence), actionable, and do not repeat any existing items.
+    Guidelines:
+    - Match the requested difficulty level ({difficulty}) and target audience ({audience}).
+    - Leverage the tech stack ({tags_str}) where appropriate.
+    - Make the suggestion short (1 concise sentence), highly actionable, and do NOT repeat or overlap with existing items.
     
     Return output as JSON only with format:
     {{

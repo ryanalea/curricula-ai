@@ -326,6 +326,7 @@ export default function App() {
   // ── Proposals ──
   const [proposals, setProposals] = useState([]);
   const [selectedProposalId, setSelectedProposalId] = useState(null);
+  const [lastSavedConfigHash, setLastSavedConfigHash] = useState(null);
 
   // ── Structure ──
   const [structure, setStructure] = useState([]);
@@ -572,6 +573,66 @@ export default function App() {
     }
   };
 
+  // ── Unified Multi-Language Translation Handler ──
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [currentContentLanguage, setCurrentContentLanguage] = useState('English');
+
+  const handleTranslateLesson = async (targetLang) => {
+    let activeData = courseData;
+    // If courseData is missing or empty, try fetching latest from backend session
+    if (!activeData || !activeData.lessons || activeData.lessons.length === 0) {
+      if (sessionId) {
+        try {
+          const checkRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
+          if (checkRes.ok) {
+            activeData = await checkRes.json();
+            setCourseData(activeData);
+          }
+        } catch (e) {
+          console.warn('Check session error:', e);
+        }
+      }
+    }
+
+    if (generationProgress < 100 && (!activeData?.lessons || activeData.lessons.length === 0)) {
+      alert('⏳ Mohon tunggu hingga proses pembuatan materi kursus selesai 100% sebelum menerjemahkan.');
+      return;
+    }
+
+    const curLesson = activeData?.lessons?.[currentGeneratingLessonIdx] || activeData?.lessons?.[0];
+    if (!curLesson || !curLesson.id) {
+      alert('Materi lesson belum tersedia. Silakan selesaikan proses pembuatan kursus terlebih dahulu.');
+      return;
+    }
+
+    setIsTranslating(true);
+    try {
+      const res = await fetch(`${API_BASE}/lessons/${curLesson.id}/translate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_language: targetLang })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const updatedCourse = { ...activeData };
+        const lIdx = updatedCourse.lessons.findIndex(l => l.id === curLesson.id);
+        if (lIdx !== -1) {
+          updatedCourse.lessons[lIdx].sections = data.sections;
+          setCourseData(updatedCourse);
+        }
+        setCurrentContentLanguage(targetLang);
+        fetchHistory();
+      } else {
+        alert('Gagal menerjemahkan lesson.');
+      }
+    } catch (err) {
+      console.error('Translation error:', err);
+      alert('Terjadi kesalahan saat menerjemahkan materi.');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const handleExport = async () => {
     if (!courseData) return;
     const title = courseData.title || 'Course_Curriculum';
@@ -582,7 +643,7 @@ export default function App() {
       // 1. Try real API export from FastAPI backend
       if (sessionId) {
         try {
-          const response = await fetch(`http://localhost:8000/api/v1/courses/${sessionId}/export?format=${exportFormat}&role=${roleText}`);
+          const response = await fetch(`${API_BASE}/courses/${sessionId}/export?format=${exportFormat}&role=${roleText}`);
           if (response.ok) {
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
@@ -1243,6 +1304,15 @@ export default function App() {
         setConfigDifficulty(data.config?.difficulty || 'Beginner');
         setConfigAudience(data.config?.target_audience || 'Student');
         setSubjectContext(data.subject_context || '');
+        const initialConfigHash = JSON.stringify({
+          techTags: loadedTech,
+          configDifficulty: data.config?.difficulty || 'Beginner',
+          configAudience: data.config?.target_audience || 'Student',
+          configLessons: data.config?.lessons_count || 5,
+          configDuration: data.config?.duration || 60,
+          subjectContext: data.subject_context || '',
+        });
+        setLastSavedConfigHash(initialConfigHash);
         setCurrentView('wizard');
         fetchSessions();
 
@@ -1262,120 +1332,95 @@ export default function App() {
     }
   };
 
-  // ── Input Snapshot Tracking for Smart Cache Preservation ──
-  const [configSnapshot, setConfigSnapshot] = useState(null);
-  const [groundingSnapshot, setGroundingSnapshot] = useState(null);
-
-  // ── Step 2: Save Config & Generate Proposals ──
+  // ── Step 2: Save Config & Proceed to Grounding (Auto-updates Step 3 when Config changes) ──
   const handleGenerateProposals = async () => {
     setIsLoading(true);
     const currentConfigHash = JSON.stringify({
-      configLessons,
-      configDuration,
+      techTags,
       configDifficulty,
       configAudience,
+      configLessons,
+      configDuration,
       subjectContext,
-      techTags
     });
 
     try {
-      await fetch(`${API_BASE}/courses/sessions/${sessionId}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lessons_count: configLessons,
-          duration: configDuration,
-          difficulty: configDifficulty,
-          target_audience: configAudience,
-          subject_context: subjectContext,
-          tech_tags: techTags,
-        }),
-      });
+      if (sessionId) {
+        await fetch(`${API_BASE}/courses/sessions/${sessionId}/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lessons_count: configLessons,
+            duration: configDuration,
+            difficulty: configDifficulty,
+            target_audience: configAudience,
+            subject_context: subjectContext,
+            tech_tags: techTags,
+          }),
+        });
 
-      // If proposals already exist AND config inputs were untouched, preserve cached proposals
-      if (proposals.length > 0 && configSnapshot === currentConfigHash) {
-        setCurrentStep('grounding');
-        return;
-      }
-
-      // If config changed or proposals missing, trigger fresh proposal generation
-      const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProposals(data.proposals || []);
-        setSelectedProposalId(null);
-        setStructure([]);
-        setConfigSnapshot(currentConfigHash);
-        // Fetch fresh session data to populate grounding from AI
-        const sessionRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
-        if (sessionRes.ok) {
-          const sessionData = await sessionRes.json();
-          setPrerequisites(sessionData.prerequisites || []);
-          setBoundaries(sessionData.out_of_scope || []);
-          setLearningOutcomes(sessionData.learning_outcomes || []);
+        // If user CHANGED anything in Step 2, refresh Grounding in Step 3 to match the new config!
+        if (lastSavedConfigHash !== null && lastSavedConfigHash !== currentConfigHash) {
+          const refreshRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding/refresh`, {
+            method: 'POST'
+          });
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            setPrerequisites(refreshData.prerequisites || []);
+            setBoundaries(refreshData.out_of_scope || []);
+            setLearningOutcomes(refreshData.learning_outcomes || []);
+            // Invalidate downstream proposals so they match the newly updated config
+            setProposals([]);
+            setStructure([]);
+            setSelectedProposalId(null);
+          }
         }
-        setCurrentStep('grounding');
-      } else {
-        alert('Failed to generate proposals.');
       }
+      setLastSavedConfigHash(currentConfigHash);
+      setCurrentStep('grounding');
     } catch (err) {
-      console.error(err);
+      console.error('Failed to save config:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // ── Step 3: Save Grounding ──
+  // ── Step 3: Save Grounding & Proceed to Proposals ──
   const handleSaveGrounding = async () => {
     setIsLoading(true);
-    const currentGroundingHash = JSON.stringify({
-      techTags,
-      prerequisites,
-      boundaries,
-      learningOutcomes,
-      configAudience
-    });
-
     try {
-      const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tech_tags: techTags,
-          prerequisites,
-          out_of_scope: boundaries,
-          learning_outcomes: learningOutcomes,
-          target_audience: configAudience,
-        }),
-      });
-      if (res.ok) {
-        // If proposals already exist AND grounding inputs were untouched, skip re-generation
-        if (proposals.length > 0 && groundingSnapshot === currentGroundingHash) {
-          setCurrentStep('proposal');
-          return;
+      if (sessionId) {
+        const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tech_tags: techTags,
+            prerequisites,
+            out_of_scope: boundaries,
+            learning_outcomes: learningOutcomes,
+            target_audience: configAudience,
+          }),
+        });
+        if (!res.ok) {
+          console.warn('Failed to save grounding data to backend.');
         }
+      }
 
-        // If grounding changed or proposals missing, trigger fresh proposal generation
+      // If proposals haven't been generated yet, generate them once
+      if (proposals.length === 0 && sessionId) {
         const genRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}/proposals/generate`, {
           method: 'POST',
         });
         if (genRes.ok) {
           const genData = await genRes.json();
           setProposals(genData.proposals || []);
-          setSelectedProposalId(null);
-          setStructure([]);
-          setGroundingSnapshot(currentGroundingHash);
         } else {
           alert('Grounding saved, but failed to generate proposals.');
         }
-        setCurrentStep('proposal');
-      } else {
-        alert('Failed to save grounding data.');
       }
+      setCurrentStep('proposal');
     } catch (err) {
-      console.error(err);
+      console.error('Error saving grounding:', err);
     } finally {
       setIsLoading(false);
     }
@@ -1384,21 +1429,36 @@ export default function App() {
   // ── Specific Button Loading State ──
   const [loadingField, setLoadingField] = useState(null);
 
-  const handleAutoSuggestGrounding = async (fieldType, currentList, setter) => {
-    setLoadingField(fieldType);
+  // ── Step 3 AI Auto-Suggest for Grounding Fields ──
+  const handleAutoSuggestGrounding = async (field, currentList, setter) => {
+    setLoadingField(field);
     try {
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          field_type: fieldType,
-          existing_items: currentList.filter(Boolean)
+          field_type: field,
+          existing_items: (currentList || []).filter(Boolean)
         })
       });
       if (res.ok) {
         const data = await res.json();
         if (data.suggestion) {
-          setter([...currentList, data.suggestion]);
+          const newList = [...currentList, data.suggestion];
+          setter(newList);
+          if (sessionId) {
+            fetch(`${API_BASE}/courses/sessions/${sessionId}/grounding`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                tech_tags: techTags,
+                prerequisites: field === 'prerequisites' ? newList : prerequisites,
+                out_of_scope: field === 'out_of_scope' ? newList : boundaries,
+                learning_outcomes: field === 'learning_outcomes' ? newList : learningOutcomes,
+                target_audience: configAudience,
+              })
+            }).catch(err => console.warn('Auto-save grounding notice:', err));
+          }
         }
       } else {
         alert('Failed to generate suggestions.');
@@ -1412,6 +1472,11 @@ export default function App() {
 
   // ── Step 4: Select Proposal ──
   const handleSelectProposal = async (propId) => {
+    // If this proposal is already selected and structure has already been customized, preserve the structure!
+    if (selectedProposalId === propId && structure.length > 0) {
+      setCurrentStep('structure');
+      return;
+    }
     setSelectedProposalId(propId);
     setIsLoading(true);
     try {
@@ -1461,6 +1526,14 @@ export default function App() {
   const handleTriggerGeneration = async () => {
     setIsLoading(true);
     try {
+      if (sessionId && structure && structure.length > 0) {
+        // Guarantee latest structure and custom sections are saved in DB before generation begins
+        await fetch(`${API_BASE}/courses/sessions/${sessionId}/structure/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lessons: structure })
+        }).catch(err => console.warn('Pre-generation structure save notice:', err));
+      }
       const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}/content/generate`, {
         method: 'POST',
       });
@@ -1575,6 +1648,14 @@ export default function App() {
         if (newStruct.length > 0) {
           setSelectedStructureLessonId(newStruct[0].id);
         }
+        setLastSavedConfigHash(JSON.stringify({
+          techTags: loadedTech,
+          configDifficulty: data.config?.difficulty || 'Beginner',
+          configAudience: data.config?.target_audience || 'Student',
+          configLessons: data.config?.lessons_count || 5,
+          configDuration: data.config?.duration || 60,
+          subjectContext: data.subject_context || '',
+        }));
 
         if (data.status === 'completed' && data.lessons?.length > 0) {
           setCourseData(data);
@@ -1633,11 +1714,7 @@ export default function App() {
     }
   }, [sessionId]);
 
-  useEffect(() => {
-    if (sessionId && currentStep !== 'generating') {
-      syncSessionState(sessionId);
-    }
-  }, [currentStep, sessionId, syncSessionState]);
+
 
   // ── Structure helpers ──
   const moveLesson = (index, direction) => {
@@ -2094,21 +2171,12 @@ export default function App() {
                             {wipList.map((sess) => (
                               <div 
                                 key={sess.session_id} 
-                                className="elice-course-card playful-card" 
-                                onClick={() => handleResumeSession(sess)}
-                                onDoubleClick={() => handleResumeSession(sess)}
-                                onTouchEnd={(e) => {
-                                  const now = Date.now();
-                                  if (window._lastCardTap && (now - window._lastCardTap) < 350) {
-                                    handleResumeSession(sess);
-                                  }
-                                  window._lastCardTap = now;
-                                }}
+                                className="elice-course-card playful-card"
                               >
                                 <div className="card-top">
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                     <span className="card-tag" style={{ background: '#fef3c7', color: '#b45309' }}>📝 DRAFT</span>
-                                    <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
                                       <button 
                                         className="ai-pill-btn" 
                                         style={{ padding: '2px 6px', fontSize: '0.7rem', background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' }}
@@ -2149,11 +2217,17 @@ export default function App() {
                                           setDeleteTargetSession(sess);
                                         }}
                                       >
-                                        <IconTrash />
+                                        <IconTrash style={{ pointerEvents: 'none' }} />
                                       </button>
                                     </div>
                                   </div>
-                                  <h3 className="card-title">{sess.title || sess.prompt}</h3>
+                                  <h3 
+                                    className="card-title" 
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => handleResumeSession(sess)}
+                                  >
+                                    {sess.title || sess.prompt}
+                                  </h3>
                                   
                                   {/* Dynamic Tech Hashtags */}
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
@@ -2174,7 +2248,11 @@ export default function App() {
                                 </div>
 
                                 <div className="card-bottom" style={{ marginTop: '16px' }}>
-                                  <button className="action-btn" style={{ width: '100%', justifyContent: 'center', background: 'var(--surface-2)', color: 'var(--navy)', border: '1px solid var(--border-color)' }}>
+                                  <button 
+                                    className="action-btn" 
+                                    onClick={() => handleResumeSession(sess)}
+                                    style={{ width: '100%', justifyContent: 'center', background: 'var(--surface-2)', color: 'var(--navy)', border: '1px solid var(--border-color)' }}
+                                  >
                                     Continue Editing
                                   </button>
                                 </div>
@@ -2228,20 +2306,11 @@ export default function App() {
                               <div 
                                 key={sess.session_id} 
                                 className="elice-course-card playful-card" 
-                                onClick={() => handleResumeSession(sess)}
-                                onDoubleClick={() => handleResumeSession(sess)}
-                                onTouchEnd={(e) => {
-                                  const now = Date.now();
-                                  if (window._lastCardTap && (now - window._lastCardTap) < 350) {
-                                    handleResumeSession(sess);
-                                  }
-                                  window._lastCardTap = now;
-                                }}
                               >
                                 <div className="card-top">
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                     <span className="card-tag" style={{ background: '#dcfce7', color: '#15803d' }}>✅ PUBLISHED</span>
-                                    <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
                                       <button 
                                         className="ai-pill-btn" 
                                         style={{ padding: '2px 6px', fontSize: '0.7rem', background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}
@@ -2282,11 +2351,17 @@ export default function App() {
                                           setDeleteTargetSession(sess);
                                         }}
                                       >
-                                        <IconTrash />
+                                        <IconTrash style={{ pointerEvents: 'none' }} />
                                       </button>
                                     </div>
                                   </div>
-                                  <h3 className="card-title">{sess.title || sess.prompt}</h3>
+                                  <h3 
+                                    className="card-title" 
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => handleResumeSession(sess)}
+                                  >
+                                    {sess.title || sess.prompt}
+                                  </h3>
 
                                   {/* Dynamic Tech Hashtags */}
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
@@ -2300,7 +2375,12 @@ export default function App() {
                                   <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                     <IconClock /> {sess.updated_at ? new Date(sess.updated_at).toLocaleDateString() : 'Active'}
                                   </span>
-                                  <button className="icon-btn-tool" style={{ background: 'var(--blue-light)', color: 'var(--blue)', border: 'none', width: '32px', height: '32px' }}>
+                                  <button 
+                                    className="icon-btn-tool" 
+                                    onClick={() => handleResumeSession(sess)}
+                                    title="Open Course"
+                                    style={{ background: 'var(--blue-light)', color: 'var(--blue)', border: 'none', width: '32px', height: '32px' }}
+                                  >
                                     ↗
                                   </button>
                                 </div>
@@ -2324,19 +2404,11 @@ export default function App() {
                                 key={sess.session_id} 
                                 className="elice-course-card playful-card" 
                                 style={{ opacity: 0.85 }}
-                                onDoubleClick={() => handleResumeSession(sess)}
-                                onTouchEnd={(e) => {
-                                  const now = Date.now();
-                                  if (window._lastCardTap && (now - window._lastCardTap) < 350) {
-                                    handleResumeSession(sess);
-                                  }
-                                  window._lastCardTap = now;
-                                }}
                               >
                                 <div className="card-top">
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                     <span className="card-tag" style={{ background: '#f1f5f9', color: '#475569' }}>📦 ARCHIVED</span>
-                                    <div style={{ display: 'flex', gap: '4px' }} onClick={(e) => e.stopPropagation()}>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
                                       <button 
                                         className="ai-pill-btn" 
                                         style={{ padding: '2px 6px', fontSize: '0.7rem', background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' }}
@@ -2361,11 +2433,17 @@ export default function App() {
                                           setDeleteTargetSession(sess);
                                         }}
                                       >
-                                        <IconTrash />
+                                        <IconTrash style={{ pointerEvents: 'none' }} />
                                       </button>
                                     </div>
                                   </div>
-                                  <h3 className="card-title">{sess.title || sess.prompt}</h3>
+                                  <h3 
+                                    className="card-title" 
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => handleResumeSession(sess)}
+                                  >
+                                    {sess.title || sess.prompt}
+                                  </h3>
                                 </div>
                               </div>
                             ))}
@@ -2989,31 +3067,31 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Card 3: Learning Outcomes (Purple/Indigo Accent Theme) */}
-              <div className="review-card" style={{ gridColumn: 'span 2', borderTop: '4px solid #8b5cf6', borderRadius: '16px', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.08)' }}>
+              {/* Card 3: Learning Outcomes (Brand Gold Accent Theme) */}
+              <div className="review-card" style={{ gridColumn: 'span 2', borderTop: '4px solid #E9B259', borderRadius: '16px', boxShadow: '0 4px 12px rgba(233, 178, 89, 0.12)' }}>
                 <div className="review-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ background: '#f3e8ff', color: '#6b21a8', padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.04em' }}>TARGET OUTCOMES</span>
+                    <span style={{ background: '#FEF3C7', color: '#92400E', padding: '3px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.04em' }}>TARGET OUTCOMES</span>
                     <h4 className="review-card-title" style={{ margin: 0, fontSize: '0.98rem' }}>What learners will master</h4>
                   </div>
                   <span style={{ fontSize: '1.2rem' }}>🎯</span>
                 </div>
                 <div className="review-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
                   {learningOutcomes.length === 0 ? (
-                    <div style={{ background: '#faf5ff', border: '1px dashed #ddd6fe', padding: '16px', borderRadius: '12px', textAlign: 'center', color: '#581c87', fontSize: '0.85rem' }}>
+                    <div style={{ background: '#FFFDF7', border: '1px dashed #FDE68A', padding: '16px', borderRadius: '12px', textAlign: 'center', color: '#78350F', fontSize: '0.85rem' }}>
                       <p style={{ fontWeight: 600, marginBottom: '4px' }}>No learning outcomes added yet</p>
-                      <p style={{ fontSize: '0.78rem', color: '#6b21a8', opacity: 0.8 }}>Add skills learners will achieve or click <strong>AI Suggest ✨</strong> below!</p>
+                      <p style={{ fontSize: '0.78rem', color: '#92400E', opacity: 0.8 }}>Add skills learners will achieve or click <strong>AI Suggest ✨</strong> below!</p>
                     </div>
                   ) : (
                     learningOutcomes.map((item, idx) => (
                       <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ minWidth: '26px', height: '26px', borderRadius: '50%', background: '#f3e8ff', color: '#6b21a8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', fontWeight: 800, flexShrink: 0 }}>
+                        <span style={{ minWidth: '26px', height: '26px', borderRadius: '50%', background: '#FEF3C7', color: '#92400E', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', fontWeight: 800, flexShrink: 0 }}>
                           {idx + 1}
                         </span>
                         <input
                           type="text"
                           className="prompt-textarea"
-                          style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1, border: '1px solid #c4b5fd', background: '#faf5ff', color: '#3b0764', fontWeight: 600 }}
+                          style={{ minHeight: 'auto', padding: '8px 12px', marginBottom: 0, flex: 1, border: '1px solid #FCD34D', background: '#FFFDF7', color: '#2D3561', fontWeight: 600 }}
                           value={item}
                           onChange={(e) => {
                             const updated = [...learningOutcomes];
@@ -3034,14 +3112,14 @@ export default function App() {
                   <div style={{ display: 'flex', gap: '10px', marginTop: '8px', maxWidth: '420px' }}>
                     <button 
                       className="file-upload-btn" 
-                      style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center', borderColor: '#c4b5fd', color: '#6b21a8', background: '#ffffff', fontWeight: 700 }} 
+                      style={{ fontSize: '0.85rem', flex: 1, justifyContent: 'center', borderColor: '#FCD34D', color: '#92400E', background: '#ffffff', fontWeight: 700 }} 
                       onClick={() => setLearningOutcomes([...learningOutcomes, ''])}
                     >
                       + Add Item
                     </button>
                     <button 
                       className="action-btn" 
-                      style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', justifyContent: 'center', background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', color: '#ffffff', border: 'none', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.25)', fontWeight: 700 }} 
+                      style={{ fontSize: '0.85rem', flex: 1, padding: '8px 12px', justifyContent: 'center', background: 'linear-gradient(135deg, #E9B259 0%, #D9A046 100%)', color: '#2D3561', border: 'none', boxShadow: '0 4px 12px rgba(233, 178, 89, 0.28)', fontWeight: 800 }} 
                       onClick={() => handleAutoSuggestGrounding('learning_outcomes', learningOutcomes, setLearningOutcomes)} 
                       disabled={loadingField !== null}
                     >
@@ -3572,22 +3650,23 @@ export default function App() {
                           alert('Please enter a section title.');
                           return;
                         }
-                        const lIdx = structure.findIndex(l => l.id === selectedStructureLessonId);
-                        if (lIdx !== -1) {
-                          const updated = [...structure];
-                          if (!updated[lIdx].sections) {
-                            updated[lIdx].sections = JSON.parse(JSON.stringify(defaultSections));
+                        const cleanType = `custom_${newSectionTitle.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^_+|_+$/g, '')}_${Date.now().toString().slice(-4)}`;
+                        const newSec = {
+                          id: `custom-${Date.now()}`,
+                          type: cleanType,
+                          title: newSectionTitle.trim(),
+                          instruction: newSectionInstruction.trim() || 'Write curriculum content.',
+                          locked: false
+                        };
+                        const updated = structure.map((lesson) => {
+                          const lSecs = lesson.sections ? JSON.parse(JSON.stringify(lesson.sections)) : JSON.parse(JSON.stringify(defaultSections));
+                          if (!lSecs[newSectionRole]) {
+                            lSecs[newSectionRole] = [];
                           }
-                          const newSec = {
-                            id: `custom-${Date.now()}`,
-                            type: `custom-${newSectionTitle.toLowerCase().replace(/ /g, '_')}`,
-                            title: newSectionTitle.trim(),
-                            instruction: newSectionInstruction.trim() || 'Write curriculum content.',
-                            locked: false
-                          };
-                          updated[lIdx].sections[newSectionRole].push(newSec);
-                          setStructure(updated);
-                        }
+                          lSecs[newSectionRole].push({ ...newSec });
+                          return { ...lesson, sections: lSecs };
+                        });
+                        setStructure(updated);
                         setIsAddSectionModalOpen(false);
                         setNewSectionTitle('');
                         setNewSectionInstruction('');
@@ -3987,7 +4066,7 @@ export default function App() {
                     ];
 
                     const curTocLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
-                    const structTocLesson = structure.find(l => l.id === curTocLesson?.id || l.title === curTocLesson?.title);
+                    const structTocLesson = structure.find(l => l.id === curTocLesson?.id || l.title === curTocLesson?.title) || structure[0];
                     const customList = (structTocLesson?.sections?.[activeRole] || [])
                       .filter(s => !s.locked)
                       .map(s => ({ id: s.type, title: s.title }));
@@ -4001,7 +4080,10 @@ export default function App() {
                         style={{ textAlign: 'left', padding: '10px 14px', fontSize: '0.85rem', transition: 'all 0.2s ease' }}
                         onClick={() => {
                           setActiveSubSection(sec.id);
-                          document.getElementById(`step7-sec-${sec.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          const el = document.getElementById(`step7-sec-${sec.id}`);
+                          if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4058,6 +4140,48 @@ export default function App() {
                           ))}
                         </div>
                       )}
+
+                      {/* Language Switcher Buttons */}
+                      <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface-2)', padding: '2px', borderRadius: '8px', border: '1px solid var(--border-color)', gap: '2px' }}>
+                        <button 
+                          className="lang-switch-btn"
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: '0.76rem',
+                            fontWeight: 800,
+                            borderRadius: '6px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: currentContentLanguage === 'Indonesian' ? 'var(--navy)' : 'transparent',
+                            color: currentContentLanguage === 'Indonesian' ? '#fff' : 'var(--text-secondary)',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onClick={() => handleTranslateLesson('Indonesian')}
+                          disabled={isTranslating}
+                          title="Terjemahkan seluruh modul ke Bahasa Indonesia"
+                        >
+                          {isTranslating && currentContentLanguage === 'Indonesian' ? <IconSpinner /> : '🇮🇩 ID'}
+                        </button>
+                        <button 
+                          className="lang-switch-btn"
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: '0.76rem',
+                            fontWeight: 800,
+                            borderRadius: '6px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: currentContentLanguage === 'English' ? 'var(--navy)' : 'transparent',
+                            color: currentContentLanguage === 'English' ? '#fff' : 'var(--text-secondary)',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onClick={() => handleTranslateLesson('English')}
+                          disabled={isTranslating}
+                          title="Translate entire lesson to English"
+                        >
+                          {isTranslating && currentContentLanguage === 'English' ? <IconSpinner /> : '🇬🇧 EN'}
+                        </button>
+                      </div>
 
                       <button className="icon-btn-tool" title="Version History" onClick={() => { fetchHistory(); setIsHistoryOpen(true); }}>
                         📜
@@ -4880,6 +5004,77 @@ export default function App() {
         )}
       </>
     )}
+
+      {/* Floating Unified Language Switcher Pill (Step 7 Workspace) */}
+      {(currentStep === 'generated' || currentStep === 'generating') && courseData && (
+        <div 
+          className="floating-language-pill"
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'var(--navy)',
+            color: '#ffffff',
+            padding: '8px 16px',
+            borderRadius: '9999px',
+            boxShadow: '0 10px 30px rgba(26, 32, 64, 0.4)',
+            border: '1.5px solid var(--gold)',
+            backdropFilter: 'blur(10px)',
+            animation: 'fadeInUp 0.3s ease'
+          }}
+        >
+          <span style={{ fontSize: '0.82rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            🌐 <span style={{ color: 'var(--gold)' }}>Bahasa:</span>
+          </span>
+          <button
+            style={{
+              background: currentContentLanguage === 'Indonesian' ? 'var(--gold)' : 'rgba(255, 255, 255, 0.15)',
+              color: currentContentLanguage === 'Indonesian' ? 'var(--navy)' : '#ffffff',
+              border: 'none',
+              borderRadius: '9999px',
+              padding: '5px 12px',
+              fontSize: '0.78rem',
+              fontWeight: 800,
+              cursor: isTranslating ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+            onClick={() => handleTranslateLesson('Indonesian')}
+            disabled={isTranslating}
+            title="Terjemahkan materi modul ini sepenuhnya ke Bahasa Indonesia"
+          >
+            {isTranslating && currentContentLanguage === 'Indonesian' ? <IconSpinner /> : '🇮🇩 Indonesia'}
+          </button>
+          <button
+            style={{
+              background: currentContentLanguage === 'English' ? 'var(--gold)' : 'rgba(255, 255, 255, 0.15)',
+              color: currentContentLanguage === 'English' ? 'var(--navy)' : '#ffffff',
+              border: 'none',
+              borderRadius: '9999px',
+              padding: '5px 12px',
+              fontSize: '0.78rem',
+              fontWeight: 800,
+              cursor: isTranslating ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+            onClick={() => handleTranslateLesson('English')}
+            disabled={isTranslating}
+            title="Translate this lesson content fully into English"
+          >
+            {isTranslating && currentContentLanguage === 'English' ? <IconSpinner /> : '🇬🇧 English'}
+          </button>
+        </div>
+      )}
+
       {/* Global Delete Confirmation Modal Popup */}
       {deleteTargetSession && (
         <div 

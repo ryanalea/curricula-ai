@@ -271,10 +271,14 @@ async def suggest_grounding_item(session_id: str, req: schemas.GroundingSuggestR
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
         
+    tech_tags = json.loads(db_session.tech_tags) if db_session.tech_tags else []
     suggestion = await pipeline.generate_single_grounding_item(
-        db_session.prompt,
-        req.field_type,
-        req.existing_items
+        keyword=db_session.prompt or "Software Development",
+        field_type=req.field_type,
+        existing_items=req.existing_items,
+        difficulty=db_session.config_difficulty or "Beginner",
+        audience=db_session.config_audience or "Student",
+        tech_tags=tech_tags
     )
     return {"suggestion": suggestion}
 
@@ -294,6 +298,37 @@ def update_config(session_id: str, config_data: schemas.CourseConfigUpdate, db: 
     db.commit()
     
     return {"message": "Config updated successfully"}
+
+@app.post("/api/v1/courses/sessions/{session_id}/grounding/refresh")
+def refresh_grounding_endpoint(session_id: str, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    tech_tags = json.loads(db_session.tech_tags) if db_session.tech_tags else []
+    ai_result = pipeline.generate_concept_and_grounding(
+        keyword=db_session.prompt or "Software Development",
+        tags=tech_tags,
+        difficulty=db_session.config_difficulty or "Beginner",
+        audience=db_session.config_audience or "Student"
+    )
+    grounding = ai_result.get("grounding", {})
+    prerequisites = grounding.get("prerequisites", [])
+    out_of_scope = grounding.get("out_of_scope", [])
+    learning_outcomes = grounding.get("learning_outcomes", [])
+    
+    db_session.prerequisites = json.dumps(prerequisites)
+    db_session.boundaries = json.dumps(out_of_scope)
+    db_session.learning_outcomes = json.dumps(learning_outcomes)
+    db.commit()
+    
+    return {
+        "prerequisites": prerequisites,
+        "out_of_scope": out_of_scope,
+        "learning_outcomes": learning_outcomes,
+        "tech_tags": tech_tags,
+        "subject_context": ai_result.get("subject_context", db_session.subject_context)
+    }
 
 @app.post("/api/v1/courses/sessions/{session_id}/proposals/generate")
 def generate_proposals_api(session_id: str, db: Session = Depends(get_db)):
@@ -622,6 +657,97 @@ async def run_section_action_endpoint(lesson_id: int, req: schemas.AIActionReque
     db.commit()
     save_history_snapshot(db, section.lesson.course_id, section.lesson_id, section.role, section.section_type, section.content_text, f"AI {req.action.capitalize()}: {req.section_type.replace('_', ' ').capitalize()}")
     return {"status": "success", "content": section.content_text}
+
+@app.post("/api/v1/lessons/{lesson_id}/translate")
+async def translate_lesson_endpoint(lesson_id: int, req: schemas.TranslateRequest, db: Session = Depends(get_db)):
+    lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
+
+    # ── Fallback: no lesson in DB, translate in-memory sections directly ──
+    if not lesson and req.in_memory_sections:
+        async def translate_role_secs(role_secs):
+            result = {}
+            keys = list(role_secs.keys())
+            vals = list(role_secs.values())
+            translated_vals = await asyncio.gather(*[pipeline.translate_content(v, req.target_language) for v in vals])
+            for k, tv in zip(keys, translated_vals):
+                result[k] = tv
+            return result
+
+        sections_map = {"creator": {}, "student": {}, "educator": {}}
+        tasks = {}
+        for role, role_secs in req.in_memory_sections.items():
+            if isinstance(role_secs, dict):
+                tasks[role] = translate_role_secs(role_secs)
+        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        for role, res in zip(tasks.keys(), results):
+            if not isinstance(res, Exception):
+                sections_map[role] = res
+        return {
+            "status": "success",
+            "lesson_id": lesson_id,
+            "target_language": req.target_language,
+            "sections": sections_map
+        }
+
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    sections = db.query(Section).filter(Section.lesson_id == lesson_id).all()
+    if not sections and req.in_memory_sections:
+        for role, role_secs in req.in_memory_sections.items():
+            if isinstance(role_secs, dict):
+                for stype, scontent in role_secs.items():
+                    sec = Section(lesson_id=lesson_id, role=role, section_type=stype, content_text=json.dumps(scontent))
+                    db.add(sec)
+        db.commit()
+        sections = db.query(Section).filter(Section.lesson_id == lesson_id).all()
+
+    # ── Parse all section values ──
+    sec_vals = []
+    for sec in sections:
+        try:
+            sec_vals.append(json.loads(sec.content_text))
+        except Exception:
+            sec_vals.append(sec.content_text)
+
+    # ── Translate ALL sections in parallel ──
+    translated_vals = await asyncio.gather(
+        *[pipeline.translate_content(v, req.target_language) for v in sec_vals],
+        return_exceptions=True
+    )
+
+    for sec, tv in zip(sections, translated_vals):
+        if not isinstance(tv, Exception):
+            sec.content_text = json.dumps(tv)
+            db.add(sec)
+
+    try:
+        translated_title = await pipeline.translate_content(lesson.title, req.target_language)
+        if isinstance(translated_title, str) and translated_title.strip():
+            lesson.title = translated_title.strip()
+            db.add(lesson)
+    except Exception as e:
+        print(f"Title translation warning: {e}")
+
+    db.commit()
+    save_history_snapshot(db, lesson.course_id, lesson.id, None, None, f"Translated to {req.target_language}", f"🌐 Translated to {req.target_language}")
+
+    sections_map = {"creator": {}, "student": {}, "educator": {}}
+    for sec in sections:
+        try:
+            val = json.loads(sec.content_text)
+        except Exception:
+            val = sec.content_text
+        if sec.role in sections_map:
+            sections_map[sec.role][sec.section_type] = val
+
+    return {
+        "status": "success",
+        "lesson_id": lesson.id,
+        "title": lesson.title,
+        "target_language": req.target_language,
+        "sections": sections_map
+    }
 
 
 @app.post("/api/v1/lessons/{lesson_id}/quiz/generate")
