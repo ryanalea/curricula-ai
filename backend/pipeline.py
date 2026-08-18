@@ -499,6 +499,7 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     }}
  
     [CONSTRAINT]
+    - IMPORTANT: Write all output content in English.
     - WAJIB spesifik ke topik lesson "{lesson_title}" — DILARANG memakai kalimat generik/template tanpa menyebutkan konsep konkretnya.
     - Sediakan minimal 2 exercises dan minimal 3 quiz.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
@@ -565,6 +566,7 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
     }}
  
     [CONSTRAINT]
+    - IMPORTANT: Write all output content in English.
     - JANGAN sertakan jawaban kuis, rubrik penilaian pengajar, atau panduan fasilitator.
     - JANGAN gunakan kalimat generik yang bisa berlaku untuk topik apapun.
     - Tanpa salam pengantar, berikan respons JSON valid murni.
@@ -637,6 +639,7 @@ async def generate_educator_content(lesson_title: str, creator_content: dict, le
     }}
  
     [CONSTRAINT]
+    - IMPORTANT: Write all output content in English.
     - Minimal 2 kriteria di rubric.
     - Fokus sepenuhnya pada strategi pedagogi, alokasi waktu kelas (*timing*), rubrik penilaian, dan tips mengajar di kelas.
     - Hindari mengulang teks materi pelajaran panjang milik siswa; hindari kalimat generik yang bisa berlaku untuk topik apapun.
@@ -656,12 +659,9 @@ async def generate_educator_content(lesson_title: str, creator_content: dict, le
     return safe_load_json(response.choices[0].message.content)
 
 async def run_section_action(section_type: str, content: str, action: str, params: dict = None):
-    # Action modifiers: rewrite, expand, shorten, simplify, translate, improve, fact_check
+    # Action modifiers: rewrite, expand, shorten, simplify, improve, fact_check
     if not client:
         await asyncio.sleep(0.5)
-        if action == "translate":
-            lang = (params or {}).get("target_language", "Indonesian")
-            return f"[Action: Translated to {lang}] {content}"
         return f"[Action: {action.upper()}] {content}"
     
     prompt = f"""
@@ -689,72 +689,6 @@ async def run_section_action(section_type: str, content: str, action: str, param
         )
     )
     return response.choices[0].message.content.strip()
-
-async def translate_content(content: Any, target_language: str = "Indonesian") -> Any:
-    """Translates plain text, markdown, or JSON curriculum content fluently into target_language."""
-    if not client:
-        await asyncio.sleep(0.3)
-        return content
-    
-    if isinstance(content, (dict, list)):
-        text_to_translate = json.dumps(content, ensure_ascii=False)
-        is_json = True
-    else:
-        text_to_translate = str(content)
-        is_json = False
-
-    prompt = f"""
-    You are an expert instructional designer and translator.
-    Translate the following curriculum material into {target_language} fluently, professionally, and accurately.
-    
-    [CONTENT TO TRANSLATE]
-    {text_to_translate}
-    
-    [STRICT CONSTRAINTS]
-    - Maintain ALL Markdown structures (#, ##, bold, bullet points, numbered lists, tables, callouts) intact.
-    - If the input is JSON, return valid JSON with the exact same structure and keys, translating only the natural language string values into {target_language}.
-    - Do NOT translate programming code, syntax, keywords (e.g. `import`, `def`, `class`, `const`, `return`), CLI commands, package names, or technical terms like Docker, FastAPI, Python, SQL, REST API, Git.
-    - Output ONLY the translated content without any intro or outro.
-    """
-    # Only use gemma free model (confirmed working); fallback to nvidia if needed
-    models_to_try = [OPENAI_MODEL]
-    # Add free fallbacks (deduped)
-    for fm in ["google/gemma-4-26b-a4b-it:free", "nvidia/nemotron-3-super-120b-a12b:free"]:
-        if fm not in models_to_try:
-            models_to_try.append(fm)
-
-    loop = asyncio.get_event_loop()
-    for m in models_to_try:
-        try:
-            response = await loop.run_in_executor(
-                None,
-                lambda target_m=m: client.chat.completions.create(
-                    model=target_m,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"} if is_json else None,
-                    max_tokens=1200,
-                    temperature=0.3
-                )
-            )
-            raw = response.choices[0].message.content.strip()
-            # Filter garbage pad tokens from small models
-            import re as _re
-            raw = _re.sub(r'<pad>', '', raw).strip()
-            # Validate: if result is mostly pad/empty, skip this model
-            if len(raw) < 10:
-                print(f"Model {m} returned empty/garbage, trying next...")
-                continue
-            if is_json:
-                parsed = safe_load_json(raw)
-                if parsed:
-                    return parsed
-                continue
-            return raw
-        except Exception as e:
-            print(f"Translation with model {m} failed ({e}), trying next model...")
-            continue
-
-    return content
 
 async def generate_more_quiz(lesson_title: str, core_content: str, count: int = 3):
     if not client:

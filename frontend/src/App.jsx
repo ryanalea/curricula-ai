@@ -573,66 +573,6 @@ export default function App() {
     }
   };
 
-  // ── Unified Multi-Language Translation Handler ──
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [currentContentLanguage, setCurrentContentLanguage] = useState('English');
-
-  const handleTranslateLesson = async (targetLang) => {
-    let activeData = courseData;
-    // If courseData is missing or empty, try fetching latest from backend session
-    if (!activeData || !activeData.lessons || activeData.lessons.length === 0) {
-      if (sessionId) {
-        try {
-          const checkRes = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
-          if (checkRes.ok) {
-            activeData = await checkRes.json();
-            setCourseData(activeData);
-          }
-        } catch (e) {
-          console.warn('Check session error:', e);
-        }
-      }
-    }
-
-    if (generationProgress < 100 && (!activeData?.lessons || activeData.lessons.length === 0)) {
-      alert('⏳ Mohon tunggu hingga proses pembuatan materi kursus selesai 100% sebelum menerjemahkan.');
-      return;
-    }
-
-    const curLesson = activeData?.lessons?.[currentGeneratingLessonIdx] || activeData?.lessons?.[0];
-    if (!curLesson || !curLesson.id) {
-      alert('Materi lesson belum tersedia. Silakan selesaikan proses pembuatan kursus terlebih dahulu.');
-      return;
-    }
-
-    setIsTranslating(true);
-    try {
-      const res = await fetch(`${API_BASE}/lessons/${curLesson.id}/translate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_language: targetLang })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const updatedCourse = { ...activeData };
-        const lIdx = updatedCourse.lessons.findIndex(l => l.id === curLesson.id);
-        if (lIdx !== -1) {
-          updatedCourse.lessons[lIdx].sections = data.sections;
-          setCourseData(updatedCourse);
-        }
-        setCurrentContentLanguage(targetLang);
-        fetchHistory();
-      } else {
-        alert('Gagal menerjemahkan lesson.');
-      }
-    } catch (err) {
-      console.error('Translation error:', err);
-      alert('Terjadi kesalahan saat menerjemahkan materi.');
-    } finally {
-      setIsTranslating(false);
-    }
-  };
-
   const handleExport = async () => {
     if (!courseData) return;
     const title = courseData.title || 'Course_Curriculum';
@@ -794,10 +734,6 @@ export default function App() {
             <button className="ai-pill-btn" onClick={() => handleAIAction(sectionType, 'expand')}>➕ Expand</button>
             <button className="ai-pill-btn" onClick={() => handleAIAction(sectionType, 'shorten')}>➖ Shorten</button>
             <button className="ai-pill-btn" onClick={() => handleAIAction(sectionType, 'simplify')}>💡 Simplify</button>
-            <button className="ai-pill-btn" onClick={() => {
-              const lang = prompt("Enter target language:", "Indonesian");
-              if (lang) handleAIAction(sectionType, 'translate', { target_language: lang });
-            }}>🌐 Translate</button>
             
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
               {isEditing ? (
@@ -4141,48 +4077,6 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Language Switcher Buttons */}
-                      <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface-2)', padding: '2px', borderRadius: '8px', border: '1px solid var(--border-color)', gap: '2px' }}>
-                        <button 
-                          className="lang-switch-btn"
-                          style={{
-                            padding: '5px 10px',
-                            fontSize: '0.76rem',
-                            fontWeight: 800,
-                            borderRadius: '6px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            background: currentContentLanguage === 'Indonesian' ? 'var(--navy)' : 'transparent',
-                            color: currentContentLanguage === 'Indonesian' ? '#fff' : 'var(--text-secondary)',
-                            transition: 'all 0.2s ease'
-                          }}
-                          onClick={() => handleTranslateLesson('Indonesian')}
-                          disabled={isTranslating}
-                          title="Terjemahkan seluruh modul ke Bahasa Indonesia"
-                        >
-                          {isTranslating && currentContentLanguage === 'Indonesian' ? <IconSpinner /> : '🇮🇩 ID'}
-                        </button>
-                        <button 
-                          className="lang-switch-btn"
-                          style={{
-                            padding: '5px 10px',
-                            fontSize: '0.76rem',
-                            fontWeight: 800,
-                            borderRadius: '6px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            background: currentContentLanguage === 'English' ? 'var(--navy)' : 'transparent',
-                            color: currentContentLanguage === 'English' ? '#fff' : 'var(--text-secondary)',
-                            transition: 'all 0.2s ease'
-                          }}
-                          onClick={() => handleTranslateLesson('English')}
-                          disabled={isTranslating}
-                          title="Translate entire lesson to English"
-                        >
-                          {isTranslating && currentContentLanguage === 'English' ? <IconSpinner /> : '🇬🇧 EN'}
-                        </button>
-                      </div>
-
                       <button className="icon-btn-tool" title="Version History" onClick={() => { fetchHistory(); setIsHistoryOpen(true); }}>
                         📜
                       </button>
@@ -5005,75 +4899,6 @@ export default function App() {
       </>
     )}
 
-      {/* Floating Unified Language Switcher Pill (Step 7 Workspace) */}
-      {(currentStep === 'generated' || currentStep === 'generating') && courseData && (
-        <div 
-          className="floating-language-pill"
-          style={{
-            position: 'fixed',
-            bottom: '24px',
-            right: '24px',
-            zIndex: 9999,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'var(--navy)',
-            color: '#ffffff',
-            padding: '8px 16px',
-            borderRadius: '9999px',
-            boxShadow: '0 10px 30px rgba(26, 32, 64, 0.4)',
-            border: '1.5px solid var(--gold)',
-            backdropFilter: 'blur(10px)',
-            animation: 'fadeInUp 0.3s ease'
-          }}
-        >
-          <span style={{ fontSize: '0.82rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}>
-            🌐 <span style={{ color: 'var(--gold)' }}>Bahasa:</span>
-          </span>
-          <button
-            style={{
-              background: currentContentLanguage === 'Indonesian' ? 'var(--gold)' : 'rgba(255, 255, 255, 0.15)',
-              color: currentContentLanguage === 'Indonesian' ? 'var(--navy)' : '#ffffff',
-              border: 'none',
-              borderRadius: '9999px',
-              padding: '5px 12px',
-              fontSize: '0.78rem',
-              fontWeight: 800,
-              cursor: isTranslating ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-            onClick={() => handleTranslateLesson('Indonesian')}
-            disabled={isTranslating}
-            title="Terjemahkan materi modul ini sepenuhnya ke Bahasa Indonesia"
-          >
-            {isTranslating && currentContentLanguage === 'Indonesian' ? <IconSpinner /> : '🇮🇩 Indonesia'}
-          </button>
-          <button
-            style={{
-              background: currentContentLanguage === 'English' ? 'var(--gold)' : 'rgba(255, 255, 255, 0.15)',
-              color: currentContentLanguage === 'English' ? 'var(--navy)' : '#ffffff',
-              border: 'none',
-              borderRadius: '9999px',
-              padding: '5px 12px',
-              fontSize: '0.78rem',
-              fontWeight: 800,
-              cursor: isTranslating ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s ease',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-            onClick={() => handleTranslateLesson('English')}
-            disabled={isTranslating}
-            title="Translate this lesson content fully into English"
-          >
-            {isTranslating && currentContentLanguage === 'English' ? <IconSpinner /> : '🇬🇧 English'}
-          </button>
-        </div>
-      )}
 
       {/* Global Delete Confirmation Modal Popup */}
       {deleteTargetSession && (

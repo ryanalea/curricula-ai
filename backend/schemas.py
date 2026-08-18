@@ -45,7 +45,3 @@ class SaveSectionRequest(BaseModel):
 class GroundingSuggestRequest(BaseModel):
     field_type: str
     existing_items: List[str]
-
-class TranslateRequest(BaseModel):
-    target_language: str = "Indonesian"
-    in_memory_sections: Optional[dict] = None
