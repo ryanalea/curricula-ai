@@ -188,6 +188,70 @@ export default function App() {
   const [agentProgressStage, setAgentProgressStage] = useState(1); // 1: Tech, 2: Grounding, 3: Proposals, 4: Structure
   const [activeSidebarNav, setActiveSidebarNav] = useState('create'); // 'create', 'my_courses', 'drafts', 'docs', 'assets', 'templates', 'settings'
 
+  // ── Browser History Integration (Fixes Chrome Back / Forward Blank Page Issue) ──
+  const isPopStateRef = useRef(false);
+
+  useEffect(() => {
+    // Replace initial state on mount if null
+    if (!window.history.state) {
+      window.history.replaceState({ currentView: 'home', currentStep: 'dashboard', sessionId: null }, '');
+    }
+
+    const handlePopState = (event) => {
+      if (event.state) {
+        isPopStateRef.current = true;
+        if (event.state.currentView) setCurrentView(event.state.currentView);
+        if (event.state.currentStep) setCurrentStep(event.state.currentStep);
+        if (event.state.sessionId !== undefined) setSessionId(event.state.sessionId);
+      } else {
+        isPopStateRef.current = true;
+        setCurrentView('home');
+        setCurrentStep('dashboard');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (isPopStateRef.current) {
+      isPopStateRef.current = false;
+      return;
+    }
+    const stateObj = { currentView, currentStep, sessionId };
+    if (
+      !window.history.state ||
+      window.history.state.currentView !== currentView ||
+      window.history.state.currentStep !== currentStep ||
+      window.history.state.sessionId !== sessionId
+    ) {
+      window.history.pushState(stateObj, '', window.location.pathname + window.location.search);
+    }
+  }, [currentView, currentStep, sessionId]);
+
+  // ── Toast Notification System ──
+  const [toasts, setToasts] = useState([]);
+
+  const addToast = (message, type = 'info', duration = 4000) => {
+    const id = Date.now() + Math.random().toString(36).substring(2, 6);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, duration);
+  };
+
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  const toast = {
+    success: (msg, dur) => addToast(msg, 'success', dur),
+    error: (msg, dur) => addToast(msg, 'error', dur),
+    warning: (msg, dur) => addToast(msg, 'warning', dur),
+    info: (msg, dur) => addToast(msg, 'info', dur),
+  };
+
   // Greeting Logic
   const getGreeting = () => {
     const hr = new Date().getHours();
@@ -268,6 +332,29 @@ export default function App() {
   const [configDifficulty, setConfigDifficulty] = useState('Beginner');
   const [configAudience, setConfigAudience] = useState('Student');
   const [subjectContext, setSubjectContext] = useState('');
+  const [pendingFile, setPendingFile] = useState(null);
+  const [uploadedFileName, setUploadedFileName] = useState('');
+
+  // Computes active attached file name from state or subjectContext header
+  const activeFileName = uploadedFileName || pendingFile?.name || (() => {
+    if (subjectContext) {
+      const match = subjectContext.match(/Context from Uploaded File \(([^)]+)\)/);
+      if (match) return match[1];
+    }
+    return '';
+  })();
+
+  const handleRemoveAttachedFile = async () => {
+    setPendingFile(null);
+    setUploadedFileName('');
+    if (sessionId) {
+      try {
+        await fetch(`${API_BASE}/sessions/${sessionId}/documents`, { method: 'DELETE' });
+      } catch (err) {
+        console.error('Failed to delete document from session:', err);
+      }
+    }
+  };
   const [showHeadingDropdown, setShowHeadingDropdown] = useState(false);
   const [showTablePicker, setShowTablePicker] = useState(false);
   const [hoverGrid, setHoverGrid] = useState({ r: 2, c: 2 });
@@ -481,11 +568,11 @@ export default function App() {
           setCourseData(updatedCourse);
         }
       } else {
-        alert('AI Action failed.');
+        toast.error('AI Action failed.');
       }
     } catch (err) {
       console.error(err);
-      alert('Error running AI Action.');
+      toast.error('Error running AI Action.');
     } finally {
       setSectionLoading(prev => ({ ...prev, [sectionType]: false }));
     }
@@ -516,11 +603,11 @@ export default function App() {
         }
         setEditingSection(null);
       } else {
-        alert('Failed to save manual edits.');
+        toast.error('Failed to save manual edits.');
       }
     } catch (err) {
       console.error(err);
-      alert('Error saving manual edits.');
+      toast.error('Error saving manual edits.');
     } finally {
       setSectionLoading(prev => ({ ...prev, [sectionType]: false }));
     }
@@ -559,15 +646,15 @@ export default function App() {
           if (lIdx !== -1) {
             updatedCourse.lessons[lIdx].sections[histItem.role][histItem.section_type] = updatedVal;
             setCourseData(updatedCourse);
-            alert(`Successfully restored: ${histItem.label}`);
+            toast.success(`Successfully restored: ${histItem.label}`);
           }
         }
       } else {
-        alert("Failed to restore history.");
+        toast.error("Failed to restore history.");
       }
     } catch (err) {
       console.error(err);
-      alert("Error restoring history.");
+      toast.error("Error restoring history.");
     } finally {
       setHistoryLoading(false);
     }
@@ -659,62 +746,79 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.click();
   };
 
+  // Called when file is picked on home screen — just store it, don't navigate yet
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (activeFileName) {
+      const confirmReplace = window.confirm(`Replacing attached document "${activeFileName}" with "${file.name}". Continue?`);
+      if (!confirmReplace) {
+        event.target.value = '';
+        return;
+      }
+    }
+    setPendingFile(file);
+    setUploadedFileName(file.name);
+    // Reset input so the same file can be re-selected if needed
+    event.target.value = '';
+  };
+
+  // Called when a session already exists (wizard context step) — upload immediately
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
+    if (uploadedFileName) {
+      const confirmReplace = window.confirm(`Replacing attached document "${uploadedFileName}" with "${file.name}". Continue?`);
+      if (!confirmReplace) {
+        event.target.value = '';
+        return;
+      }
+    }
 
     setIsLoading(true);
     try {
-      let activeSessId = sessionId;
-      if (!activeSessId) {
-        const textToSubmit = promptText.trim() || `Course based on ${file.name}`;
-        const res = await fetch(`${API_BASE}/courses/sessions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keyword: textToSubmit }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          activeSessId = data.session_id;
-          setSessionId(data.session_id);
-          setPromptText(textToSubmit);
-          const loadedTech = data.tech_tags || [];
-          setTechTags(loadedTech);
-          setAllSuggestedTags(data.all_suggested_tags && data.all_suggested_tags.length > 0 ? data.all_suggested_tags : Array.from(new Set([...loadedTech, ...DEFAULT_CANDIDATE_TAGS])));
-          setConfigLessons(data.config?.lessons_count || 5);
-          setConfigDuration(data.config?.duration || 60);
-          setConfigDifficulty(data.config?.difficulty || 'Beginner');
-          setConfigAudience(data.config?.target_audience || 'Student');
-          setSubjectContext(data.subject_context || '');
-          setCurrentStep('context');
-          fetchSessions();
-        } else {
-          alert('Failed to start session for upload.');
-          setIsLoading(false);
-          return;
-        }
-      }
-
+      if (!sessionId) return;
       const formData = new FormData();
       formData.append('file', file);
-
-      const uploadRes = await fetch(`${API_BASE}/sessions/${activeSessId}/documents/upload`, {
+      const uploadRes = await fetch(`${API_BASE}/sessions/${sessionId}/documents/upload`, {
         method: 'POST',
         body: formData
       });
-
       if (uploadRes.ok) {
         const uploadData = await uploadRes.json();
-        setSubjectContext(uploadData.subject_context);
-        alert(`Successfully uploaded and parsed context from: ${file.name}`);
+        setUploadedFileName(uploadData.filename || file.name);
+        toast.success(`Successfully uploaded reference document: ${file.name}`);
       } else {
-        alert('Failed to upload and parse document.');
+        toast.error('Failed to upload document.');
       }
     } catch (err) {
       console.error(err);
-      alert('Error uploading document.');
+      toast.error('Error uploading document.');
     } finally {
       setIsLoading(false);
+      event.target.value = '';
+    }
+  };
+
+  // Upload pending file (from home screen) to an already-created session
+  const uploadPendingFile = async (sessId) => {
+    if (!pendingFile || !sessId) return;
+    try {
+      const formData = new FormData();
+      formData.append('file', pendingFile);
+      const uploadRes = await fetch(`${API_BASE}/sessions/${sessId}/documents/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      if (uploadRes.ok) {
+        const uploadData = await uploadRes.json();
+        setSubjectContext(uploadData.subject_context);
+        setUploadedFileName(uploadData.filename || pendingFile.name);
+      }
+    } catch (err) {
+      console.error('Failed to upload pending file:', err);
+    } finally {
+      setPendingFile(null);
     }
   };
 
@@ -1198,7 +1302,7 @@ export default function App() {
       fetchSessions();
     } catch (err) {
       console.error(err);
-      alert('Agent pipeline failed: ' + err.message);
+      toast.error('Agent pipeline failed: ' + err.message);
       setCurrentStep('context'); // Fallback to manual if agent fails
     } finally {
       setIsLoading(false);
@@ -1209,7 +1313,7 @@ export default function App() {
   const handleStartSession = async (promptVal) => {
     const textToSubmit = promptVal || promptText;
     if (!textToSubmit.trim()) {
-      alert('Please enter a course topic/prompt first.');
+      toast.warning('Please enter a course topic/prompt first.');
       return;
     }
     setIsLoading(true);
@@ -1222,6 +1326,7 @@ export default function App() {
     setPrerequisites([]);
     setBoundaries([]);
     setLearningOutcomes([]);
+    setUploadedFileName('');
     try {
       const res = await fetch(`${API_BASE}/courses/sessions`, {
         method: 'POST',
@@ -1252,6 +1357,9 @@ export default function App() {
         setCurrentView('wizard');
         fetchSessions();
 
+        // If a file was attached on home screen, upload it now after session is created
+        await uploadPendingFile(data.session_id);
+
         if (isAgentMode === 'agent') {
           await runAgentPipeline(data.session_id, data);
         } else {
@@ -1259,11 +1367,11 @@ export default function App() {
           setIsLoading(false);
         }
       } else {
-        alert('Failed to start session.');
+        toast.error('Failed to start session.');
         setIsLoading(false);
       }
     } catch {
-      alert('Error contacting API server. Is the backend running?');
+      toast.error('Error contacting API server. Is the backend running?');
       setIsLoading(false);
     }
   };
@@ -1351,7 +1459,7 @@ export default function App() {
           const genData = await genRes.json();
           setProposals(genData.proposals || []);
         } else {
-          alert('Grounding saved, but failed to generate proposals.');
+          toast.warning('Grounding saved, but failed to generate proposals.');
         }
       }
       setCurrentStep('proposal');
@@ -1397,7 +1505,7 @@ export default function App() {
           }
         }
       } else {
-        alert('Failed to generate suggestions.');
+        toast.error('Failed to generate suggestions.');
       }
     } catch (err) {
       console.error(err);
@@ -1571,6 +1679,7 @@ export default function App() {
         setConfigDifficulty(data.config?.difficulty || 'Beginner');
         setConfigAudience(data.config?.target_audience || 'Student');
         setSubjectContext(data.subject_context || '');
+        setUploadedFileName(data.document_filename || '');
         setPrerequisites(data.prerequisites || []);
         setBoundaries(data.out_of_scope || []);
         setLearningOutcomes(data.learning_outcomes || []);
@@ -1741,7 +1850,7 @@ export default function App() {
       <input 
         type="file" 
         ref={fileInputRef} 
-        onChange={handleFileUpload} 
+        onChange={currentStep === 'dashboard' ? handleFileSelect : handleFileUpload} 
         style={{ display: 'none' }} 
         accept=".pdf,.docx,.txt" 
       />
@@ -1775,7 +1884,7 @@ export default function App() {
         <div className="header-actions">
           <button 
             className="header-create-btn"
-            onClick={() => { setCurrentView('wizard'); setCurrentStep('dashboard'); setShowMyCourses(false); setSessionId(null); setPromptText(''); setProposals([]); setStructure([]); setCourseData(null); }}
+            onClick={() => { setCurrentView('wizard'); setCurrentStep('dashboard'); setShowMyCourses(false); setSessionId(null); setPromptText(''); setProposals([]); setStructure([]); setCourseData(null); setUploadedFileName(''); setPendingFile(null); setSubjectContext(''); }}
           >
             <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             <span>Create</span>
@@ -1906,7 +2015,7 @@ export default function App() {
             {/* Footer */}
             <div className="elice-footer">
               <span>&copy; {new Date().getFullYear()} Curricula AI. All rights reserved. Powered by Maxy Academy.</span>
-              <button className="feedback-btn" onClick={() => alert('Thank you for your feedback!')}>Send Feedback</button>
+              <button className="feedback-btn" onClick={() => toast.info('Thank you for your feedback!')}>Send Feedback</button>
             </div>
           </div>
         )}
@@ -2474,7 +2583,7 @@ export default function App() {
 
                 <div className="elice-footer" style={{ width: '100%', maxWidth: '460px', marginTop: '30px' }}>
                   <span>&copy; {new Date().getFullYear()} Curricula AI. All rights reserved.</span>
-                  <button className="feedback-btn" onClick={() => alert('Thank you for your feedback!')}>Send Feedback</button>
+                  <button className="feedback-btn" onClick={() => toast.info('Thank you for your feedback!')}>Send Feedback</button>
                 </div>
               </div>
             ) : (
@@ -2499,15 +2608,16 @@ export default function App() {
                   />
                   <div className="prompt-controls">
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <button className="file-upload-btn" onClick={handleFileUploadClick} disabled={isLoading} title="Upload Reference Document">
+                      <button className="file-upload-btn" onClick={handleFileUploadClick} disabled={isLoading} title="Upload 1 Reference Document (DOCX, PDF, TXT)">
                         <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ marginRight: '4px' }}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                         <span>Reference File</span>
                       </button>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }} title="Maximum 1 reference document allowed per course">(Max 1 file • DOCX/PDF/TXT)</span>
                       <select
                         className="file-upload-btn"
                         value={isAgentMode}
                         onChange={(e) => setIsAgentMode(e.target.value)}
-                        style={{ background: 'var(--surface-2)', color: 'var(--navy)' }}
+                        style={{ background: 'var(--surface-2)', color: '#475569' }}
                       >
                         <option value="agent">Agent Planning (Auto Workflow)</option>
                         <option value="outline">Planning Only (Outline Only)</option>
@@ -2518,6 +2628,20 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                {/* File badge — rendered OUTSIDE prompt-card to avoid :active CSS transform interfering with click */}
+                {pendingFile && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '-20px', marginBottom: '16px', padding: '8px 14px', background: 'var(--blue-light)', borderRadius: '10px', fontSize: '0.85rem', color: 'var(--blue)', fontWeight: 600, border: '1.5px solid var(--blue)', boxShadow: '0 2px 8px rgba(59,130,246,0.1)' }}>
+                    <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pendingFile.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingFile(null)}
+                      style={{ flexShrink: 0, background: 'var(--blue)', border: 'none', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', color: '#fff', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, lineHeight: 1 }}
+                      title="Remove file"
+                    >✕</button>
+                  </div>
+                )}
 
                 <h2 style={{ marginTop: '40px', marginBottom: '20px', fontSize: '1.25rem', fontWeight: 800 }}>Try these examples</h2>
                 <div className="suggested-grid">
@@ -2671,190 +2795,215 @@ export default function App() {
             {/* Subject Matter Context Card */}
             <div className="prompt-card">
               <h3 style={{ marginBottom: '14px', fontSize: '1.05rem', color: 'var(--navy)' }}>Subject Matter Context</h3>
-              
-              {/* Rich Editor Toolbar */}
-              <div className="rich-editor-container">
-                <div className="rich-editor-toolbar">
-                  {/* 1. Text Styling */}
-                  <div className="toolbar-group">
-                    <button type="button" className="editor-tb-btn" title="bold" onClick={() => insertMarkdown('**', '**')}>
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z"/><path d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z"/></svg>
-                    </button>
-                    <button type="button" className="editor-tb-btn" title="italic" onClick={() => insertMarkdown('*', '*')}>
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
-                    </button>
-                    <button type="button" className="editor-tb-btn" title="strikeThrough" onClick={() => insertMarkdown('~~', '~~')}>
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M16 4H9a3 3 0 00-3 3c0 2 2 3 4 3.5m0 0C14 11 17 12 17 15a3.5 3.5 0 01-3.5 3.5H7"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
-                    </button>
+
+              {/* Attached Reference File Badge */}
+              {activeFileName && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--blue-light)', borderRadius: '10px', border: '1.5px solid var(--blue)', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '1.4rem' }}>📄</span>
+                    <div>
+                      <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.92rem' }}>{activeFileName}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--blue)', fontWeight: 600 }}>Attached Reference Document</div>
+                    </div>
                   </div>
-
-                  <div className="toolbar-divider" />
-
-                  {/* 2. Headings & Titles */}
-                  <div className="toolbar-group" style={{ position: 'relative' }}>
-                    <button 
-                      type="button" 
-                      className={`editor-tb-btn ${showHeadingDropdown ? 'active' : ''}`} 
-                      title="title" 
-                      onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}
-                    >
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M4 6v12M12 6v12M4 12h8M20 6v12M16 12h4"/></svg>
-                      <span className="dropdown-caret">▾</span>
-                    </button>
-                    {showHeadingDropdown && (
-                      <div className="editor-dropdown-menu">
-                        <div className="dropdown-item" onClick={() => applyHeading(1)}>Lv1 Heading (#)</div>
-                        <div className="dropdown-item" onClick={() => applyHeading(2)}>Lv2 Heading (##)</div>
-                        <div className="dropdown-item" onClick={() => applyHeading(3)}>Lv3 Heading (###)</div>
-                        <div className="dropdown-item" onClick={() => applyHeading(4)}>Lv4 Heading (####)</div>
-                        <div className="dropdown-item" onClick={() => applyHeading(5)}>Lv5 Heading (#####)</div>
-                        <div className="dropdown-item" onClick={() => applyHeading(6)}>Lv6 Heading (######)</div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="toolbar-divider" />
-
-                  {/* 3. Advanced Text Formatting */}
-                  <div className="toolbar-group">
-                    <button type="button" className="editor-tb-btn" title="subscript" onClick={() => insertMarkdown('~', '~')}>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>X<sub>2</sub></span>
-                    </button>
-                    <button type="button" className="editor-tb-btn" title="superscript" onClick={() => insertMarkdown('^', '^')}>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>X<sup>2</sup></span>
-                    </button>
-                    <button type="button" className="editor-tb-btn" title="quote" onClick={() => insertMarkdown('\n> ', '')}>
-                      <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24"><path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z"/></svg>
-                    </button>
-                  </div>
-
-                  <div className="toolbar-divider" />
-
-                  {/* 4. Lists & Links */}
-                  <div className="toolbar-group">
-                    <button type="button" className="editor-tb-btn" title="unordered list" onClick={() => insertMarkdown('\n- ', '')}>
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                    </button>
-                    <button type="button" className="editor-tb-btn" title="ordered list" onClick={() => insertMarkdown('\n1. ', '')}>
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg>
-                    </button>
-                    <button type="button" className="editor-tb-btn" title="link" onClick={() => insertMarkdown('[', '](https://example.com)')}>
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
-                    </button>
-                  </div>
-
-                  <div className="toolbar-divider" />
-
-                  {/* 5. Code & Tables */}
-                  <div className="toolbar-group" style={{ position: 'relative' }}>
-                    <button type="button" className="editor-tb-btn" title="block-level code" onClick={() => insertMarkdown('\n```\n', '\n```\n')}>
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                    </button>
-                    <button 
-                      type="button" 
-                      className={`editor-tb-btn ${showTablePicker ? 'active' : ''}`} 
-                      title="table" 
-                      onClick={() => setShowTablePicker(!showTablePicker)}
-                    >
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
-                    </button>
-
-                    {/* Interactive Table Grid Picker */}
-                    {showTablePicker && (
-                      <div className="table-picker-popup">
-                        <div className="table-picker-header">
-                          Table Shape Grid ({hoverGrid.r} &times; {hoverGrid.c})
-                        </div>
-                        <div className="table-grid-matrix">
-                          {Array.from({ length: 6 }).map((_, rIdx) => (
-                            <div key={rIdx} className="table-grid-row">
-                              {Array.from({ length: 6 }).map((_, cIdx) => {
-                                const isHighlighted = rIdx < hoverGrid.r && cIdx < hoverGrid.c;
-                                return (
-                                  <div
-                                    key={cIdx}
-                                    className={`table-grid-cell ${isHighlighted ? 'active' : ''}`}
-                                    onMouseEnter={() => setHoverGrid({ r: rIdx + 1, c: cIdx + 1 })}
-                                    onClick={() => insertTable(rIdx + 1, cIdx + 1)}
-                                  />
-                                );
-                              })}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="toolbar-divider" />
-
-                  {/* 6. View & Navigation */}
-                  <div className="toolbar-group">
-                    <button 
-                      type="button" 
-                      className={`editor-tb-btn ${isPreviewMode ? 'active' : ''}`} 
-                      title="preview" 
-                      onClick={() => setIsPreviewMode(!isPreviewMode)}
-                    >
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    </button>
-                    <button 
-                      type="button" 
-                      className={`editor-tb-btn ${showCatalog ? 'active' : ''}`} 
-                      title="catalog" 
-                      onClick={() => setShowCatalog(!showCatalog)}
-                    >
-                      <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg>
-                    </button>
-                  </div>
-
-                  <button 
+                  <button
                     type="button"
-                    className="editor-tb-btn file-upload-right-btn" 
-                    title="Upload Reference Document"
-                    onClick={handleFileUploadClick}
+                    onClick={handleRemoveAttachedFile}
+                    style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.8rem', boxShadow: '0 2px 6px rgba(239,68,68,0.35)' }}
+                    title="Remove Attached File"
                   >
-                    Upload DOCX/PDF 📤
+                    ✕
                   </button>
                 </div>
+              )}
 
-                {/* Editor Content Area (Split catalog or preview mode) */}
-                <div className="rich-editor-workspace">
-                  {showCatalog && (
-                    <div className="editor-catalog-sidebar">
-                      <div className="catalog-title">Table of Contents</div>
-                      {subjectContext.split('\n').filter(l => l.startsWith('#')).length === 0 ? (
-                        <div className="catalog-empty">No headings added yet. Use H1-H6 to outline your context.</div>
-                      ) : (
-                        subjectContext.split('\n').filter(l => l.startsWith('#')).map((hLine, hIdx) => {
-                          const level = hLine.match(/^#+/)?.[0].length || 1;
-                          const text = hLine.replace(/^#+\s*/, '');
-                          return (
-                            <div key={hIdx} className={`catalog-item level-${level}`}>
-                              {text}
+              {/* Rich Editor Toolbar */}
+              <div className="rich-editor-container">
+                    <div className="rich-editor-toolbar">
+                      {/* 1. Text Styling */}
+                      <div className="toolbar-group">
+                        <button type="button" className="editor-tb-btn" title="bold" onClick={() => insertMarkdown('**', '**')}>
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z"/><path d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z"/></svg>
+                        </button>
+                        <button type="button" className="editor-tb-btn" title="italic" onClick={() => insertMarkdown('*', '*')}>
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>
+                        </button>
+                        <button type="button" className="editor-tb-btn" title="strikeThrough" onClick={() => insertMarkdown('~~', '~~')}>
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M16 4H9a3 3 0 00-3 3c0 2 2 3 4 3.5m0 0C14 11 17 12 17 15a3.5 3.5 0 01-3.5 3.5H7"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
+                        </button>
+                      </div>
+
+                      <div className="toolbar-divider" />
+
+                      {/* 2. Headings & Titles */}
+                      <div className="toolbar-group" style={{ position: 'relative' }}>
+                        <button 
+                          type="button" 
+                          className={`editor-tb-btn ${showHeadingDropdown ? 'active' : ''}`} 
+                          title="title" 
+                          onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}
+                        >
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M4 6v12M12 6v12M4 12h8M20 6v12M16 12h4"/></svg>
+                          <span className="dropdown-caret">▾</span>
+                        </button>
+                        {showHeadingDropdown && (
+                          <div className="editor-dropdown-menu">
+                            <div className="dropdown-item" onClick={() => applyHeading(1)}>Lv1 Heading (#)</div>
+                            <div className="dropdown-item" onClick={() => applyHeading(2)}>Lv2 Heading (##)</div>
+                            <div className="dropdown-item" onClick={() => applyHeading(3)}>Lv3 Heading (###)</div>
+                            <div className="dropdown-item" onClick={() => applyHeading(4)}>Lv4 Heading (####)</div>
+                            <div className="dropdown-item" onClick={() => applyHeading(5)}>Lv5 Heading (#####)</div>
+                            <div className="dropdown-item" onClick={() => applyHeading(6)}>Lv6 Heading (######)</div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="toolbar-divider" />
+
+                      {/* 3. Advanced Text Formatting */}
+                      <div className="toolbar-group">
+                        <button type="button" className="editor-tb-btn" title="subscript" onClick={() => insertMarkdown('~', '~')}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>X<sub>2</sub></span>
+                        </button>
+                        <button type="button" className="editor-tb-btn" title="superscript" onClick={() => insertMarkdown('^', '^')}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>X<sup>2</sup></span>
+                        </button>
+                        <button type="button" className="editor-tb-btn" title="quote" onClick={() => insertMarkdown('\n> ', '')}>
+                          <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24"><path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z"/></svg>
+                        </button>
+                      </div>
+
+                      <div className="toolbar-divider" />
+
+                      {/* 4. Lists & Links */}
+                      <div className="toolbar-group">
+                        <button type="button" className="editor-tb-btn" title="unordered list" onClick={() => insertMarkdown('\n- ', '')}>
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        </button>
+                        <button type="button" className="editor-tb-btn" title="ordered list" onClick={() => insertMarkdown('\n1. ', '')}>
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg>
+                        </button>
+                        <button type="button" className="editor-tb-btn" title="link" onClick={() => insertMarkdown('[', '](https://example.com)')}>
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+                        </button>
+                      </div>
+
+                      <div className="toolbar-divider" />
+
+                      {/* 5. Code & Tables */}
+                      <div className="toolbar-group" style={{ position: 'relative' }}>
+                        <button type="button" className="editor-tb-btn" title="block-level code" onClick={() => insertMarkdown('\n```\n', '\n```\n')}>
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                        </button>
+                        <button 
+                          type="button" 
+                          className={`editor-tb-btn ${showTablePicker ? 'active' : ''}`} 
+                          title="table" 
+                          onClick={() => setShowTablePicker(!showTablePicker)}
+                        >
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+                        </button>
+
+                        {/* Interactive Table Grid Picker */}
+                        {showTablePicker && (
+                          <div className="table-picker-popup">
+                            <div className="table-picker-header">
+                              Table Shape Grid ({hoverGrid.r} &times; {hoverGrid.c})
                             </div>
-                          );
-                        })
+                            <div className="table-grid-matrix">
+                              {Array.from({ length: 6 }).map((_, rIdx) => (
+                                <div key={rIdx} className="table-grid-row">
+                                  {Array.from({ length: 6 }).map((_, cIdx) => {
+                                    const isHighlighted = rIdx < hoverGrid.r && cIdx < hoverGrid.c;
+                                    return (
+                                      <div
+                                        key={cIdx}
+                                        className={`table-grid-cell ${isHighlighted ? 'active' : ''}`}
+                                        onMouseEnter={() => setHoverGrid({ r: rIdx + 1, c: cIdx + 1 })}
+                                        onClick={() => insertTable(rIdx + 1, cIdx + 1)}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="toolbar-divider" />
+
+                      {/* 6. View & Navigation */}
+                      <div className="toolbar-group">
+                        <button 
+                          type="button" 
+                          className={`editor-tb-btn ${isPreviewMode ? 'active' : ''}`} 
+                          title="preview" 
+                          onClick={() => setIsPreviewMode(!isPreviewMode)}
+                        >
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                        <button 
+                          type="button" 
+                          className={`editor-tb-btn ${showCatalog ? 'active' : ''}`} 
+                          title="catalog" 
+                          onClick={() => setShowCatalog(!showCatalog)}
+                        >
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg>
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>(Max 1 document)</span>
+                        <button 
+                          type="button"
+                          className="editor-tb-btn file-upload-right-btn" 
+                          title="Upload Reference Document (Max 1 file)"
+                          onClick={handleFileUploadClick}
+                        >
+                          Upload DOCX/PDF 📤
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Editor Content Area (Split catalog or preview mode) */}
+                    <div className="rich-editor-workspace">
+                      {showCatalog && (
+                        <div className="editor-catalog-sidebar">
+                          <div className="catalog-title">Table of Contents</div>
+                          {subjectContext.split('\n').filter(l => l.startsWith('#')).length === 0 ? (
+                            <div className="catalog-empty">No headings added yet. Use H1-H6 to outline your context.</div>
+                          ) : (
+                            subjectContext.split('\n').filter(l => l.startsWith('#')).map((hLine, hIdx) => {
+                              const level = hLine.match(/^#+/)?.[0].length || 1;
+                              const text = hLine.replace(/^#+\s*/, '');
+                              return (
+                                <div key={hIdx} className={`catalog-item level-${level}`}>
+                                  {text}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+
+                      {isPreviewMode ? (
+                        <div className="prompt-textarea editor-preview-box">
+                          <ContentRenderer text={subjectContext || '*No content to preview yet.*'} />
+                        </div>
+                      ) : (
+                        <textarea
+                          ref={contextTextareaRef}
+                          className="prompt-textarea"
+                          value={subjectContext}
+                          onChange={(e) => setSubjectContext(e.target.value)}
+                          style={{ minHeight: '220px' }}
+                          placeholder="Add any extra context about this subject matter to improve AI quality…"
+                        />
                       )}
                     </div>
-                  )}
-
-                  {isPreviewMode ? (
-                    <div className="prompt-textarea editor-preview-box">
-                      <ContentRenderer text={subjectContext || '*No content to preview yet.*'} />
-                    </div>
-                  ) : (
-                    <textarea
-                      ref={contextTextareaRef}
-                      className="prompt-textarea"
-                      value={subjectContext}
-                      onChange={(e) => setSubjectContext(e.target.value)}
-                      style={{ minHeight: '220px' }}
-                      placeholder="Add any extra context about this subject matter to improve AI quality…"
-                    />
-                  )}
-                </div>
-              </div>
+                  </div>
+            </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
@@ -2865,7 +3014,6 @@ export default function App() {
                   {isLoading ? <><IconSpinner /> Generating…</> : <>Save &amp; Continue <IconArrow /></>}
                 </button>
               </div>
-            </div>
           </div>
         )}
 
@@ -3505,7 +3653,7 @@ export default function App() {
                         body: JSON.stringify({ lessons: structure })
                       });
                     } catch (e) {
-                      console.error('Failed to save structure:', e);
+                      toast.error('Failed to save structure');
                     } finally {
                       setIsLoading(false);
                     }
@@ -3583,7 +3731,7 @@ export default function App() {
                       className="modal-add-btn"
                       onClick={() => {
                         if (!newSectionTitle.trim()) {
-                          alert('Please enter a section title.');
+                          toast.warning('Please enter a section title.');
                           return;
                         }
                         const cleanType = `custom_${newSectionTitle.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^_+|_+$/g, '')}_${Date.now().toString().slice(-4)}`;
@@ -3606,6 +3754,7 @@ export default function App() {
                         setIsAddSectionModalOpen(false);
                         setNewSectionTitle('');
                         setNewSectionInstruction('');
+                        toast.success('Custom section added!');
                       }}
                     >
                       Add Section →
@@ -3652,7 +3801,28 @@ export default function App() {
                       <p className="concept-hero-subtitle">"{promptText ? `Course focus: ${promptText}` : 'Comprehensive Course Concept'}"</p>
                     </div>
 
-                    <div className="concept-description-text" style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.65', margin: '16px 0' }}>
+                    {/* Attached File Badge if present */}
+                    {activeFileName && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--blue-light)', borderRadius: '10px', border: '1.5px solid var(--blue)', marginTop: '12px', marginBottom: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '1.2rem' }}>📄</span>
+                          <div>
+                            <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.88rem' }}>{activeFileName}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--blue)', fontWeight: 600 }}>Attached Reference Document</div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleRemoveAttachedFile}
+                          style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem' }}
+                          title="Remove Attached File"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="concept-description-text" style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.65', margin: '14px 0' }}>
                       <ContentRenderer text={subjectContext || `This course is engineered to provide comprehensive, hands-on mastery of ${promptText || 'the selected topic'}, covering foundational setup, core architectures, and real-world project implementation.`} />
                     </div>
 
@@ -4066,7 +4236,7 @@ export default function App() {
                                 setTimeout(() => {
                                   setIsWandProcessing(false);
                                   setIsAIWandOpen(false);
-                                  alert(`AI Action [${item.label}] completed successfully for this section!`);
+                                  toast.success(`AI Action [${item.label}] completed successfully for this section!`);
                                 }, 1200);
                               }}
                             >
@@ -4186,7 +4356,7 @@ export default function App() {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('exercises', parsed);
                                       } catch (err) {
-                                        alert("Invalid JSON format. Expected array of objects.");
+                                        toast.error("Invalid JSON format. Expected array of objects.");
                                       }
                                     }}>Save</button>
                                   ) : (
@@ -4227,7 +4397,7 @@ export default function App() {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('quizzes', parsed);
                                       } catch (err) {
-                                        alert("Invalid JSON format. Expected array of objects.");
+                                        toast.error("Invalid JSON format. Expected array of objects.");
                                       }
                                     }}>Save</button>
                                   ) : (
@@ -4279,7 +4449,7 @@ export default function App() {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('practice', parsed);
                                       } catch (err) {
-                                        alert("Invalid JSON format. Expected: { code_block: string, interactive_exercise: string, checklist: string[] }");
+                                        toast.error("Invalid JSON format. Expected: { code_block: string, interactive_exercise: string, checklist: string[] }");
                                       }
                                     }}>Save</button>
                                   ) : (
@@ -4349,7 +4519,7 @@ export default function App() {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('lesson_plan', parsed);
                                       } catch (err) {
-                                        alert("Invalid JSON format. Expected: { ice_breaker: string, timing: string }");
+                                        toast.error("Invalid JSON format. Expected: { ice_breaker: string, timing: string }");
                                       }
                                     }}>Save</button>
                                   ) : (
@@ -4381,7 +4551,7 @@ export default function App() {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('rubric', parsed);
                                       } catch (err) {
-                                        alert("Invalid JSON format. Expected array of objects.");
+                                        toast.error("Invalid JSON format. Expected array of objects.");
                                       }
                                     }}>Save</button>
                                   ) : (
@@ -4582,7 +4752,7 @@ export default function App() {
                         <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom In">+</button>
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => alert('Opening search...')} title="Search document">🔍 Search</button>
+                        <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => toast.info('Opening search...')} title="Search document">🔍 Search</button>
                         <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => window.print()} title="Print document">Print</button>
                         <button className="purple-start-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', gap: '4px', boxShadow: 'none' }} onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }} title="Save/Download Document">Download PDF</button>
                       </div>

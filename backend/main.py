@@ -9,7 +9,8 @@ from typing import List
 import datetime
 import io
 
-from database import SessionLocal, get_db
+from sqlalchemy import text
+from database import SessionLocal, get_db, engine
 from models import Session as DbSession, Course, Lesson, Section, History
 import schemas
 import pipeline
@@ -17,6 +18,21 @@ import exporter
 import document_parser
 
 app = FastAPI(title="AI Course Generator API", version="1.0.0")
+
+# Auto-migrate new columns for document context
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE sessions ADD COLUMN document_context TEXT"))
+        conn.commit()
+except Exception:
+    pass
+
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE sessions ADD COLUMN document_filename VARCHAR(200)"))
+        conn.commit()
+except Exception:
+    pass
 
 # Enable CORS for frontend integration
 app.add_middleware(
@@ -215,6 +231,7 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
             "subject_context": db_session.subject_context
         },
         "subject_context": db_session.subject_context,
+        "document_filename": db_session.document_filename,
         "proposals": json.loads(db_session.proposals),
         "selected_proposal_id": db_session.selected_proposal_id,
         "structure": json.loads(db_session.structure),
@@ -484,9 +501,15 @@ async def generate_course_content_task_async(session_id: str):
                 db.refresh(lesson)
                 
             # Run RTFC master prompting calls in parallel for faster speed
+            user_ctx = db_session.subject_context or ""
+            doc_ctx = db_session.document_context or ""
+            full_ctx = user_ctx
+            if doc_ctx:
+                full_ctx = f"{user_ctx}\n\n=== Context from Reference Document ({db_session.document_filename or 'File'}) ===\n{doc_ctx}".strip()
+
             grounding_data = json.dumps({
                 "tech_tags": json.loads(db_session.tech_tags) if db_session.tech_tags else [],
-                "subject_context": db_session.subject_context or "",
+                "subject_context": full_ctx,
                 "prerequisites": json.loads(db_session.prerequisites) if db_session.prerequisites else [],
                 "out_of_scope": json.loads(db_session.boundaries) if db_session.boundaries else [],
                 "learning_outcomes": json.loads(db_session.learning_outcomes) if db_session.learning_outcomes else [],
@@ -885,14 +908,19 @@ async def upload_document_endpoint(session_id: str, file: UploadFile = File(...)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
         
-    current_context = db_session.subject_context or ""
-    if current_context:
-        db_session.subject_context = current_context + "\n\n=== Additional Context from Uploaded File (" + file.filename + ") ===\n" + parsed_text
-    else:
-        db_session.subject_context = "=== Context from Uploaded File (" + file.filename + ") ===\n" + parsed_text
-        
+    db_session.document_context = parsed_text
+    db_session.document_filename = file.filename
     db.commit()
-    return {"status": "success", "filename": file.filename, "subject_context": db_session.subject_context}
+    return {"status": "success", "filename": file.filename, "document_filename": file.filename, "subject_context": db_session.subject_context}
+
+@app.delete("/api/v1/sessions/{session_id}/documents")
+def delete_document_endpoint(session_id: str, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if db_session:
+        db_session.document_context = None
+        db_session.document_filename = None
+        db.commit()
+    return {"status": "success"}
 
 
 

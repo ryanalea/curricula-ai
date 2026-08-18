@@ -50,6 +50,8 @@ class Session(Base):
     config_difficulty: Mapped[str] = mapped_column(String(30), default="Beginner")
     config_audience: Mapped[str] = mapped_column(String(100), default="Student")
     subject_context: Mapped[str] = mapped_column(Text, default="")
+    document_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_filename: Mapped[str | None] = mapped_column(String(200), nullable=True)
     prerequisites: Mapped[str] = mapped_column(Text, default="[]")
     boundaries: Mapped[str] = mapped_column(Text, default="[]")
     learning_outcomes: Mapped[str] = mapped_column(Text, default="[]")
