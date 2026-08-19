@@ -1,5 +1,5 @@
-from sqlalchemy import ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Column, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import relationship
 
 from database import Base
 
@@ -7,82 +7,94 @@ from database import Base
 class Course(Base):
     __tablename__ = "courses"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    title: Mapped[str] = mapped_column(String(200))
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    difficulty: Mapped[str] = mapped_column(String(50))
-    duration: Mapped[int] = mapped_column(Integer)
-    audience: Mapped[str] = mapped_column(String(100))
-    lessons: Mapped[list["Lesson"]] = relationship(back_populates="course", cascade="all, delete-orphan")
+    id = Column(String(36), primary_key=True)
+    title = Column(String(200))
+    description = Column(Text, nullable=True)
+    difficulty = Column(String(50))
+    duration = Column(Integer)
+    audience = Column(String(100))
+    lessons = relationship("Lesson", back_populates="course", cascade="all, delete-orphan")
 
 
 class Lesson(Base):
     __tablename__ = "lessons"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    course_id: Mapped[str] = mapped_column(String(36), ForeignKey("courses.id", ondelete="CASCADE"), index=True)
-    title: Mapped[str] = mapped_column(String(200))
-    position: Mapped[int] = mapped_column(Integer)
-    course: Mapped["Course"] = relationship(back_populates="lessons")
-    sections: Mapped[list["Section"]] = relationship(back_populates="lesson", cascade="all, delete-orphan")
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    course_id = Column(String(36), ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    title = Column(String(200))
+    position = Column(Integer)
+    course = relationship("Course", back_populates="lessons")
+    sections = relationship("Section", back_populates="lesson", cascade="all, delete-orphan")
+    pptx = relationship("Pptx", back_populates="lesson", uselist=False, cascade="all, delete-orphan")
 
 
 class Section(Base):
     __tablename__ = "sections"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    lesson_id: Mapped[int] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), index=True)
-    role: Mapped[str] = mapped_column(String(20))
-    section_type: Mapped[str] = mapped_column(String(100))
-    content_text: Mapped[str] = mapped_column(Text)
-    lesson: Mapped["Lesson"] = relationship(back_populates="sections")
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lesson_id = Column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), index=True)
+    role = Column(String(20))
+    section_type = Column(String(100))
+    content_text = Column(Text)
+    lesson = relationship("Lesson", back_populates="sections")
 
 
 class Session(Base):
     __tablename__ = "sessions"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    step: Mapped[str] = mapped_column(String(30), default="dashboard")
-    prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tech_tags: Mapped[str] = mapped_column(Text, default="[]")
-    config_lessons: Mapped[int] = mapped_column(Integer, default=5)
-    config_duration: Mapped[int] = mapped_column(Integer, default=60)
-    config_difficulty: Mapped[str] = mapped_column(String(30), default="Beginner")
-    config_audience: Mapped[str] = mapped_column(String(100), default="Student")
-    subject_context: Mapped[str] = mapped_column(Text, default="")
-    document_context: Mapped[str | None] = mapped_column(Text, nullable=True)
-    document_filename: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    prerequisites: Mapped[str] = mapped_column(Text, default="[]")
-    boundaries: Mapped[str] = mapped_column(Text, default="[]")
-    learning_outcomes: Mapped[str] = mapped_column(Text, default="[]")
-    proposals: Mapped[str] = mapped_column(Text, default="[]")
-    selected_proposal_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    structure: Mapped[str] = mapped_column(Text, default="[]")
-    status: Mapped[str] = mapped_column(String(30), default="idle")
-    progress: Mapped[int] = mapped_column(Integer, default=0)
-    status_text: Mapped[str] = mapped_column(Text, default="")
+    id = Column(String(36), primary_key=True)
+    step = Column(String(30), default="dashboard")
+    prompt = Column(Text, nullable=True)
+    tech_tags = Column(Text, default="[]")
+    config_lessons = Column(Integer, default=5)
+    config_duration = Column(Integer, default=60)
+    config_difficulty = Column(String(30), default="Beginner")
+    config_audience = Column(String(100), default="Student")
+    subject_context = Column(Text, default="")
+    document_context = Column(Text, nullable=True)
+    document_filename = Column(String(200), nullable=True)
+    prerequisites = Column(Text, default="[]")
+    boundaries = Column(Text, default="[]")
+    learning_outcomes = Column(Text, default="[]")
+    proposals = Column(Text, default="[]")
+    selected_proposal_id = Column(Integer, nullable=True)
+    structure = Column(Text, default="[]")
+    status = Column(String(30), default="idle")
+    progress = Column(Integer, default=0)
+    status_text = Column(Text, default="")
 
 
 class History(Base):
     __tablename__ = "history"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
-    lesson_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="SET NULL"), nullable=True)
-    role: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    section_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    content_snapshot: Mapped[str] = mapped_column(Text)
-    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[str] = mapped_column(String(32))
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    lesson_id = Column(Integer, ForeignKey("lessons.id", ondelete="SET NULL"), nullable=True)
+    role = Column(String(20), nullable=True)
+    section_type = Column(String(100), nullable=True)
+    content_snapshot = Column(Text)
+    label = Column(String(100), nullable=True)
+    created_at = Column(String(32))
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str | None] = mapped_column(String(50), default="Creator", nullable=True)
-    created_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    name = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(50), default="Creator", nullable=True)
+    created_at = Column(String(32), nullable=True)
 
+
+class Pptx(Base):
+    __tablename__ = "pptx"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lesson_id = Column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), unique=True, index=True)
+    layouts_json = Column(Text)
+    selected_layout = Column(String(20), default="layout_1")
+    brand_colors = Column(String(50), nullable=True)
+    created_at = Column(String(32))
+    lesson = relationship("Lesson", back_populates="pptx")

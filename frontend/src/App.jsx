@@ -962,6 +962,20 @@ export default function App() {
   const [pdfSearchQuery, setPdfSearchQuery] = useState('');
   const [isPdfSearchOpen, setIsPdfSearchOpen] = useState(false);
 
+  // ── PPT Generation ──
+  const [isPptxPage, setIsPptxPage] = useState(false);
+  const [pptxDataByLesson, setPptxDataByLesson] = useState({});
+  const [activePptxLessonId, setActivePptxLessonId] = useState(null);
+  const [pptxLayout, setPptxLayout] = useState('layout_1');
+  const [pptxSlideIndex, setPptxSlideIndex] = useState(0);
+  const [pptxLoading, setPptxLoading] = useState(false);
+  const [pptxBrandColors, setPptxBrandColors] = useState({ primary: '#1a202c', accent: '#d69e2e' });
+
+  // Helper to get current lesson's PPT data
+  const pptxData = activePptxLessonId ? pptxDataByLesson[activePptxLessonId] : null;
+  const currentPptxSlides = pptxData?.layouts?.[pptxLayout]?.slides || [];
+  const currentPptxSlide = currentPptxSlides[pptxSlideIndex] || null;
+
   useEffect(() => {
     let isMounted = true;
     if (currentStep === 'generated' && sessionId) {
@@ -1267,6 +1281,120 @@ export default function App() {
     window.URL.revokeObjectURL(blobUrl);
     setIsExporting(false);
     setIsExportModalOpen(false);
+  };
+
+  // ── PPT Generation Handlers (per-lesson) ──
+  const handleGenerateLessonPptx = async (lessonId) => {
+    if (!sessionId) return;
+    setPptxLoading(true);
+    setActivePptxLessonId(lessonId);
+    try {
+      const res = await fetch(`${API_BASE}/courses/${sessionId}/pptx/generate/lesson/${lessonId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_colors: pptxBrandColors })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPptxDataByLesson(prev => ({ ...prev, [lessonId]: data }));
+        setPptxSlideIndex(0);
+      } else {
+        alert('Failed to generate PPT structure.');
+      }
+    } catch (err) {
+      console.error('PPT generation error:', err);
+      alert('Error generating PPT.');
+    } finally {
+      setPptxLoading(false);
+    }
+  };
+
+  const handleDownloadLessonPptx = async (lessonId) => {
+    if (!sessionId || !pptxDataByLesson[lessonId]) return;
+    const data = pptxDataByLesson[lessonId];
+    const slidesJson = data.layouts?.[pptxLayout];
+    try {
+      const res = await fetch(`${API_BASE}/courses/${sessionId}/pptx/download/lesson/${lessonId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout: pptxLayout, slides_json: slidesJson, brand_colors: pptxBrandColors })
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const lesson = courseData.lessons?.find(l => l.id === lessonId);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${(courseData?.title || 'Course').replace(/\s+/g, '_')}_${(lesson?.title || 'Lesson').replace(/\s+/g, '_')}_slides.pptx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert('Failed to download PPT.');
+      }
+    } catch (err) {
+      console.error('PPT download error:', err);
+      alert('Error downloading PPT.');
+    }
+  };
+
+  // Keep old handlers for backward compat (if needed)
+  const handleGeneratePptx = async () => {
+    if (!sessionId) return;
+    setPptxLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/courses/${sessionId}/pptx/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_colors: pptxBrandColors })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Store for all lessons (backward compat)
+        setPptxDataByLesson(prev => {
+          const next = { ...prev };
+          courseData.lessons?.forEach(l => { next[l.id] = data; });
+          return next;
+        });
+        setActivePptxLessonId(courseData.lessons?.[0]?.id);
+        setPptxSlideIndex(0);
+      } else {
+        alert('Failed to generate PPT structure.');
+      }
+    } catch (err) {
+      console.error('PPT generation error:', err);
+      alert('Error generating PPT.');
+    } finally {
+      setPptxLoading(false);
+    }
+  };
+
+  const handleDownloadPptx = async () => {
+    if (!sessionId || !pptxData) return;
+    try {
+      const res = await fetch(`${API_BASE}/courses/${sessionId}/pptx/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout: pptxLayout, slides_json: pptxData, brand_colors: pptxBrandColors })
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${(courseData?.title || 'Course').replace(/\s+/g, '_')}_slides.pptx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert('Failed to download PPT.');
+      }
+    } catch (err) {
+      console.error('PPT download error:', err);
+      alert('Error downloading PPT.');
+    }
   };
 
   // ── Phase 5: Knowledge Base File Upload Handlers ──
@@ -5415,7 +5543,7 @@ export default function App() {
                   Preview and download generated documents.
                 </p>
 
-                {['creator', 'student', 'educator'].map((role) => {
+{['creator', 'student', 'educator'].map((role) => {
                   const isExpanded = openPov === role;
                   const roleLabel = role === 'creator' ? 'Creator PDF' : role === 'student' ? 'Student PDF' : 'Educator PDF';
                   const roleIcon = role === 'creator' ? '🎨' : role === 'student' ? '🎓' : '🏫';
@@ -5454,6 +5582,7 @@ export default function App() {
                               onClick={() => {
                                 setActiveRole(role);
                                 setActiveLessonId(lesson.id);
+                                setIsPptxPage(false);
                               }}
                             >
                               <span style={{ fontWeight: 700 }}>L0{idx + 1}</span>
@@ -5467,10 +5596,236 @@ export default function App() {
                     </div>
                   );
                 })}
+
+                <div className="assets-menu-group">
+                  <button
+                    type="button"
+                    className={`assets-group-header-accordion ${openPov === 'pptx' ? 'active' : ''}`}
+                    onClick={() => {
+                      const nextPov = openPov === 'pptx' ? null : 'pptx';
+                      setOpenPov(nextPov);
+                      if (nextPov) {
+                        setIsPptxPage(true);
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '1.05rem' }}>📊</span>
+                      <span>Lesson Slides</span>
+                    </div>
+                    <span className="assets-group-badge">
+                      {Object.keys(pptxDataByLesson).length} generated
+                    </span>
+                  </button>
+
+                  {openPov === 'pptx' && (
+                    <div className="assets-accordion-content">
+                      {courseData.lessons?.map((lesson, idx) => {
+                        const lessonPptx = pptxDataByLesson[lesson.id];
+                        const isActive = activePptxLessonId === lesson.id;
+                        const hasPptx = !!lessonPptx;
+                        return (
+                          <div
+                            key={`pptx-${lesson.id}`}
+                            className={`assets-lesson-btn ${isActive ? 'active' : ''}`}
+                            onClick={() => {
+                              setActivePptxLessonId(lesson.id);
+                              setIsPptxPage(true);
+                              setPptxSlideIndex(0);
+                            }}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '8px 12px' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.75rem', color: hasPptx ? 'var(--green)' : 'var(--text-secondary)' }}>
+                                {hasPptx ? '✓' : `L0${idx + 1}`}
+                              </span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.85rem' }}>{lesson.title}</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                              {!hasPptx && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleGenerateLessonPptx(lesson.id);
+                                  }}
+                                  disabled={pptxLoading}
+                                  style={{ padding: '4px 8px', borderRadius: '6px', border: 'none', background: 'var(--navy)', color: '#fff', fontSize: '0.7rem', fontWeight: 700, cursor: pptxLoading ? 'wait' : 'pointer' }}
+                                >
+                                  {pptxLoading && activePptxLessonId === lesson.id ? '⏳' : '⚡'}
+                                </button>
+                              )}
+                              {hasPptx && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownloadLessonPptx(lesson.id);
+                                  }}
+                                  style={{ padding: '4px 8px', borderRadius: '6px', border: 'none', background: 'var(--green)', color: '#fff', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                  📥
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Right Column: Document Viewer */}
-              {(() => {
+              {/* Right Column: Document Viewer OR PPT Page */}
+              {isPptxPage && (
+                <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--surface-1)' }}>
+                  {!pptxData && activePptxLessonId && (
+                    <div style={{ textAlign: 'center', padding: '80px 20px' }}>
+                      <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📊</div>
+                      <h3 style={{ color: 'var(--navy)', marginBottom: '8px' }}>Lesson Slide Generator</h3>
+                      <p style={{ color: 'var(--text-secondary)', marginBottom: '8px', fontSize: '0.9rem' }}>
+                        {courseData.lessons?.find(l => l.id === activePptxLessonId)?.title || 'Selected Lesson'}
+                      </p>
+                      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '0.9rem' }}>Click below to generate presentation slides for this lesson.</p>
+                      <button onClick={() => handleGenerateLessonPptx(activePptxLessonId)} disabled={pptxLoading}
+                        style={{ padding: '12px 32px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, var(--navy), var(--blue))', color: '#fff', fontSize: '0.95rem', fontWeight: 700, cursor: pptxLoading ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(26,32,64,0.3)' }}>
+                        {pptxLoading ? '⏳ Generating...' : '⚡ Generate Slides for This Lesson'}
+                      </button>
+                    </div>
+                  )}
+                  {!pptxData && !activePptxLessonId && (
+                    <div style={{ textAlign: 'center', padding: '80px 20px' }}>
+                      <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📊</div>
+                      <h3 style={{ color: 'var(--navy)', marginBottom: '8px' }}>Lesson Slide Generator</h3>
+                      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '0.9rem' }}>Select a lesson from the sidebar to generate slides.</p>
+                    </div>
+                  )}
+                  {pptxData && (
+                    <>
+                      {/* PPT Toolbar */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', padding: '12px 16px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--navy)' }}>Layout:</span>
+                          <select value={pptxLayout} onChange={e => { setPptxLayout(e.target.value); setPptxSlideIndex(0); }}
+                            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', background: 'var(--surface-1)', color: 'var(--navy)' }}>
+                            <option value="layout_1">Layout 1 — Corporate Bold</option>
+                            <option value="layout_2">Layout 2 — Creative</option>
+                            <option value="layout_3">Layout 3 — Clean Minimal</option>
+                          </select>
+                          {activePptxLessonId && (
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginLeft: '8px', padding: '4px 8px', background: 'var(--surface-1)', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                              {courseData.lessons?.find(l => l.id === activePptxLessonId)?.title || 'Lesson'}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button onClick={() => handleDownloadLessonPptx(activePptxLessonId)}
+                            style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--navy)', color: '#fff', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}>
+                            📥 Download
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
+                      <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', position: 'relative' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                          <button onClick={() => setPptxSlideIndex(i => Math.max(0, i - 1))} disabled={pptxSlideIndex === 0}
+                            style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', background: pptxSlideIndex === 0 ? '#333' : 'rgba(255,255,255,0.15)', color: '#fff', fontSize: '0.8rem', fontWeight: 700, cursor: pptxSlideIndex === 0 ? 'not-allowed' : 'pointer' }}>
+                            ◀ Prev
+                          </button>
+                          <span style={{ color: '#aaa', fontSize: '0.85rem', fontWeight: 600 }}>Slide {pptxSlideIndex + 1} / {currentPptxSlides.length}</span>
+                          <button onClick={() => setPptxSlideIndex(i => Math.min(currentPptxSlides.length - 1, i + 1))} disabled={pptxSlideIndex >= currentPptxSlides.length - 1}
+                            style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', background: pptxSlideIndex >= currentPptxSlides.length - 1 ? '#333' : 'rgba(255,255,255,0.15)', color: '#fff', fontSize: '0.8rem', fontWeight: 700, cursor: pptxSlideIndex >= currentPptxSlides.length - 1 ? 'not-allowed' : 'pointer' }}>
+                            Next ▶
+                          </button>
+                        </div>
+                        {currentPptxSlide && (() => {
+                          const theme = pptxData.layouts?.[pptxLayout]?.theme || {};
+                          const isLayout1 = pptxLayout === 'layout_1';
+                          const isLayout2 = pptxLayout === 'layout_2';
+                          const isLayout3 = pptxLayout === 'layout_3';
+                          const bgColor = isLayout3 ? '#ffffff' : isLayout2 ? '#141e32' : theme.primary || '#1a202c';
+                          const textColor = isLayout3 ? theme.text || '#1a202c' : '#fff';
+                          const accentColor = theme.accent || '#d69e2e';
+                          return (
+                          <div style={{ background: bgColor, borderRadius: '8px', padding: '40px', minHeight: '360px', display: 'flex', flexDirection: 'column', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+                            {isLayout2 && <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '200px', height: '200px', borderRadius: '50%', background: accentColor, opacity: 0.15 }}></div>}
+                            {isLayout3 && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: accentColor }}></div>}
+                            {currentPptxSlide.type === 'title' && (
+                              <div style={{ textAlign: 'center' }}>
+                                {isLayout1 && <div style={{ width: '100%', height: '4px', background: accentColor, position: 'absolute', top: 0, left: 0 }}></div>}
+                                <h1 style={{ color: textColor, fontSize: '2.2rem', fontWeight: 800, marginBottom: '12px' }}>{currentPptxSlide.title}</h1>
+                                {currentPptxSlide.subtitle && (
+                                  <>
+                                    <div style={{ width: isLayout3 ? '60px' : '80px', height: isLayout3 ? '2px' : '4px', background: accentColor, margin: '0 auto 16px', borderRadius: '2px' }}></div>
+                                    <p style={{ color: accentColor, fontSize: '1.1rem', fontWeight: 600 }}>{currentPptxSlide.subtitle}</p>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            {currentPptxSlide.type === 'toc' && (
+                              <div>
+                                <h2 style={{ color: textColor, fontSize: '1.6rem', fontWeight: 800, marginBottom: '20px' }}>{currentPptxSlide.title}</h2>
+                                <div style={{ width: isLayout3 ? '40px' : '60px', height: isLayout3 ? '2px' : '3px', background: accentColor, marginBottom: '20px', borderRadius: '2px' }}></div>
+                                {(currentPptxSlide.items || []).map((item, i) => (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                                    {!isLayout3 && <div style={{ width: isLayout2 ? '8px' : '10px', height: isLayout2 ? '8px' : '10px', borderRadius: isLayout2 ? '50%' : '2px', background: accentColor, flexShrink: 0 }}></div>}
+                                    <p style={{ color: isLayout3 ? (theme.text || '#1a202c') : '#ccc', fontSize: '1rem', paddingLeft: isLayout3 ? '16px' : 0, borderLeft: isLayout3 ? `2px solid ${accentColor}` : 'none' }}>{isLayout3 ? `— ${item}` : item}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {currentPptxSlide.type === 'lesson_title' && (
+                              <div style={{ paddingLeft: isLayout1 ? '16px' : 0, borderLeft: isLayout1 ? `5px solid ${accentColor}` : 'none' }}>
+                                {isLayout2 && <div style={{ position: 'absolute', bottom: '-20px', left: '-20px', width: '150px', height: '150px', borderRadius: '50%', background: accentColor, opacity: 0.1 }}></div>}
+                                <h2 style={{ color: textColor, fontSize: '2rem', fontWeight: 800, marginBottom: '8px' }}>{currentPptxSlide.title}</h2>
+                                {currentPptxSlide.subtitle && <p style={{ color: accentColor, fontSize: '1rem' }}>{currentPptxSlide.subtitle}</p>}
+                                {isLayout3 && <div style={{ width: '50px', height: '2px', background: accentColor, marginTop: '12px' }}></div>}
+                              </div>
+                            )}
+                            {currentPptxSlide.type === 'content' && (
+                              <div>
+                                <h2 style={{ color: textColor, fontSize: '1.5rem', fontWeight: 800, marginBottom: '16px' }}>{currentPptxSlide.title}</h2>
+                                <div style={{ width: isLayout3 ? '30px' : '50px', height: isLayout3 ? '2px' : '3px', background: accentColor, marginBottom: '16px', borderRadius: '2px' }}></div>
+                                {(currentPptxSlide.bullets || []).map((bullet, i) => (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px' }}>
+                                    {!isLayout3 && <div style={{ width: isLayout2 ? '8px' : '10px', height: isLayout2 ? '8px' : '10px', borderRadius: isLayout2 ? '50%' : '2px', background: accentColor, marginTop: '7px', flexShrink: 0 }}></div>}
+                                    <p style={{ color: isLayout3 ? (theme.text || '#1a202c') : '#ddd', fontSize: '0.95rem', lineHeight: 1.5, paddingLeft: isLayout3 ? '16px' : 0 }}>{isLayout3 ? `— ${bullet}` : bullet}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {currentPptxSlide.type === 'code' && (
+                              <div>
+                                <h2 style={{ color: textColor, fontSize: '1.4rem', fontWeight: 800, marginBottom: '16px' }}>{currentPptxSlide.title}</h2>
+                                <pre style={{ background: isLayout3 ? '#f0f0f5' : isLayout2 ? 'rgba(15,25,45,0.8)' : 'rgba(0,0,0,0.4)', borderRadius: '8px', padding: '16px', color: isLayout3 ? '#28283c' : '#00c878', fontFamily: 'Courier New, monospace', fontSize: '0.85rem', lineHeight: 1.6, overflow: 'auto', border: isLayout3 ? '1px solid #d0d0da' : isLayout2 ? `1px solid ${accentColor}40` : 'none' }}>{currentPptxSlide.code}</pre>
+                              </div>
+                            )}
+                            {currentPptxSlide.type === 'end' && (
+                              <div style={{ textAlign: 'center' }}>
+                                {isLayout2 && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '200px', height: '200px', borderRadius: '50%', background: accentColor, opacity: 0.1 }}></div>}
+                                <h1 style={{ color: textColor, fontSize: '2.5rem', fontWeight: 800, marginBottom: '12px', position: 'relative' }}>{currentPptxSlide.title}</h1>
+                                <div style={{ width: isLayout3 ? '60px' : '80px', height: isLayout3 ? '2px' : '4px', background: accentColor, margin: '0 auto 16px', borderRadius: '2px', position: 'relative' }}></div>
+                                <p style={{ color: accentColor, fontSize: '1.1rem', position: 'relative' }}>{currentPptxSlide.subtitle}</p>
+                              </div>
+                            )}
+                            <div style={{ position: 'absolute', bottom: '12px', right: '20px', color: isLayout3 ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.3)', fontSize: '0.75rem' }}>{pptxSlideIndex + 1}</div>
+                          </div>
+                          );
+                        })()}
+                      </div>
+                      {currentPptxSlide && currentPptxSlide.notes && (
+                        <div style={{ background: 'var(--surface-2)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border-color)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                            <span style={{ fontSize: '1rem' }}>📝</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--navy)' }}>Speaker Notes</span>
+                          </div>
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{currentPptxSlide.notes}</p>
+                        </div>
+                      )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              {!isPptxPage && (() => {
                 const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0] || {};
                 const lessonTitle = curLesson?.title || courseData?.title || 'Machine Learning Essentials';
                 const dbSections = curLesson?.sections?.[activeRole] || {};

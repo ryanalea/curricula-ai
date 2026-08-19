@@ -861,3 +861,224 @@ async def generate_custom_section_content(lesson_title: str, section_title: str,
     except Exception as e:
         print(f"Error generating custom section content: {e}")
         return f"Content for '{section_title}' could not be generated. Instruction: {instruction}."
+
+
+async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) -> dict:
+    """Generate PPT slide structure with 3 layouts using AI."""
+    if not client:
+        return {
+            "layouts": {
+                "classic": _mock_pptx_layout(course_data, "classic"),
+                "modern": _mock_pptx_layout(course_data, "modern"),
+                "minimal": _mock_pptx_layout(course_data, "minimal")
+            }
+        }
+
+    lessons_summary = []
+    for lesson in course_data.get("lessons", []):
+        sections = lesson.get("sections", {})
+        creator = sections.get("creator", {})
+        student = sections.get("student", {})
+        educator = sections.get("educator", {})
+        lessons_summary.append({
+            "title": lesson.get("title", "Untitled Lesson"),
+            "overview": creator.get("overview", ""),
+            "learning_outcomes": creator.get("learning_outcomes", []),
+            "core_content": creator.get("core_content", "")[:4000],
+            "exercises": creator.get("exercises", []),
+            "quiz": creator.get("quiz", []),
+            "practice": student.get("practice", {}),
+            "debugging": student.get("debugging", ""),
+            "facilitator_guide": educator.get("facilitator_guide", "")[:2000],
+            "lesson_plan": educator.get("lesson_plan", {})
+        })
+
+    colors_hint = ""
+    if brand_colors:
+        colors_hint = f"\nBrand colors: primary={brand_colors.get('primary', '#1a202c')}, accent={brand_colors.get('accent', '#d69e2e')}"
+
+    prompt = f"""
+    [ROLE]
+    You are a Senior Instructional Designer and Presentation Expert creating a professional, comprehensive course slide deck.
+
+    [TASK]
+    Create a complete, high-quality slide deck for the course "{course_data.get('title', 'Untitled Course')}".
+    Difficulty: {course_data.get('config', {}).get('difficulty', 'Beginner')}
+    Audience: {course_data.get('config', {}).get('target_audience', 'Student')}
+    Number of Lessons: {len(lessons_summary)}
+    {colors_hint}
+
+    Generate 3 different layout versions simultaneously: "layout_1", "layout_2", and "layout_3".
+    Each layout must have the SAME slide content but COMPLETELY DIFFERENT visual themes and decorative elements.
+
+    [SLIDE STRUCTURE]
+    Generate as many slides as needed for comprehensive coverage. Do NOT limit slides — quality and completeness matter more than brevity.
+
+    1. TITLE SLIDE (first slide):
+       - title: Course title only
+       - subtitle: "" (empty — no subtitle)
+       - notes: Welcome greeting and course introduction script
+
+    2. TABLE OF CONTENTS SLIDE:
+       - Numbered list of all lessons
+       - notes: Brief overview of what will be covered
+
+    3. FOR EACH LESSON, generate these slides:
+       a. LESSON TITLE slide — lesson number and title
+       b. OVERVIEW slide — 4-6 key takeaway bullets from the lesson overview
+       c. LEARNING OUTCOMES slide — bullet list of specific, measurable outcomes
+       d. CORE CONTENT slides — extract ALL key concepts from core_content markdown:
+          - Split into multiple slides if content is rich (max 6 bullets per slide)
+          - Each bullet should be a clear, concise explanation (not just a keyword)
+          - Include sub-concepts and practical implications
+       e. CODE EXAMPLE slide(s) — extract code snippets from core_content or exercises:
+          - Include actual working code with comments
+          - Add language label
+       f. PRACTICE/EXERCISE slide — from student practice data:
+          - Exercise title, description, and starter code if available
+       g. KEY TAKEAWAYS slide — 3-5 summary bullets for the lesson
+
+    4. END SLIDE:
+       - title: "Thank You"
+       - subtitle: course title
+       - notes: Closing remarks and call to action
+
+    [CONTENT QUALITY REQUIREMENTS]
+    - Bullets must be informative sentences, NOT single keywords
+    - Each content slide should teach something specific
+    - Speaker notes must be detailed speaking scripts (2-4 sentences per slide), not just "This slide covers..."
+    - Use the actual lesson data provided — do not make up generic content
+    - Extract real concepts, real code, real exercises from the lesson data
+    - If core_content has code examples, include them in code slides
+    - If exercises exist, create practice slides from them
+
+    [LESSON DATA]
+    {json.dumps(lessons_summary, ensure_ascii=False)[:12000]}
+
+    [FORMAT]
+    Return a pure JSON object with exactly this structure:
+    {{
+      "layouts": {{
+        "layout_1": {{
+          "theme": {{"primary": "#1a202c", "secondary": "#ffffff", "accent": "#d69e2e", "text": "#ffffff"}},
+          "slides": [
+            {{"type": "title", "title": "Course Title", "subtitle": "", "notes": "..."}},
+            {{"type": "toc", "title": "Table of Contents", "items": ["1. Lesson Title", "2. Lesson Title"], "notes": "..."}},
+            {{"type": "lesson_title", "title": "Lesson 1: ...", "subtitle": "", "notes": "..."}},
+            {{"type": "content", "title": "...", "bullets": ["Clear explanation of concept...", "..."], "notes": "..."}},
+            {{"type": "code", "title": "...", "code": "# Actual code here", "language": "python", "notes": "..."}},
+            {{"type": "end", "title": "Thank You", "subtitle": "...", "notes": "..."}}
+          ]
+        }},
+        "layout_2": {{
+          "theme": {{"primary": "#1a202c", "secondary": "#ffffff", "accent": "#3182ce", "text": "#ffffff"}},
+          "slides": [...same structure, same content, different visual theme...]
+        }},
+        "layout_3": {{
+          "theme": {{"primary": "#ffffff", "secondary": "#1a202c", "accent": "#319795", "text": "#1a202c"}},
+          "slides": [...same structure, same content, different visual theme...]
+        }}
+      }}
+    }}
+
+    [CONSTRAINTS]
+    - IMPORTANT: Write all slide content and speaker notes in English.
+    - Every slide MUST have a "notes" field with detailed speaker notes (2-4 sentences).
+    - All 3 layouts must have the SAME number of slides and SAME content.
+    - Slide types: "title", "toc", "lesson_title", "content", "code", "end"
+    - Max 6 bullets per content slide. Split into multiple slides if needed.
+    - Title slide subtitle MUST be empty string "".
+    - Return pure JSON only, no preamble.
+    - Do NOT truncate or abbreviate — provide complete, comprehensive content.
+    """
+
+    try:
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                max_tokens=16000,
+                temperature=0.7
+            )
+        )
+        data = safe_load_json(response.choices[0].message.content)
+        if "layouts" not in data:
+            data = {"layouts": data}
+        for layout_name in ["layout_1", "layout_2", "layout_3"]:
+            if layout_name not in data["layouts"]:
+                data["layouts"][layout_name] = _mock_pptx_layout(course_data, layout_name)
+        return data
+    except Exception as e:
+        print(f"Error generating PPTX structure: {e}")
+        return {
+            "layouts": {
+                "layout_1": _mock_pptx_layout(course_data, "layout_1"),
+                "layout_2": _mock_pptx_layout(course_data, "layout_2"),
+                "layout_3": _mock_pptx_layout(course_data, "layout_3")
+            }
+        }
+
+
+def _mock_pptx_layout(course_data: dict, layout_name: str) -> dict:
+    themes = {
+        "layout_1": {"primary": "#1a202c", "secondary": "#ffffff", "accent": "#d69e2e", "text": "#ffffff"},
+        "layout_2": {"primary": "#1a202c", "secondary": "#ffffff", "accent": "#3182ce", "text": "#ffffff"},
+        "layout_3": {"primary": "#ffffff", "secondary": "#1a202c", "accent": "#319795", "text": "#1a202c"}
+    }
+    theme = themes.get(layout_name, themes["layout_1"])
+    title = course_data.get("title", "Untitled Course")
+    difficulty = course_data.get("config", {}).get("difficulty", "Beginner")
+    audience = course_data.get("config", {}).get("target_audience", "Student")
+    lessons = course_data.get("lessons", [])
+
+    slides = [
+        {"type": "title", "title": title, "subtitle": "", "notes": f"Welcome to {title}. This course is designed for {audience} at {difficulty} level. Let's begin our learning journey."},
+        {"type": "toc", "title": "Table of Contents", "items": [f"{i+1}. {l.get('title', 'Untitled')}" for i, l in enumerate(lessons)], "notes": f"Here is what we will cover today. We have {len(lessons)} lessons to explore."}
+    ]
+    for i, lesson in enumerate(lessons):
+        sections = lesson.get("sections", {})
+        creator = sections.get("creator", {})
+        student = sections.get("student", {})
+        educator = sections.get("educator", {})
+
+        slides.append({"type": "lesson_title", "title": f"Lesson {i+1}: {lesson.get('title', 'Untitled')}", "subtitle": "", "notes": f"Let's begin Lesson {i+1}. This lesson covers key concepts and practical applications."})
+
+        overview = creator.get("overview", "No overview available.")
+        if overview:
+            overview_bullets = [s.strip() for s in overview.replace("**", "").split(".") if s.strip()][:6]
+            if not overview_bullets:
+                overview_bullets = [overview[:200]]
+            slides.append({"type": "content", "title": "Overview", "bullets": overview_bullets, "notes": f"This lesson overview covers: {overview[:300]}"})
+
+        outcomes = creator.get("learning_outcomes", [])
+        if isinstance(outcomes, list) and outcomes:
+            slides.append({"type": "content", "title": "Learning Outcomes", "bullets": outcomes[:6], "notes": "By the end of this lesson, you will be able to demonstrate understanding of these key concepts and apply them in practice."})
+
+        core_content = creator.get("core_content", "")
+        if core_content:
+            lines = [l.strip() for l in core_content.replace("**", "").replace("###", "").split("\n") if l.strip() and not l.strip().startswith("#")]
+            bullets = [l for l in lines if not l.startswith("```")][:6]
+            if bullets:
+                slides.append({"type": "content", "title": "Core Concepts", "bullets": bullets, "notes": f"Let's dive into the core concepts. {bullets[0] if bullets else ''}"})
+
+        practice = student.get("practice", {})
+        if isinstance(practice, dict):
+            code_block = practice.get("code_block", "")
+            if code_block:
+                slides.append({"type": "code", "title": "Practice Exercise", "code": code_block[:1500], "language": "python", "notes": "Let's try this hands-on exercise. Follow along and run the code to see how it works."})
+            checklist = practice.get("checklist", [])
+            if checklist and isinstance(checklist, list):
+                slides.append({"type": "content", "title": "Exercise Checklist", "bullets": [f"✓ {item}" for item in checklist[:6]], "notes": "Complete these steps to practice what you've learned."})
+
+        facilitator = educator.get("facilitator_guide", "")
+        if facilitator:
+            tips = [t.strip() for t in facilitator.replace("**", "").split(".") if t.strip() and len(t.strip()) > 10][:5]
+            if tips:
+                slides.append({"type": "content", "title": "Key Takeaways", "bullets": tips, "notes": "Here are the key points to remember from this lesson."})
+
+    slides.append({"type": "end", "title": "Thank You", "subtitle": title, "notes": f"Thank you for completing {title}. Continue practicing and exploring the concepts covered."})
+
+    return {"theme": theme, "slides": slides}

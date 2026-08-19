@@ -639,3 +639,436 @@ def export_all_zip(course_data: dict) -> io.BytesIO:
             
     output.seek(0)
     return output
+
+
+def _hex_to_rgb(hex_color: str):
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def create_pptx_from_structure(slides_json: dict, layout: str = "modern", brand_colors: dict = None) -> io.BytesIO:
+    """Create a PPTX file from AI-generated slide structure."""
+    try:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt, Emu
+        from pptx.dml.color import RGBColor
+        from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+    except ImportError:
+        output = io.BytesIO()
+        output.write(b"python-pptx not installed")
+        output.seek(0)
+        return output
+
+    layout_data = slides_json.get("layouts", {}).get(layout, slides_json.get("layouts", {}).get("modern", {}))
+    theme = layout_data.get("theme", {})
+    slides_data = layout_data.get("slides", [])
+
+    if brand_colors:
+        theme.update(brand_colors)
+
+    primary_rgb = RGBColor(*_hex_to_rgb(theme.get("primary", "#1a202c")))
+    secondary_rgb = RGBColor(*_hex_to_rgb(theme.get("secondary", "#ffffff")))
+    accent_rgb = RGBColor(*_hex_to_rgb(theme.get("accent", "#d69e2e")))
+    text_rgb = RGBColor(*_hex_to_rgb(theme.get("text", "#1a202c")))
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    blank_layout = prs.slide_layouts[6]
+
+    for slide_data in slides_data:
+        slide = prs.slides.add_slide(blank_layout)
+        bg = slide.background
+        fill = bg.fill
+        fill.solid()
+        fill.fore_color.rgb = primary_rgb
+
+        notes_slide = slide.notes_slide
+        notes_tf = notes_slide.notes_text_frame
+        notes_tf.text = slide_data.get("notes", "")
+
+        slide_type = slide_data.get("type", "content")
+
+        if slide_type == "title":
+            _add_title_slide(slide, slide_data, primary_rgb, secondary_rgb, accent_rgb, layout)
+        elif slide_type == "toc":
+            _add_toc_slide(slide, slide_data, primary_rgb, secondary_rgb, accent_rgb, text_rgb, layout)
+        elif slide_type == "lesson_title":
+            _add_lesson_title_slide(slide, slide_data, primary_rgb, secondary_rgb, accent_rgb, layout)
+        elif slide_type == "content":
+            _add_content_slide(slide, slide_data, primary_rgb, secondary_rgb, accent_rgb, text_rgb, layout)
+        elif slide_type == "code":
+            _add_code_slide(slide, slide_data, primary_rgb, secondary_rgb, accent_rgb, text_rgb, layout)
+        elif slide_type == "end":
+            _add_end_slide(slide, slide_data, primary_rgb, secondary_rgb, accent_rgb, layout)
+
+    output = io.BytesIO()
+    prs.save(output)
+    output.seek(0)
+    return output
+
+
+def _add_title_slide(slide, data, primary_rgb, secondary_rgb, accent_rgb, layout="layout_1"):
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    bg = slide.background.fill
+    bg.solid()
+    bg.fore_color.rgb = primary_rgb
+
+    if layout == "layout_2":
+        shape1 = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+        shape1.fill.solid()
+        shape1.fill.fore_color.rgb = RGBColor(20, 30, 50)
+        shape1.line.fill.background()
+        circle = slide.shapes.add_shape(9, Inches(9), Inches(-1), Inches(5.5), Inches(5.5))
+        circle.fill.solid()
+        circle.fill.fore_color.rgb = accent_rgb
+        circle.fill.fore_color.brightness = 0.7
+        circle.line.fill.background()
+    elif layout == "layout_3":
+        top_line = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(0.06))
+        top_line.fill.solid()
+        top_line.fill.fore_color.rgb = accent_rgb
+        top_line.line.fill.background()
+
+    title_box = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(11), Inches(2))
+    tf = title_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = data.get("title", "Course Title")
+    p.font.size = Pt(44)
+    p.font.bold = True
+    p.font.color.rgb = secondary_rgb
+    p.alignment = PP_ALIGN.CENTER
+
+    subtitle = data.get("subtitle", "")
+    if subtitle:
+        subtitle_box = slide.shapes.add_textbox(Inches(1), Inches(4.2), Inches(11), Inches(1))
+        tf2 = subtitle_box.text_frame
+        tf2.word_wrap = True
+        p2 = tf2.paragraphs[0]
+        p2.text = subtitle
+        p2.font.size = Pt(20)
+        p2.font.color.rgb = accent_rgb
+        p2.alignment = PP_ALIGN.CENTER
+
+    if layout == "layout_1":
+        accent_line = slide.shapes.add_shape(1, Inches(4), Inches(4.5), Inches(5), Inches(0.05))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+    elif layout == "layout_2":
+        accent_line = slide.shapes.add_shape(1, Inches(5), Inches(4.5), Inches(3.333), Inches(0.04))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+    elif layout == "layout_3":
+        accent_line = slide.shapes.add_shape(1, Inches(5.5), Inches(4.5), Inches(2.333), Inches(0.03))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+
+
+def _add_toc_slide(slide, data, primary_rgb, secondary_rgb, accent_rgb, text_rgb, layout="layout_1"):
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    if layout == "layout_2":
+        shape1 = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+        shape1.fill.solid()
+        shape1.fill.fore_color.rgb = RGBColor(20, 30, 50)
+        shape1.line.fill.background()
+        circle = slide.shapes.add_shape(9, Inches(-2), Inches(4), Inches(6), Inches(6))
+        circle.fill.solid()
+        circle.fill.fore_color.rgb = accent_rgb
+        circle.fill.fore_color.brightness = 0.75
+        circle.line.fill.background()
+    elif layout == "layout_3":
+        top_line = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(0.04))
+        top_line.fill.solid()
+        top_line.fill.fore_color.rgb = accent_rgb
+        top_line.line.fill.background()
+
+    title_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(11), Inches(1))
+    tf = title_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = data.get("title", "Table of Contents")
+    p.font.size = Pt(32)
+    p.font.bold = True
+    p.font.color.rgb = secondary_rgb
+
+    if layout == "layout_1":
+        accent_line = slide.shapes.add_shape(1, Inches(0.8), Inches(1.3), Inches(3), Inches(0.04))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+    elif layout == "layout_2":
+        accent_line = slide.shapes.add_shape(1, Inches(0.8), Inches(1.3), Inches(4), Inches(0.03))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+    elif layout == "layout_3":
+        accent_line = slide.shapes.add_shape(1, Inches(0.8), Inches(1.3), Inches(2), Inches(0.02))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+
+    items = data.get("items", [])
+    content_box = slide.shapes.add_textbox(Inches(1.2), Inches(1.8), Inches(10), Inches(5))
+    tf2 = content_box.text_frame
+    tf2.word_wrap = True
+    for i, item in enumerate(items):
+        p = tf2.paragraphs[0] if i == 0 else tf2.add_paragraph()
+        p.text = item
+        p.font.size = Pt(18)
+        p.font.color.rgb = text_rgb
+        p.space_after = Pt(10)
+        if layout == "layout_1":
+            mark = slide.shapes.add_shape(1, Inches(0.8), Inches(1.9 + i * 0.55), Inches(0.18), Inches(0.18))
+            mark.fill.solid()
+            mark.fill.fore_color.rgb = accent_rgb
+            mark.line.fill.background()
+        elif layout == "layout_2":
+            mark = slide.shapes.add_shape(9, Inches(0.85), Inches(1.95 + i * 0.55), Inches(0.14), Inches(0.14))
+            mark.fill.solid()
+            mark.fill.fore_color.rgb = accent_rgb
+            mark.line.fill.background()
+        elif layout == "layout_3":
+            pass
+
+
+def _add_lesson_title_slide(slide, data, primary_rgb, secondary_rgb, accent_rgb, layout="layout_1"):
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    if layout == "layout_1":
+        accent_bar = slide.shapes.add_shape(1, Inches(0), Inches(2.5), Inches(0.3), Inches(2.5))
+        accent_bar.fill.solid()
+        accent_bar.fill.fore_color.rgb = accent_rgb
+        accent_bar.line.fill.background()
+    elif layout == "layout_2":
+        shape1 = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+        shape1.fill.solid()
+        shape1.fill.fore_color.rgb = RGBColor(20, 30, 50)
+        shape1.line.fill.background()
+        circle = slide.shapes.add_shape(9, Inches(8.5), Inches(1), Inches(6), Inches(6))
+        circle.fill.solid()
+        circle.fill.fore_color.rgb = accent_rgb
+        circle.fill.fore_color.brightness = 0.7
+        circle.line.fill.background()
+    elif layout == "layout_3":
+        top_line = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(0.04))
+        top_line.fill.solid()
+        top_line.fill.fore_color.rgb = accent_rgb
+        top_line.line.fill.background()
+
+    title_box = slide.shapes.add_textbox(Inches(1) if layout != "layout_1" else Inches(1), Inches(2.5), Inches(11), Inches(1.5))
+    tf = title_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = data.get("title", "Lesson")
+    p.font.size = Pt(36)
+    p.font.bold = True
+    p.font.color.rgb = secondary_rgb
+
+    subtitle = data.get("subtitle", "")
+    if subtitle:
+        sub_box = slide.shapes.add_textbox(Inches(1), Inches(4.2), Inches(11), Inches(1))
+        tf2 = sub_box.text_frame
+        p2 = tf2.paragraphs[0]
+        p2.text = subtitle
+        p2.font.size = Pt(18)
+        p2.font.color.rgb = accent_rgb
+
+    if layout == "layout_3":
+        bottom_line = slide.shapes.add_shape(1, Inches(1), Inches(4), Inches(2), Inches(0.02))
+        bottom_line.fill.solid()
+        bottom_line.fill.fore_color.rgb = accent_rgb
+        bottom_line.line.fill.background()
+
+
+def _add_content_slide(slide, data, primary_rgb, secondary_rgb, accent_rgb, text_rgb, layout="layout_1"):
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    if layout == "layout_2":
+        shape1 = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+        shape1.fill.solid()
+        shape1.fill.fore_color.rgb = RGBColor(20, 30, 50)
+        shape1.line.fill.background()
+        circle = slide.shapes.add_shape(9, Inches(10), Inches(-2), Inches(5), Inches(5))
+        circle.fill.solid()
+        circle.fill.fore_color.rgb = accent_rgb
+        circle.fill.fore_color.brightness = 0.75
+        circle.line.fill.background()
+    elif layout == "layout_3":
+        top_line = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(0.04))
+        top_line.fill.solid()
+        top_line.fill.fore_color.rgb = accent_rgb
+        top_line.line.fill.background()
+
+    title_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(11), Inches(1))
+    tf = title_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = data.get("title", "Content")
+    p.font.size = Pt(28)
+    p.font.bold = True
+    p.font.color.rgb = secondary_rgb
+
+    if layout == "layout_1":
+        accent_line = slide.shapes.add_shape(1, Inches(0.8), Inches(1.3), Inches(2.5), Inches(0.04))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+    elif layout == "layout_2":
+        accent_line = slide.shapes.add_shape(1, Inches(0.8), Inches(1.3), Inches(3), Inches(0.03))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+    elif layout == "layout_3":
+        accent_line = slide.shapes.add_shape(1, Inches(0.8), Inches(1.3), Inches(1.5), Inches(0.02))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+
+    bullets = data.get("bullets", [])
+    content_box = slide.shapes.add_textbox(Inches(1.3), Inches(1.8), Inches(11), Inches(5))
+    tf2 = content_box.text_frame
+    tf2.word_wrap = True
+    for i, bullet in enumerate(bullets):
+        p = tf2.paragraphs[0] if i == 0 else tf2.add_paragraph()
+        p.text = f"  {bullet}"
+        p.font.size = Pt(16)
+        p.font.color.rgb = text_rgb
+        p.space_after = Pt(8)
+
+        if layout == "layout_1":
+            mark = slide.shapes.add_shape(1, Inches(1.05), Inches(1.9 + i * 0.6), Inches(0.15), Inches(0.15))
+            mark.fill.solid()
+            mark.fill.fore_color.rgb = accent_rgb
+            mark.line.fill.background()
+        elif layout == "layout_2":
+            mark = slide.shapes.add_shape(9, Inches(1.05), Inches(1.95 + i * 0.6), Inches(0.12), Inches(0.12))
+            mark.fill.solid()
+            mark.fill.fore_color.rgb = accent_rgb
+            mark.line.fill.background()
+        elif layout == "layout_3":
+            pass
+
+
+def _add_code_slide(slide, data, primary_rgb, secondary_rgb, accent_rgb, text_rgb, layout="layout_1"):
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    if layout == "layout_2":
+        shape1 = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+        shape1.fill.solid()
+        shape1.fill.fore_color.rgb = RGBColor(20, 30, 50)
+        shape1.line.fill.background()
+    elif layout == "layout_3":
+        top_line = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(0.04))
+        top_line.fill.solid()
+        top_line.fill.fore_color.rgb = accent_rgb
+        top_line.line.fill.background()
+
+    title_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(11), Inches(1))
+    tf = title_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = data.get("title", "Code Example")
+    p.font.size = Pt(28)
+    p.font.bold = True
+    p.font.color.rgb = secondary_rgb
+
+    if layout == "layout_1":
+        code_bg = slide.shapes.add_shape(1, Inches(0.8), Inches(1.5), Inches(11.5), Inches(5))
+        code_bg.fill.solid()
+        code_bg.fill.fore_color.rgb = RGBColor(30, 30, 40)
+        code_bg.line.color.rgb = RGBColor(60, 60, 80)
+    elif layout == "layout_2":
+        code_bg = slide.shapes.add_shape(1, Inches(0.8), Inches(1.5), Inches(11.5), Inches(5))
+        code_bg.fill.solid()
+        code_bg.fill.fore_color.rgb = RGBColor(15, 25, 45)
+        code_bg.line.color.rgb = accent_rgb
+    elif layout == "layout_3":
+        code_bg = slide.shapes.add_shape(1, Inches(0.8), Inches(1.5), Inches(11.5), Inches(5))
+        code_bg.fill.solid()
+        code_bg.fill.fore_color.rgb = RGBColor(240, 240, 245)
+        code_bg.line.color.rgb = RGBColor(200, 200, 210)
+
+    code_box = slide.shapes.add_textbox(Inches(1.2), Inches(1.7), Inches(10.8), Inches(4.6))
+    tf2 = code_box.text_frame
+    tf2.word_wrap = True
+    code_text = data.get("code", "# Code here")
+    for i, line in enumerate(code_text.split('\n')):
+        p = tf2.paragraphs[0] if i == 0 else tf2.add_paragraph()
+        p.text = line
+        p.font.size = Pt(14)
+        p.font.name = "Courier New"
+        if layout == "layout_3":
+            p.font.color.rgb = RGBColor(40, 40, 60)
+        else:
+            p.font.color.rgb = RGBColor(0, 200, 120)
+
+
+def _add_end_slide(slide, data, primary_rgb, secondary_rgb, accent_rgb, layout="layout_1"):
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    if layout == "layout_2":
+        shape1 = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+        shape1.fill.solid()
+        shape1.fill.fore_color.rgb = RGBColor(20, 30, 50)
+        shape1.line.fill.background()
+        circle = slide.shapes.add_shape(9, Inches(4), Inches(1), Inches(5.333), Inches(5.333))
+        circle.fill.solid()
+        circle.fill.fore_color.rgb = accent_rgb
+        circle.fill.fore_color.brightness = 0.7
+        circle.line.fill.background()
+    elif layout == "layout_3":
+        top_line = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(13.333), Inches(0.04))
+        top_line.fill.solid()
+        top_line.fill.fore_color.rgb = accent_rgb
+        top_line.line.fill.background()
+
+    title_box = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(11), Inches(1.5))
+    tf = title_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = data.get("title", "Thank You")
+    p.font.size = Pt(48)
+    p.font.bold = True
+    p.font.color.rgb = secondary_rgb
+    p.alignment = PP_ALIGN.CENTER
+
+    subtitle = data.get("subtitle", "")
+    if subtitle:
+        sub_box = slide.shapes.add_textbox(Inches(1), Inches(4.2), Inches(11), Inches(1))
+        tf2 = sub_box.text_frame
+        p2 = tf2.paragraphs[0]
+        p2.text = subtitle
+        p2.font.size = Pt(20)
+        p2.font.color.rgb = accent_rgb
+        p2.alignment = PP_ALIGN.CENTER
+
+    if layout == "layout_1":
+        accent_line = slide.shapes.add_shape(1, Inches(4), Inches(3.9), Inches(5), Inches(0.05))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+    elif layout == "layout_2":
+        accent_line = slide.shapes.add_shape(1, Inches(5), Inches(3.9), Inches(3.333), Inches(0.04))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()
+    elif layout == "layout_3":
+        accent_line = slide.shapes.add_shape(1, Inches(5.5), Inches(3.95), Inches(2.333), Inches(0.03))
+        accent_line.fill.solid()
+        accent_line.fill.fore_color.rgb = accent_rgb
+        accent_line.line.fill.background()

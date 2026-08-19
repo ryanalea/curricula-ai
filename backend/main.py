@@ -12,7 +12,7 @@ import io
 import hashlib
 from sqlalchemy import text
 from database import SessionLocal, get_db, engine
-from models import Session as DbSession, Course, Lesson, Section, History, User
+from models import Session as DbSession, Course, Lesson, Section, History, User, Pptx
 import schemas
 import pipeline
 import exporter
@@ -33,6 +33,44 @@ try:
         conn.execute(text("ALTER TABLE sessions ADD COLUMN document_filename VARCHAR(200)"))
         conn.commit()
 except Exception:
+    pass
+
+# Auto-migrate Pptx table (cross-dialect: MySQL/SQLite)
+try:
+    with engine.connect() as conn:
+        dialect = engine.dialect.name
+        if dialect == "mysql":
+            result = conn.execute(text("SHOW TABLES LIKE 'pptx'"))
+        else:  # SQLite
+            result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='pptx'"))
+        if not result.fetchone():
+            if dialect == "mysql":
+                conn.execute(text("""
+                    CREATE TABLE pptx (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        lesson_id INT NOT NULL UNIQUE,
+                        layouts_json TEXT NOT NULL,
+                        selected_layout VARCHAR(20) DEFAULT 'layout_1',
+                        brand_colors VARCHAR(50),
+                        created_at VARCHAR(32),
+                        FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """))
+            else:  # SQLite
+                conn.execute(text("""
+                    CREATE TABLE pptx (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        lesson_id INTEGER NOT NULL UNIQUE,
+                        layouts_json TEXT NOT NULL,
+                        selected_layout VARCHAR(20) DEFAULT 'layout_1',
+                        brand_colors VARCHAR(50),
+                        created_at VARCHAR(32),
+                        FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
+                    )
+                """))
+            conn.commit()
+except Exception as e:
+    print(f"[Pptx Migration] {e}")
     pass
 
 # Enable CORS for frontend integration
@@ -1062,6 +1100,177 @@ def delete_document_endpoint(session_id: str, db: Session = Depends(get_db)):
         db_session.document_filename = None
         db.commit()
     return {"status": "success"}
+
+
+@app.post("/api/v1/courses/{session_id}/pptx/generate")
+async def generate_pptx_endpoint(session_id: str, req_body: dict = None, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    brand_colors = (req_body or {}).get("brand_colors", None)
+
+    lessons_data = []
+    course = db.query(Course).filter(Course.id == session_id).first()
+    if course:
+        for lesson in sorted(course.lessons, key=lambda l: l.position):
+            sections_data = {}
+            for sec in lesson.sections:
+                if sec.role not in sections_data:
+                    sections_data[sec.role] = {}
+                try:
+                    sections_data[sec.role][sec.section_type] = json.loads(sec.content_text)
+                except Exception:
+                    sections_data[sec.role][sec.section_type] = sec.content_text
+            lessons_data.append({
+                "id": lesson.id,
+                "title": lesson.title,
+                "order": lesson.position,
+                "sections": sections_data
+            })
+
+    course_data = {
+        "title": course.title if course else (db_session.prompt or "Untitled Course"),
+        "config": {
+            "lessons_count": db_session.config_lessons,
+            "duration": db_session.config_duration,
+            "difficulty": db_session.config_difficulty,
+            "target_audience": db_session.config_audience,
+        },
+        "subject_context": db_session.subject_context or "",
+        "lessons": lessons_data
+    }
+
+    pptx_structure = await pipeline.generate_pptx_structure(course_data, brand_colors)
+    return pptx_structure
+
+
+@app.post("/api/v1/courses/{session_id}/pptx/generate/lesson/{lesson_id}")
+async def generate_lesson_pptx_endpoint(session_id: str, lesson_id: int, req_body: dict = None, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    lesson = db.query(Lesson).filter(Lesson.id == lesson_id, Lesson.course_id == session_id).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    brand_colors = (req_body or {}).get("brand_colors", None)
+
+    sections_data = {}
+    for sec in lesson.sections:
+        if sec.role not in sections_data:
+            sections_data[sec.role] = {}
+        try:
+            sections_data[sec.role][sec.section_type] = json.loads(sec.content_text)
+        except Exception:
+            sections_data[sec.role][sec.section_type] = sec.content_text
+
+    course = db.query(Course).filter(Course.id == session_id).first()
+    lesson_data = {
+        "id": lesson.id,
+        "title": lesson.title,
+        "order": lesson.position,
+        "sections": sections_data
+    }
+
+    course_data = {
+        "title": f"{course.title if course else (db_session.prompt or 'Untitled Course')} — {lesson.title}",
+        "config": {
+            "lessons_count": 1,
+            "duration": db_session.config_duration,
+            "difficulty": db_session.config_difficulty,
+            "target_audience": db_session.config_audience,
+        },
+        "subject_context": db_session.subject_context or "",
+        "lessons": [lesson_data]
+    }
+
+    pptx_structure = await pipeline.generate_pptx_structure(course_data, brand_colors)
+
+    # Save to Pptx table
+    import datetime
+    layouts_json = json.dumps(pptx_structure.get("layouts", {}))
+    pptx = db.query(Pptx).filter(Pptx.lesson_id == lesson_id).first()
+    if not pptx:
+        pptx = Pptx(lesson_id=lesson_id)
+        db.add(pptx)
+    pptx.layouts_json = layouts_json
+    pptx.selected_layout = "layout_1"
+    pptx.brand_colors = json.dumps(brand_colors) if isinstance(brand_colors, dict) else brand_colors
+    pptx.created_at = datetime.datetime.utcnow().isoformat()
+    db.commit()
+
+    return pptx_structure
+
+
+@app.post("/api/v1/courses/{session_id}/pptx/download/lesson/{lesson_id}")
+async def download_lesson_pptx_endpoint(session_id: str, lesson_id: int, req_body: dict = None, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    lesson = db.query(Lesson).filter(Lesson.id == lesson_id, Lesson.course_id == session_id).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    layout = (req_body or {}).get("layout", "layout_1")
+    slides_json = (req_body or {}).get("slides_json", None)
+    brand_colors = (req_body or {}).get("brand_colors", None)
+
+    if not slides_json:
+        # Try to load from saved Pptx
+        pptx = db.query(Pptx).filter(Pptx.lesson_id == lesson_id).first()
+        if pptx:
+            layouts = json.loads(pptx.layouts_json)
+            slides_json = layouts.get(layout)
+            if slides_json:
+                # Parse brand_colors from JSON string if stored
+                saved_colors = pptx.brand_colors
+                if saved_colors and isinstance(saved_colors, str):
+                    try:
+                        brand_colors = json.loads(saved_colors)
+                    except Exception:
+                        brand_colors = saved_colors
+                elif saved_colors:
+                    brand_colors = saved_colors
+    if not slides_json:
+        raise HTTPException(status_code=400, detail="slides_json is required. Call /pptx/generate/lesson/{lesson_id} first.")
+
+    stream = exporter.create_pptx_from_structure(slides_json, layout, brand_colors)
+    course_title = db_session.prompt or "Course"
+    lesson_title = lesson.title
+    filename_title = "".join([c if c.isalnum() else "_" for c in f"{course_title}_{lesson_title}"])
+
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{filename_title}_slides.pptx"'}
+    )
+
+
+@app.post("/api/v1/courses/{session_id}/pptx/download")
+async def download_pptx_endpoint(session_id: str, req_body: dict = None, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    layout = (req_body or {}).get("layout", "layout_1")
+    slides_json = (req_body or {}).get("slides_json", None)
+    brand_colors = (req_body or {}).get("brand_colors", None)
+
+    if not slides_json:
+        raise HTTPException(status_code=400, detail="slides_json is required. Call /pptx/generate first.")
+
+    stream = exporter.create_pptx_from_structure(slides_json, layout, brand_colors)
+    course_title = db_session.prompt or "Course"
+    filename_title = "".join([c if c.isalnum() else "_" for c in course_title])
+
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{filename_title}_slides.pptx"'}
+    )
 
 
 
