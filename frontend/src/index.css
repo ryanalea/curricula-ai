@@ -28,7 +28,7 @@ button svg, a svg, .icon-btn svg, .icon-btn-tool svg, .review-card-edit-btn svg 
   --gold-glow:      rgba(233, 178, 89, 0.3);
   --gold-alt:       #EFC568;
 
-  --light-bg:       #E8EAF0;
+  --light-bg:       #FFFFFF;
   --light-mid:      #F0F2F7;
 
   --white:          #FFFFFF;
@@ -382,6 +382,11 @@ button { font-family: var(--font-body); }
   max-width: 100%;
   min-height: 100vh;
   background: var(--bg-base);
+}
+
+/* Landing page gets zero padding — it manages its own layout */
+.main-content.landing-mode {
+  padding: 0 !important;
 }
 
 /* Topbar Header styling */
@@ -4808,4 +4813,70 @@ button { font-family: var(--font-body); }
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* ── Landing Page Animations & Styling ── */
+@keyframes floatSlow {
+  0% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-14px) rotate(1.5deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+@keyframes floatReverse {
+  0% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(14px) rotate(-1.5deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+@keyframes glowPulse {
+  0% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.1); }
+  100% { opacity: 0.4; transform: scale(1); }
+}
+
+@keyframes shimmerGlow {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.float-item-1 {
+  animation: floatSlow 5s ease-in-out infinite;
+}
+
+.float-item-2 {
+  animation: floatReverse 6s ease-in-out infinite;
+}
+
+.float-item-3 {
+  animation: floatSlow 7s ease-in-out infinite 1s;
+}
+
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  animation: glowPulse 8s ease-in-out infinite;
+}
+
+.landing-card-hover {
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-card-hover:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 20px 35px rgba(45, 53, 97, 0.12) !important;
+  border-color: var(--gold) !important;
+}
+
+.shimmer-badge {
+  background: linear-gradient(90deg, rgba(26,32,64,0.8) 0%, rgba(45,53,97,0.9) 25%, rgba(233,178,89,0.5) 50%, rgba(45,53,97,0.9) 75%, rgba(26,32,64,0.8) 100%);
+  background-size: 200% 100%;
+  animation: shimmerGlow 4s linear infinite;
+  backdrop-filter: blur(12px);
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
 }

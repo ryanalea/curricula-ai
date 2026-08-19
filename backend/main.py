@@ -9,9 +9,10 @@ from typing import List, Optional
 import datetime
 import io
 
+import hashlib
 from sqlalchemy import text
 from database import SessionLocal, get_db, engine
-from models import Session as DbSession, Course, Lesson, Section, History
+from models import Session as DbSession, Course, Lesson, Section, History, User
 import schemas
 import pipeline
 import exporter
@@ -106,6 +107,59 @@ async def stream_progress(session_id: str):
 @app.get("/")
 def read_root():
     return {"message": "Welcome to AI Course Generator API"}
+
+@app.post("/api/v1/auth/signup")
+def signup_user(req: schemas.SignupRequest, db: Session = Depends(get_db)):
+    if not req.email or not req.password or not req.name:
+        raise HTTPException(status_code=400, detail="Name, Email, and Password are required.")
+    
+    # Check if user already exists
+    existing = db.query(User).filter(User.email == req.email.strip().lower()).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+    
+    pwd_hash = hashlib.sha256(req.password.encode('utf-8')).hexdigest()
+    new_user = User(
+        email=req.email.strip().lower(),
+        name=req.name.strip(),
+        password_hash=pwd_hash,
+        role=req.role or "Creator",
+        created_at=datetime.datetime.now().isoformat()
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return {
+        "status": "success",
+        "user": {
+            "id": new_user.id,
+            "name": new_user.name,
+            "email": new_user.email,
+            "role": new_user.role
+        }
+    }
+
+@app.post("/api/v1/auth/login")
+def login_user(req: schemas.LoginRequest, db: Session = Depends(get_db)):
+    if not req.email or not req.password:
+        raise HTTPException(status_code=400, detail="Email and Password are required.")
+    
+    pwd_hash = hashlib.sha256(req.password.encode('utf-8')).hexdigest()
+    user = db.query(User).filter(User.email == req.email.strip().lower()).first()
+    
+    if not user or user.password_hash != pwd_hash:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+        
+    return {
+        "status": "success",
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role
+        }
+    }
 
 @app.get("/api/v1/courses/sessions")
 def list_sessions(db: Session = Depends(get_db)):

@@ -74,3 +74,15 @@ class History(Base):
     content_snapshot: Mapped[str] = mapped_column(Text)
     label: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[str] = mapped_column(String(32))
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str | None] = mapped_column(String(50), default="Creator", nullable=True)
+    created_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+

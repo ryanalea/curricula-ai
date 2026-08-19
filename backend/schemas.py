@@ -1,6 +1,16 @@
 from pydantic import BaseModel
 from typing import List, Optional, Any
 
+class SignupRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: Optional[str] = "Creator"
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 class KeywordInput(BaseModel):
     keyword: str
 
