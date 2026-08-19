@@ -796,8 +796,28 @@ def save_history_snapshot(db: Session, session_id: str, lesson_id: int, role: st
     db.add(history_entry)
     db.commit()
 
+@app.get("/api/v1/courses/{session_id}/export/{filename_param}")
 @app.get("/api/v1/courses/{session_id}/export")
-def export_course(session_id: str, format: str = "pdf", role: str = "all", lesson_id: Optional[str] = None, db: Session = Depends(get_db)):
+def export_course(
+    session_id: str, 
+    filename_param: Optional[str] = None,
+    format: str = "pdf", 
+    role: str = "all", 
+    lesson_id: Optional[str] = None, 
+    disposition: str = "inline",
+    db: Session = Depends(get_db)
+):
+    if filename_param:
+        if filename_param.endswith('.zip'):
+            format = 'zip'
+        elif filename_param.endswith('.docx'):
+            format = 'docx'
+        elif filename_param.endswith('.html'):
+            format = 'html'
+        elif filename_param.endswith('.md') or filename_param.endswith('.markdown'):
+            format = 'md'
+        elif filename_param.endswith('.pdf'):
+            format = 'pdf'
     db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -845,21 +865,22 @@ def export_course(session_id: str, format: str = "pdf", role: str = "all", lesso
         "lessons": lessons_data
     }
     
-    filename_title = "".join([c if c.isalnum() else "_" for c in course_title])
+    filename_title = "".join([c if c.isalnum() else "_" for c in course_title]).strip("_") or "Course"
+    disp_type = "attachment" if (format in ["zip", "docx", "md", "markdown"] or disposition == "attachment") else "inline"
     
     if format == "zip":
         stream = exporter.export_all_zip(course_data)
         return StreamingResponse(
             stream, 
-            media_type="application/x-zip-compressed",
-            headers={"Content-Disposition": f"attachment; filename={filename_title}_export.zip"}
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename_title}_export.zip"'}
         )
     elif format == "docx":
         stream = exporter.export_to_docx(course_data, role)
         return StreamingResponse(
             stream,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.docx"}
+            headers={"Content-Disposition": f'attachment; filename="{filename_title}_{role}.docx"'}
         )
     elif format == "html":
         html_str = exporter.export_to_html(course_data, role)
@@ -867,14 +888,22 @@ def export_course(session_id: str, format: str = "pdf", role: str = "all", lesso
         return StreamingResponse(
             stream,
             media_type="text/html",
-            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.html"}
+            headers={"Content-Disposition": f'{disp_type}; filename="{filename_title}_{role}.html"'}
+        )
+    elif format in ["md", "markdown"]:
+        md_str = exporter.export_to_markdown(course_data, role)
+        stream = io.BytesIO(md_str.encode('utf-8'))
+        return StreamingResponse(
+            stream,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'{disp_type}; filename="{filename_title}_{role}.md"'}
         )
     else: # default pdf
         stream = exporter.export_to_pdf(course_data, role)
         return StreamingResponse(
             stream,
             media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.pdf"}
+            headers={"Content-Disposition": f'{disp_type}; filename="{filename_title}_{role}.pdf"'}
         )
 
 @app.get("/api/v1/courses/{session_id}/history")

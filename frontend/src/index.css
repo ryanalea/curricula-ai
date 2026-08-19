@@ -2318,15 +2318,15 @@ button { font-family: var(--font-body); }
   background: var(--white);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: 22px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 240px; /* Fixed consistent card height */
+  min-height: 250px;
+  height: auto;
   box-shadow: var(--shadow-sm);
   transition: var(--transition-smooth);
   position: relative;
-  overflow: hidden;
 }
 
 .elice-course-card:hover {

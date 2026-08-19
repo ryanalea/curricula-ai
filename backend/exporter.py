@@ -629,6 +629,13 @@ def export_all_zip(course_data: dict) -> io.BytesIO:
                 zip_file.writestr(f"{role}_pov.html", html_content)
             except Exception as e:
                 print(f"Error generating ZIP HTML for {role}: {e}")
+
+            # Markdown Document
+            try:
+                md_content = export_to_markdown(course_data, role)
+                zip_file.writestr(f"{role}_pov.md", md_content)
+            except Exception as e:
+                print(f"Error generating ZIP MD for {role}: {e}")
             
     output.seek(0)
     return output

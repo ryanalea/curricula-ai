@@ -623,8 +623,18 @@ export default function App() {
     }
   };
 
+  // Helper to check if editing/AI actions are allowed during generation
+  const checkCanEdit = (actionName = 'Edit') => {
+    if (generationProgress < 100) {
+      toast.warning(`Generating: Harap tunggu sampai proses pembuatan materi selesai (100%) sebelum melakukan ${actionName}.`);
+      return false;
+    }
+    return true;
+  };
+
   // ── Phase 4: History & Export Handlers ──
   const fetchHistory = async () => {
+    if (!checkCanEdit('melihat History')) return;
     setHistoryLoading(true);
     try {
       const res = await fetch(`${API_BASE}/courses/${sessionId}/history`);
@@ -639,6 +649,7 @@ export default function App() {
   };
 
   const handleRestoreHistory = async (historyId) => {
+    if (!checkCanEdit('Restore History')) return;
     setHistoryLoading(true);
     try {
       const res = await fetch(`${API_BASE}/history/${historyId}/restore`, {
@@ -646,7 +657,12 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        const updatedVal = JSON.parse(data.content);
+        let updatedVal;
+        try {
+          updatedVal = JSON.parse(data.content);
+        } catch (e) {
+          updatedVal = data.content;
+        }
         
         // Find which lesson, role, and sectionType was restored from historyList
         const histItem = historyList.find(h => h.id === historyId);
@@ -654,9 +670,13 @@ export default function App() {
           const updatedCourse = { ...courseData };
           const lIdx = updatedCourse.lessons.findIndex(l => l.id === histItem.lesson_id);
           if (lIdx !== -1) {
+            if (!updatedCourse.lessons[lIdx].sections[histItem.role]) {
+              updatedCourse.lessons[lIdx].sections[histItem.role] = {};
+            }
             updatedCourse.lessons[lIdx].sections[histItem.role][histItem.section_type] = updatedVal;
             setCourseData(updatedCourse);
-            toast.success(`Successfully restored: ${histItem.label}`);
+            toast.success(`Successfully restored version for: ${histItem.label || histItem.section_type}`);
+            setIsHistoryOpen(false);
           }
         }
       } else {
@@ -674,29 +694,26 @@ export default function App() {
     if (!courseData) return;
     const title = courseData.title || 'Course_Curriculum';
     const roleText = activeRole.toLowerCase();
+    const cleanTitle = title.replace(/[^\w\s-]/gi, '').replace(/\s+/g, '_') || 'Course';
+    const ext = exportFormat === 'zip' ? 'zip' : exportFormat === 'docx' ? 'docx' : exportFormat === 'html' ? 'html' : 'pdf';
+    const fileName = `${cleanTitle}_${roleText}.${ext}`;
     setIsExporting(true);
 
     try {
-      // 1. Try real API export from FastAPI backend
       if (sessionId) {
-        try {
-          const response = await fetch(`${API_BASE}/courses/${sessionId}/export?format=${exportFormat}&role=${roleText}`);
-          if (response.ok) {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${title.replace(/\s+/g, '_')}_${roleText}.${exportFormat === 'markdown' ? 'md' : exportFormat}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-            setIsExportModalOpen(false);
-            return;
-          }
-        } catch (err) {
-          console.error("API export error, falling back to local exporter:", err);
+        let downloadUrl = `${API_BASE}/courses/${sessionId}/export/${fileName}?format=${exportFormat}&role=${roleText}&disposition=attachment`;
+        if (activeLessonId && exportFormat !== 'zip') {
+          downloadUrl += `&lesson_id=${activeLessonId}`;
         }
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.setAttribute('download', fileName);
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setIsExportModalOpen(false);
+        return;
       }
 
       // 2. Local fallback if offline or no sessionId
@@ -843,11 +860,11 @@ export default function App() {
           <span className="ai-action-loading" style={{ fontSize: '0.85rem', color: 'var(--blue)', fontWeight: 600 }}><IconSpinner /> AI is processing...</span>
         ) : (
           <>
-            <button className="ai-pill-btn" onClick={() => handleAIAction(sectionType, 'regenerate')}>🔄 Regenerate</button>
-            <button className="ai-pill-btn" onClick={() => handleAIAction(sectionType, 'rewrite')}>✍️ Rewrite</button>
-            <button className="ai-pill-btn" onClick={() => handleAIAction(sectionType, 'expand')}>➕ Expand</button>
-            <button className="ai-pill-btn" onClick={() => handleAIAction(sectionType, 'shorten')}>➖ Shorten</button>
-            <button className="ai-pill-btn" onClick={() => handleAIAction(sectionType, 'simplify')}>💡 Simplify</button>
+            <button className="ai-pill-btn" onClick={() => { if (!checkCanEdit('AI Regenerate')) return; handleAIAction(sectionType, 'regenerate'); }}>🔄 Regenerate</button>
+            <button className="ai-pill-btn" onClick={() => { if (!checkCanEdit('AI Rewrite')) return; handleAIAction(sectionType, 'rewrite'); }}>✍️ Rewrite</button>
+            <button className="ai-pill-btn" onClick={() => { if (!checkCanEdit('AI Expand')) return; handleAIAction(sectionType, 'expand'); }}>➕ Expand</button>
+            <button className="ai-pill-btn" onClick={() => { if (!checkCanEdit('AI Shorten')) return; handleAIAction(sectionType, 'shorten'); }}>➖ Shorten</button>
+            <button className="ai-pill-btn" onClick={() => { if (!checkCanEdit('AI Simplify')) return; handleAIAction(sectionType, 'simplify'); }}>💡 Simplify</button>
             
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
               {isEditing ? (
@@ -863,6 +880,7 @@ export default function App() {
                 </>
               ) : (
                 <button className="ai-pill-btn edit" onClick={() => {
+                  if (!checkCanEdit('mengedit bagian ini')) return;
                   setEditingSection(sectionType);
                   setEditingText(typeof currentVal === 'string' ? currentVal : JSON.stringify(currentVal, null, 2));
                 }}>✏️ Edit</button>
@@ -1214,25 +1232,26 @@ export default function App() {
 
   // ── ScrollSpy for ON THIS PAGE TOC Navigation ──
   useEffect(() => {
-    if (currentStep !== 'generating' && currentStep !== 'generated') return;
+    const handleScrollSpy = () => {
+      const sectionElements = Array.from(document.querySelectorAll('[id^="step7-sec-"]'));
+      if (!sectionElements.length) return;
 
-    const sectionElements = document.querySelectorAll('[id^="step7-sec-"]');
-    if (!sectionElements.length) return;
+      const scrollPos = window.scrollY + 220;
+      for (let i = sectionElements.length - 1; i >= 0; i--) {
+        const el = sectionElements[i];
+        const top = el.getBoundingClientRect().top + window.scrollY;
+        if (scrollPos >= top) {
+          const secId = el.id.replace('step7-sec-', '');
+          setActiveSubSection(secId);
+          break;
+        }
+      }
+    };
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const secId = entry.target.id.replace('step7-sec-', '');
-            setActiveSubSection(secId);
-          }
-        });
-      },
-      { rootMargin: '-15% 0px -60% 0px', threshold: 0.1 }
-    );
+    window.addEventListener('scroll', handleScrollSpy, { passive: true });
+    handleScrollSpy();
 
-    sectionElements.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+    return () => window.removeEventListener('scroll', handleScrollSpy);
   }, [currentStep, activeRole, currentGeneratingLessonIdx]);
 
   // ── Agent Auto-Workflow Orchestrator ──
@@ -4225,13 +4244,13 @@ export default function App() {
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
-                      <button className="icon-btn-tool" title="AI Wand Action" onClick={() => setIsAIWandOpen(!isAIWandOpen)}>
+                      <button className="icon-btn-tool" title="AI Wand Action" onClick={() => { if (!checkCanEdit('menggunakan AI Rewrite')) return; setIsAIWandOpen(!isAIWandOpen); }}>
                         🪄
                       </button>
 
                       {/* AI Wand Action Menu Popover */}
                       {isAIWandOpen && (
-                        <div style={{ position: 'absolute', top: '40px', right: '80px', width: '220px', background: 'var(--white)', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', zIndex: 100, padding: '8px 0' }}>
+                        <div style={{ position: 'absolute', top: '40px', right: '40px', width: '220px', background: 'var(--white)', border: '1.5px solid var(--border-color)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', zIndex: 100, padding: '8px 0' }}>
                           <div style={{ padding: '6px 12px', fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', borderBottom: '1px solid var(--border-color)' }}>
                             AI WAND ACTIONS
                           </div>
@@ -4245,6 +4264,7 @@ export default function App() {
                               style={{ width: '100%', textAlign: 'left', padding: '8px 14px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px', transition: 'var(--transition-fast)' }}
                               className="filter-tag-pill"
                               onClick={() => {
+                                if (!checkCanEdit('menggunakan AI Rewrite')) return;
                                 setIsWandProcessing(true);
                                 setTimeout(() => {
                                   setIsWandProcessing(false);
@@ -4260,12 +4280,8 @@ export default function App() {
                         </div>
                       )}
 
-                      <button className="icon-btn-tool" title="Version History" onClick={() => { fetchHistory(); setIsHistoryOpen(true); }}>
+                      <button className="icon-btn-tool" title="Version History" onClick={() => { if (!checkCanEdit('melihat History')) return; fetchHistory(); setIsHistoryOpen(true); }}>
                         📜
-                      </button>
-                      <button className="review-card-edit-btn" style={{ fontSize: '0.82rem', padding: '6px 14px' }} onClick={() => setEditingSection(activeSubSection)}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                        Edit
                       </button>
                     </div>
                   </div>
@@ -4336,7 +4352,7 @@ export default function App() {
                                   {editingSection === 'learning_outcomes' ? (
                                     <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('learning_outcomes', editingText.split('\n').filter(Boolean))}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('learning_outcomes'); setEditingText(activeLessonContent.learning_outcomes.join('\n')); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Learning Outcomes')) return; setEditingSection('learning_outcomes'); setEditingText(activeLessonContent.learning_outcomes.join('\n')); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'learning_outcomes' ? (
@@ -4373,7 +4389,7 @@ export default function App() {
                                       }
                                     }}>Save</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { setEditingSection('exercises'); setEditingText(JSON.stringify(activeLessonContent.exercises, null, 2)); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Hands-On Exercises')) return; setEditingSection('exercises'); setEditingText(JSON.stringify(activeLessonContent.exercises, null, 2)); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'exercises' ? (
@@ -4774,24 +4790,32 @@ export default function App() {
                     </div>
 
                     {/* Real Native PDF Embed */}
-                    {sessionId && pdfBlobUrl ? (
+                    {sessionId ? (
                       <div id="internal-document-container" style={{ background: '#525659', borderRadius: '0 0 var(--radius-md) var(--radius-md)', padding: '12px', border: '1px solid var(--border-color)', borderTop: 'none', overflow: 'hidden' }}>
-                        <embed
-                          id="pdf-embed"
-                          type="application/pdf"
-                          src={`${pdfBlobUrl}#toolbar=1`}
-                          width="100%"
-                          height="850px"
-                          style={{
-                            border: 'none',
-                            borderRadius: '4px',
-                            background: '#FFFFFF',
-                            display: 'block',
-                            transform: `scale(${pdfZoom / 100})`,
-                            transformOrigin: 'top center',
-                            transition: 'transform 0.15s ease-out'
-                          }}
-                        />
+                        {(() => {
+                          const cleanTitle = (courseData?.title || 'Course').replace(/[^\w\s-]/gi, '').replace(/\s+/g, '_');
+                          const embedFilename = `${cleanTitle}_${activeRole.toLowerCase()}.pdf`;
+                          const embedSrc = `${API_BASE}/courses/${sessionId}/export/${embedFilename}?format=pdf&role=${activeRole.toLowerCase()}${activeLessonId ? `&lesson_id=${activeLessonId}` : ''}&disposition=inline#toolbar=1`;
+                          
+                          return (
+                            <embed
+                              id="pdf-embed"
+                              type="application/pdf"
+                              src={embedSrc}
+                              width="100%"
+                              height="850px"
+                              style={{
+                                border: 'none',
+                                borderRadius: '4px',
+                                background: '#FFFFFF',
+                                display: 'block',
+                                transform: `scale(${pdfZoom / 100})`,
+                                transformOrigin: 'top center',
+                                transition: 'transform 0.15s ease-out'
+                              }}
+                            />
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div className="pdf-paper-canvas" style={{ position: 'relative' }}>
@@ -5009,8 +5033,9 @@ export default function App() {
                     >
                       <option value="pdf">PDF Document (.pdf)</option>
                       <option value="docx">Word Document (.docx)</option>
+                      <option value="md">Markdown Document (.md)</option>
                       <option value="html">Web Page (.html)</option>
-                      <option value="zip">ZIP (PDF, DOCX & HTML per role)</option>
+                      <option value="zip">ZIP Package (PDF, DOCX, HTML & MD)</option>
                     </select>
                   </div>
 
