@@ -4065,14 +4065,16 @@ export default function App() {
 
             {/* Live Progress Banner with Animated Progress Bar */}
             <div className="live-status-box" style={{ marginBottom: '24px', background: 'var(--white)', border: generationProgress >= 100 ? '1.5px solid #86EFAC' : '1.5px solid var(--border-color)', borderRadius: 'var(--radius-xl)', padding: '18px 24px', boxShadow: 'var(--shadow-sm)' }}>
-              <div className="live-status-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div className="live-status-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
                 <div className="live-status-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 800, color: 'var(--navy)', fontSize: '0.95rem' }}>
                   {generationProgress >= 100 ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '22px', height: '22px', borderRadius: '50%', background: '#22c55e', color: '#ffffff' }}>
                       <IconCheck />
                     </span>
                   ) : (
-                    <IconSpinner />
+                    <span className="live-pulse-badge">
+                      <span className="pulse-dot"></span> LIVE
+                    </span>
                   )}
                   <span style={{ color: generationProgress >= 100 ? '#16a34a' : 'var(--navy)' }}>
                     {generationProgress >= 100 ? 'GENERATED:' : 'GENERATING:'}
@@ -4102,6 +4104,16 @@ export default function App() {
                 </div>
                 <span style={{ fontWeight: 800, fontSize: '0.88rem', color: generationProgress >= 100 ? '#16a34a' : 'var(--navy)', minWidth: '42px', textAlign: 'right' }}>{generationProgress}%</span>
               </div>
+
+              {/* Patient Reassurance Notice Banner (Himbauan Waktu AI) */}
+              {generationProgress < 100 && (
+                <div style={{ marginTop: '14px', padding: '12px 16px', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.84rem', color: '#92400E', fontWeight: 600 }}>
+                  <span style={{ fontSize: '1.1rem' }}>⏳</span>
+                  <span>
+                    <strong>Himbauan:</strong> Proses pembuatan materi AI berkualitas mendalam membutuhkan waktu <strong>sekitar 2–3 menit</strong>. Harap tunggu dengan tenang, AI kami sedang menyusun seluruh modul materi secara aktif.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Main Content Workspace Box */}

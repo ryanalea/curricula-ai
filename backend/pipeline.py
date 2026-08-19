@@ -19,12 +19,13 @@ client = None
 if openrouter_api_key:
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=openrouter_api_key
+        api_key=openrouter_api_key,
+        timeout=30.0
     )
     OPENAI_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 else:
     if openai_api_key and openai_api_key != "MOCK_KEY_FOR_DEVELOPMENT":
-        client = OpenAI(api_key=openai_api_key)
+        client = OpenAI(api_key=openai_api_key, timeout=30.0)
         OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
     else:
         OPENAI_MODEL = "gpt-4o-mini"
