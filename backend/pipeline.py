@@ -182,11 +182,12 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
     candidate_tags = get_default_candidate_tags(keyword, tags)
     selected_tags = tags if tags and len(tags) > 0 else (candidate_tags[:3] if candidate_tags else ["Project-Based Learning", "Experiential Learning"])
     if not client:
+        fallback_tags = candidate_tags
         return {
             "subject_context": f"This course provides a comprehensive guide to {keyword}, covering setup, core APIs, and real-world projects.",
             "grounding": {
-                "tech_tags": selected_tags,
-                "all_suggested_tags": candidate_tags,
+                "tech_tags": fallback_tags[:3],
+                "all_suggested_tags": fallback_tags,
                 "prerequisites": [f"Basic understanding of {tags[0] if tags else keyword}", "Familiarity with terminal and basic programming"],
                 "out_of_scope": ["Advanced multi-region cluster scaling", "Alternative legacy tooling"],
                 "learning_outcomes": [f"Understand fundamental {tags[0] if tags else keyword} syntax and concepts", "Build a production-ready application", "Debug common runtime errors"],
@@ -195,20 +196,23 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
         }
     
     try:
-        tags_str = ", ".join(selected_tags) if selected_tags else keyword
         prompt = f"""
-        Given the course topic '{keyword}', target audience '{audience}', difficulty level '{difficulty}', and selected tech stack/tools '{tags_str}':
+        Given the course topic '{keyword}', target audience '{audience}', difficulty level '{difficulty}':
         Generate:
         1. A rich text content overview/context for this topic (2-3 paragraphs).
-        2. Selected technical tags relevant to the topic (use or incorporate: {selected_tags}).
-        3. All suggested technical & pedagogical candidate tags for selecting options (15-20 items).
-        4. 3 Prerequisites required before starting, perfectly calibrated for a {difficulty} level course aimed at {audience}.
-        5. 3 Learning boundaries (out of scope topics) that keep the scope focused.
-        6. 3 Expected learning outcomes centered around mastering {tags_str}.
-        7. Target audience: '{audience}'.
+        2. 20 relevant tags/topics for this course (mix of technical skills, tools, concepts, and pedagogical methods related to this topic).
+        3. 3 Prerequisites required before starting.
+        4. 3 Learning boundaries (out of scope topics) that keep the scope focused.
+        5. 3 Expected learning outcomes.
+        6. Target audience.
 
         Return your output as a JSON object with exactly these top-level keys:
-        'subject_context' (string), 'grounding' (object with keys: 'tech_tags' (array), 'all_suggested_tags' (array), 'prerequisites' (array), 'out_of_scope' (array), 'learning_outcomes' (array), 'target_audience' (string)).
+        'subject_context' (string), 
+        'all_suggested_tags' (array of 20 strings),
+        'prerequisites' (array), 
+        'out_of_scope' (array), 
+        'learning_outcomes' (array), 
+        'target_audience' (string).
         """
         response = client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -231,19 +235,19 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
                     "target_audience": data.get("target_audience", audience or "Student")
                 }
             }
-        selected = selected_tags if selected_tags else data["grounding"].get("tech_tags", [])[:3]
-        data["grounding"]["tech_tags"] = selected
-        if not data["grounding"].get("all_suggested_tags"):
-            data["grounding"]["all_suggested_tags"] = get_default_candidate_tags(keyword, selected)
+        # AI generate all_suggested_tags, ambil 3 pertama sebagai default
+        suggested = data["grounding"].get("all_suggested_tags", [])
+        data["grounding"]["tech_tags"] = suggested[:3] if suggested else get_default_candidate_tags(keyword)[:3]
+        data["grounding"]["all_suggested_tags"] = suggested if suggested else get_default_candidate_tags(keyword)
         return data
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
-        selected_tags = ["Capstone Projects", "Project-Based Learning", "Experiential Learning"]
+        fallback_tags = get_default_candidate_tags(keyword)
         return {
             "subject_context": f"Failed to call API. Fallback context for {keyword}.",
             "grounding": {
-                "tech_tags": selected_tags,
-                "all_suggested_tags": get_default_candidate_tags(keyword, selected_tags),
+                "tech_tags": fallback_tags[:3],
+                "all_suggested_tags": fallback_tags,
                 "prerequisites": MOCK_GROUNDING["prerequisites"],
                 "out_of_scope": MOCK_GROUNDING["out_of_scope"],
                 "learning_outcomes": MOCK_GROUNDING["learning_outcomes"],

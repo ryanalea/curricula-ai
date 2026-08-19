@@ -810,16 +810,9 @@ export default function App() {
   ];
 
   // ── Context & Config ──
-  const DEFAULT_CANDIDATE_TAGS = [
-    "Go (Golang)", "Python", "React Native", "JavaScript", "TypeScript",
-    "Microservices", "Concurrency", "Generative AI", "REST APIs", "Docker & Kubernetes",
-    "Capstone Projects", "Project-Based Learning", "Experiential Learning",
-    "Collaborative Learning", "Industry Partnerships", "Authentic Assessment",
-    "AI in Education", "Workplace Simulation", "Constructive Alignment",
-    "Team-Based Skills", "Project Management", "Problem-Based Learning"
-  ];
-  const [techTags, setTechTags] = useState(DEFAULT_CANDIDATE_TAGS.slice(0, 3));
-  const [allSuggestedTags, setAllSuggestedTags] = useState(DEFAULT_CANDIDATE_TAGS);
+  const DEFAULT_CANDIDATE_TAGS = [];
+  const [techTags, setTechTags] = useState([]);
+  const [allSuggestedTags, setAllSuggestedTags] = useState([]);
   const [newTag, setNewTag] = useState('');
 
   const toggleTag = (tag) => {
@@ -2002,7 +1995,7 @@ export default function App() {
         setPromptText(textToSubmit);
         const loadedTech = data.tech_tags || [];
         setTechTags(loadedTech);
-        setAllSuggestedTags(data.all_suggested_tags && data.all_suggested_tags.length > 0 ? data.all_suggested_tags : Array.from(new Set([...loadedTech, ...DEFAULT_CANDIDATE_TAGS])));
+        setAllSuggestedTags(data.all_suggested_tags || loadedTech);
         setConfigLessons(data.config?.lessons_count || 5);
         setConfigDuration(data.config?.duration || 60);
         setConfigDifficulty(data.config?.difficulty || 'Beginner');
