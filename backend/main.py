@@ -782,7 +782,7 @@ def save_history_snapshot(db: Session, session_id: str, lesson_id: int, role: st
     db.commit()
 
 @app.get("/api/v1/courses/{session_id}/export")
-def export_course(session_id: str, format: str = "markdown", role: str = "all", db: Session = Depends(get_db)):
+def export_course(session_id: str, format: str = "pdf", role: str = "all", lesson_id: str = None, db: Session = Depends(get_db)):
     db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -791,6 +791,8 @@ def export_course(session_id: str, format: str = "markdown", role: str = "all", 
     course = db.query(Course).filter(Course.id == session_id).first()
     if course:
         for lesson in sorted(course.lessons, key=lambda l: l.position):
+            if lesson_id and str(lesson.id) != str(lesson_id):
+                continue
             sections_data = {}
             for sec in lesson.sections:
                 if sec.role not in sections_data:
@@ -842,20 +844,12 @@ def export_course(session_id: str, format: str = "markdown", role: str = "all", 
             media_type="text/html",
             headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.html"}
         )
-    elif format == "pdf":
+    else: # pdf (default)
         stream = exporter.export_to_pdf(course_data, role)
         return StreamingResponse(
             stream,
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.pdf"}
-        )
-    else: # markdown
-        md_str = exporter.export_to_markdown(course_data, role)
-        stream = io.BytesIO(md_str.encode('utf-8'))
-        return StreamingResponse(
-            stream,
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.md"}
         )
 
 @app.get("/api/v1/courses/{session_id}/history")
@@ -921,7 +915,3 @@ def delete_document_endpoint(session_id: str, db: Session = Depends(get_db)):
         db_session.document_filename = None
         db.commit()
     return {"status": "success"}
-
-
-
-

@@ -441,25 +441,37 @@ export default function App() {
   const [activeRole, setActiveRole] = useState('creator');
   const [activeSubSection, setActiveSubSection] = useState('overview');
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  const [pdfPageCount, setPdfPageCount] = useState(1);
+  const [pdfZoom, setPdfZoom] = useState(100);
 
   useEffect(() => {
     let isMounted = true;
-    if (currentStep === 'generated' && sessionId) {
-      fetch(`${API_BASE}/courses/${sessionId}/export?format=pdf&role=${activeRole.toLowerCase()}`)
+    if (currentStep === 'generated' && sessionId && activeLessonId) {
+      setPdfBlobUrl(null);
+      setPdfPageCount(1);
+      setPdfZoom(100);
+      fetch(`${API_BASE}/courses/${sessionId}/export?format=pdf&role=${activeRole.toLowerCase()}&lesson_id=${activeLessonId}`)
         .then(res => {
           if (!res.ok) throw new Error("Failed to fetch PDF preview blob");
           return res.blob();
         })
-        .then(blob => {
-          if (isMounted) {
-            const url = URL.createObjectURL(blob);
-            setPdfBlobUrl(url);
+        .then(async blob => {
+          if (!isMounted) return;
+          const url = URL.createObjectURL(blob);
+          setPdfBlobUrl(url);
+          // Hitung jumlah halaman asli dari isi file PDF (bukan dari jumlah lesson)
+          try {
+            const text = await blob.text();
+            const matches = text.match(/\/Type\s*\/Page(?!s)/g);
+            setPdfPageCount(matches && matches.length > 0 ? matches.length : 1);
+          } catch {
+            setPdfPageCount(1);
           }
         })
         .catch(err => console.error("PDF Blob error:", err));
     }
     return () => { isMounted = false; };
-  }, [currentStep, sessionId, activeRole]);
+  }, [currentStep, sessionId, activeRole, activeLessonId]);
 
   // ── Phase 3: Interactive Course & AI Toolbar ──
   const [sectionLoading, setSectionLoading] = useState({});
@@ -663,7 +675,7 @@ export default function App() {
   const handleExport = async () => {
     if (!courseData) return;
     const title = courseData.title || 'Course_Curriculum';
-    const roleText = activeRole.toLowerCase();
+    const roleText = exportRole.toLowerCase();
     setIsExporting(true);
 
     try {
@@ -676,7 +688,7 @@ export default function App() {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${title.replace(/\s+/g, '_')}_${roleText}.${exportFormat === 'markdown' ? 'md' : exportFormat}`;
+            a.download = `${title.replace(/\s+/g, '_')}_${roleText}.${exportFormat}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -692,8 +704,8 @@ export default function App() {
       // 2. Local fallback if offline or no sessionId
       const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0];
       const lessonTitle = curLesson?.title || 'Lesson_Content';
-      let contentString = `# ${title}\n## ${activeRole.toUpperCase()} POV - ${lessonTitle}\n\n`;
-      const curSecs = curLesson?.sections?.[activeRole] || {};
+      let contentString = `# ${title}\n## ${exportRole.toUpperCase()} POV - ${lessonTitle}\n\n`;
+      const curSecs = curLesson?.sections?.[exportRole] || {};
 
       Object.entries(curSecs).forEach(([secKey, secVal]) => {
         contentString += `### ${secKey.toUpperCase()}\n`;
@@ -712,10 +724,7 @@ export default function App() {
       let mimeType = 'text/plain';
       let fileExt = 'txt';
 
-      if (exportFormat === 'markdown' || exportFormat === 'md') {
-        mimeType = 'text/markdown';
-        fileExt = 'md';
-      } else if (exportFormat === 'html') {
+      if (exportFormat === 'html') {
         mimeType = 'text/html';
         fileExt = 'html';
         contentString = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:sans-serif;padding:30px;color:#2D3561;}</style></head><body><pre>${contentString}</pre></body></html>`;
@@ -728,7 +737,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${title.replace(/\s+/g, '_')}_${activeRole.toUpperCase()}_${lessonTitle.replace(/\s+/g, '_')}.${fileExt}`;
+      a.download = `${title.replace(/\s+/g, '_')}_${exportRole.toUpperCase()}_${lessonTitle.replace(/\s+/g, '_')}.${fileExt}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1705,7 +1714,9 @@ export default function App() {
         if (data.status === 'completed' && data.lessons?.length > 0) {
           setCourseData(data);
           setActiveLessonId(data.lessons[0].id);
-          setCurrentStep('generated');
+          setGenerationProgress(100);
+          setGenerationStatusText('Course generated successfully.');
+          setCurrentStep('generating');
         } else if (data.status === 'generating' || data.status === 'queued') {
           setGenerationProgress(data.progress || 5);
           setGenerationStatusText(data.status_text || 'Resuming generation...');
@@ -3442,7 +3453,7 @@ export default function App() {
                           }}
                         />
                       </div>
-                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
                         <button className="icon-btn-tool" onClick={() => moveLesson(idx, -1)} title="Move Up">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 15l-6-6-6 6"/></svg>
                         </button>
@@ -4745,26 +4756,50 @@ export default function App() {
                     <div className="viewer-toolbar">
                       <div className="toolbar-zoom-group">
                         <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginRight: '8px' }}>
-                          Page {lessonNumber} of {courseData.lessons?.length || 1}
+                          {sessionId && pdfBlobUrl ? `Page 1 of ${pdfPageCount}` : `Lesson ${lessonNumber} of ${courseData.lessons?.length || 1}`}
                         </span>
-                        <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom Out">−</button>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>100%</span>
-                        <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom In">+</button>
+                        <button
+                          className="icon-btn"
+                          style={{ padding: '4px 8px' }}
+                          title="Zoom Out"
+                          disabled={pdfZoom <= 50}
+                          onClick={() => setPdfZoom(z => Math.max(50, z - 10))}
+                        >−</button>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '38px', textAlign: 'center', display: 'inline-block' }}>{pdfZoom}%</span>
+                        <button
+                          className="icon-btn"
+                          style={{ padding: '4px 8px' }}
+                          title="Zoom In"
+                          disabled={pdfZoom >= 200}
+                          onClick={() => setPdfZoom(z => Math.min(200, z + 10))}
+                        >+</button>
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => toast.info('Opening search...')} title="Search document">🔍 Search</button>
-                        <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => window.print()} title="Print document">Print</button>
-                        <button className="purple-start-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', gap: '4px', boxShadow: 'none' }} onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }} title="Save/Download Document">Download PDF</button>
+                        <button
+                          className="file-upload-btn"
+                          style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }}
+                          onClick={() => {
+                            if (!pdfBlobUrl) { toast.error('Document not ready yet.'); return; }
+                            const printWin = window.open(pdfBlobUrl, '_blank');
+                            if (!printWin) { toast.error('Popup blocked. Please allow popups to print.'); return; }
+                            printWin.addEventListener('load', () => {
+                              printWin.focus();
+                              printWin.print();
+                            });
+                          }}
+                          title="Print document"
+                        >Print</button>
+                        <button className="purple-start-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', gap: '4px', boxShadow: 'none' }} onClick={() => { setExportFormat('pdf'); setExportRole(activeRole); setIsExportModalOpen(true); }} title="Save/Download Document">Download PDF</button>
                       </div>
                     </div>
 
                     {/* Real PDF Embed or Paper Canvas Preview */}
                     {sessionId && pdfBlobUrl ? (
-                      <div id="internal-document-container" style={{ background: '#525659', borderRadius: '0 0 var(--radius-md) var(--radius-md)', padding: '12px', border: '1px solid var(--border-color)', borderTop: 'none' }}>
+                      <div id="internal-document-container" style={{ background: '#525659', borderRadius: '0 0 var(--radius-md) var(--radius-md)', padding: '12px', border: '1px solid var(--border-color)', borderTop: 'none', overflow: 'auto' }}>
                         <embed
                           id="pdf-embed"
                           type="application/pdf"
-                          src={`${pdfBlobUrl}#toolbar=0`}
+                          src={`${pdfBlobUrl}#toolbar=0&zoom=${pdfZoom}`}
                           width="100%"
                           height="850px"
                           style={{ border: 'none', borderRadius: '4px', background: '#FFFFFF', display: 'block' }}
@@ -4985,7 +5020,6 @@ export default function App() {
                       onChange={(e) => setExportFormat(e.target.value)}
                     >
                       <option value="docx">Word Document (.docx)</option>
-                      <option value="markdown">Markdown (.md)</option>
                       <option value="html">Web Page (.html)</option>
                       <option value="pdf">PDF Document (.pdf)</option>
                       <option value="zip">ZIP (All formats per role)</option>

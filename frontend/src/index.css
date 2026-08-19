@@ -840,6 +840,21 @@ button { font-family: var(--font-body); }
   box-shadow: var(--shadow-sm);
 }
 
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.icon-btn:disabled:hover {
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+  transform: none;
+  box-shadow: none;
+}
+
 .icon-btn.danger:hover {
   background: rgba(239, 68, 68, 0.08);
   color: var(--accent-red);
@@ -3431,9 +3446,11 @@ button { font-family: var(--font-body); }
 
 /* ── Sleek Action Icon Buttons ───────────────────────────── */
 .icon-btn-tool {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 8px;
   border: 1px solid var(--border-color);
   background: var(--white);
   color: var(--navy);
@@ -3444,6 +3461,12 @@ button { font-family: var(--font-body); }
   transition: var(--transition-fast);
   padding: 0;
   flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ikon di dalam tombol jangan ikut menangkap klik, biar seluruh kotak tombol (bukan cuma garis SVG) yang responsif */
+.icon-btn-tool svg {
+  pointer-events: none;
 }
 
 .icon-btn-tool:hover {

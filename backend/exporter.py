@@ -165,7 +165,8 @@ def export_to_markdown(course_data: dict, role: str) -> str:
         md.append(f"## 📘 {get_role_label(r)}")
         for idx, lesson in enumerate(lessons):
             clean_t = clean_lesson_title(lesson.get('title', 'Untitled Lesson'))
-            md.append(f"### Lesson {idx + 1}: {clean_t}")
+            lesson_number = lesson.get('order', idx + 1)
+            md.append(f"### Lesson {lesson_number}: {clean_t}")
             sections = get_resolved_lesson_sections(lesson, r)
             
             for sec_type, content in sections.items():
@@ -338,7 +339,8 @@ def export_to_docx(course_data: dict, role: str) -> io.BytesIO:
         doc.add_heading(get_role_label(r), level=1)
         for idx, lesson in enumerate(lessons):
             clean_t = clean_lesson_title(lesson.get('title', 'Untitled Lesson'))
-            doc.add_heading(f"Lesson {idx + 1}: {clean_t}", level=2)
+            lesson_number = lesson.get('order', idx + 1)
+            doc.add_heading(f"Lesson {lesson_number}: {clean_t}", level=2)
             sections = get_resolved_lesson_sections(lesson, r)
             
             for sec_type, content in sections.items():
@@ -607,11 +609,23 @@ def export_all_zip(course_data: dict) -> io.BytesIO:
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w') as zip_file:
         for role in ["creator", "student", "educator"]:
-            md_content = export_to_markdown(course_data, role)
-            zip_file.writestr(f"{role}_pov.md", md_content)
-            
+            # Web page / HTML
             html_content = export_to_html(course_data, role)
             zip_file.writestr(f"{role}_pov.html", html_content)
-            
+
+            # Word document
+            try:
+                docx_stream = export_to_docx(course_data, role)
+                zip_file.writestr(f"{role}_pov.docx", docx_stream.read())
+            except Exception as e:
+                print(f"DOCX export failed for {role}: {e}")
+
+            # PDF
+            try:
+                pdf_stream = export_to_pdf(course_data, role)
+                zip_file.writestr(f"{role}_pov.pdf", pdf_stream.read())
+            except Exception as e:
+                print(f"PDF export failed for {role}: {e}")
+
     output.seek(0)
     return output
