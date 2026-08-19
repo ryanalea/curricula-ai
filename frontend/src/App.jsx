@@ -39,6 +39,12 @@ const IconClock = () => (
 const IconUser = () => (
   <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
 );
+const IconChevronLeft = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}><polyline points="15 18 9 12 15 6"/></svg>
+);
+const IconChevronRight = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}><polyline points="9 18 15 12 9 6"/></svg>
+);
 
 // ─── Step Progress Bar ────────────────────────────────────────────────────────
 const STEPS = [
@@ -4072,9 +4078,7 @@ export default function App() {
                       <IconCheck />
                     </span>
                   ) : (
-                    <span className="live-pulse-badge">
-                      <span className="pulse-dot"></span> LIVE
-                    </span>
+                    <IconSpinner />
                   )}
                   <span style={{ color: generationProgress >= 100 ? '#16a34a' : 'var(--navy)' }}>
                     {generationProgress >= 100 ? 'GENERATED:' : 'GENERATING:'}
@@ -4087,9 +4091,16 @@ export default function App() {
                   <button 
                     className="cancel-gen-btn"
                     style={{ background: 'transparent', border: '1.5px solid #F87171', color: '#EF4444', fontWeight: 700, padding: '4px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-                    onClick={() => {
+                    onClick={async () => {
                       if (confirm('Are you sure you want to cancel the generation?')) {
+                        try {
+                          await fetch(`${API_BASE}/courses/sessions/${sessionId}/cancel`, { method: 'POST' });
+                        } catch (e) {
+                          console.error("Cancel API call error:", e);
+                        }
+                        setGenerationProgress(0);
                         setCurrentStep('review');
+                        toast.info("Generation canceled. Returned to Step 6 Review.");
                       }
                     }}
                   >
@@ -4105,12 +4116,12 @@ export default function App() {
                 <span style={{ fontWeight: 800, fontSize: '0.88rem', color: generationProgress >= 100 ? '#16a34a' : 'var(--navy)', minWidth: '42px', textAlign: 'right' }}>{generationProgress}%</span>
               </div>
 
-              {/* Patient Reassurance Notice Banner (Himbauan Waktu AI) */}
+              {/* Patient Reassurance Notice Banner (Simple & Concise Notice) */}
               {generationProgress < 100 && (
-                <div style={{ marginTop: '14px', padding: '12px 16px', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.84rem', color: '#92400E', fontWeight: 600 }}>
-                  <span style={{ fontSize: '1.1rem' }}>⏳</span>
+                <div style={{ marginTop: '14px', padding: '10px 16px', background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: '#92400E', fontWeight: 600 }}>
+                  <span style={{ fontSize: '1.05rem' }}>⏳</span>
                   <span>
-                    <strong>Himbauan:</strong> Proses pembuatan materi AI berkualitas mendalam membutuhkan waktu <strong>sekitar 2–3 menit</strong>. Harap tunggu dengan tenang, AI kami sedang menyusun seluruh modul materi secara aktif.
+                    <strong>Note:</strong> AI course generation is in progress. Please wait patiently while we build your curriculum.
                   </span>
                 </div>
               )}
@@ -4122,11 +4133,12 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'var(--surface-2)', padding: '16px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
                 <button 
                   className="library-page-btn playful-card" 
-                  style={{ width: '36px', height: '36px', fontSize: '1.1rem' }}
+                  style={{ width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
                   onClick={() => setCurrentGeneratingLessonIdx(Math.max(0, currentGeneratingLessonIdx - 1))}
                   disabled={currentGeneratingLessonIdx === 0}
+                  title="Previous Lesson"
                 >
-                  ‹
+                  <IconChevronLeft />
                 </button>
 
                 <div style={{ textAlign: 'center' }}>
@@ -4143,11 +4155,12 @@ export default function App() {
 
                 <button 
                   className="library-page-btn playful-card" 
-                  style={{ width: '36px', height: '36px', fontSize: '1.1rem' }}
+                  style={{ width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
                   onClick={() => setCurrentGeneratingLessonIdx(Math.min((structure.length || 1) - 1, currentGeneratingLessonIdx + 1))}
                   disabled={currentGeneratingLessonIdx >= (structure.length || 1) - 1}
+                  title="Next Lesson"
                 >
-                  ›
+                  <IconChevronRight />
                 </button>
               </div>
 

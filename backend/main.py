@@ -688,6 +688,22 @@ async def trigger_generation(session_id: str, background_tasks: BackgroundTasks,
     background_tasks.add_task(generate_course_content_task_async, session_id)
     return {"message": "Generation started", "status": "queued"}
 
+@app.post("/api/v1/courses/sessions/{session_id}/cancel")
+async def cancel_generation(session_id: str, db: Session = Depends(get_db)):
+    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if db_session:
+        db_session.status = "canceled"
+        db_session.step = "review"
+        db_session.status_text = "Generation canceled by user."
+        db.commit()
+        await progress_publisher.publish(session_id, {
+            "progress": 0,
+            "status": "canceled",
+            "status_text": "Generation canceled by user.",
+            "step": "review"
+        })
+    return {"status": "canceled"}
+
 @app.post("/api/v1/lessons/{lesson_id}/sections/ai-action")
 async def run_section_action_endpoint(lesson_id: int, req: schemas.AIActionRequest, db: Session = Depends(get_db)):
     section = db.query(Section).filter(
