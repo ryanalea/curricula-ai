@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 import uuid
 import json
 import asyncio
-from typing import List
+from typing import List, Optional
 import datetime
 import io
 
@@ -538,6 +538,21 @@ async def generate_course_content_task_async(session_id: str):
                 sec = Section(lesson_id=lesson.id, role="creator", section_type=k, content_text=json.dumps(v))
                 db.add(sec)
                 
+            # Update sub-progress step before running Student & Educator generation
+            sub_prog = int(10 + ((idx + 0.5) / total_lessons) * 80)
+            sub_msg = f"Generating Student & Educator Modules for Lesson {idx+1}/{total_lessons}: {item['title']}"
+            db_session.status_text = sub_msg
+            db_session.progress = sub_prog
+            db.commit()
+            await progress_publisher.publish(session_id, {
+                "progress": sub_prog,
+                "status": "generating",
+                "status_text": sub_msg,
+                "step": db_session.step,
+                "current_lesson": idx + 1,
+                "total_lessons": total_lessons
+            })
+
             # 2 & 3. Student and Educator Content concurrently (grounded in Creator content)
             try:
                 student_task = pipeline.generate_student_content(lesson.title, creator_json, lesson_duration=lesson_duration)
@@ -637,7 +652,7 @@ async def generate_course_content_task_async(session_id: str):
         db.close()
 
 @app.post("/api/v1/courses/sessions/{session_id}/content/generate")
-def trigger_generation(session_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def trigger_generation(session_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -647,7 +662,7 @@ def trigger_generation(session_id: str, background_tasks: BackgroundTasks, db: S
     db_session.status_text = "Generation queued..."
     db.commit()
     
-    background_tasks.add_task(generate_course_content_task, session_id)
+    background_tasks.add_task(generate_course_content_task_async, session_id)
     return {"message": "Generation started", "status": "queued"}
 
 @app.post("/api/v1/lessons/{lesson_id}/sections/ai-action")
@@ -782,7 +797,7 @@ def save_history_snapshot(db: Session, session_id: str, lesson_id: int, role: st
     db.commit()
 
 @app.get("/api/v1/courses/{session_id}/export")
-def export_course(session_id: str, format: str = "markdown", role: str = "all", db: Session = Depends(get_db)):
+def export_course(session_id: str, format: str = "pdf", role: str = "all", lesson_id: Optional[str] = None, db: Session = Depends(get_db)):
     db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -805,8 +820,20 @@ def export_course(session_id: str, format: str = "markdown", role: str = "all", 
                 "order": lesson.position,
                 "sections": sections_data
             })
-            
+
+    if lesson_id:
+        filtered = [l for l in lessons_data if str(l["id"]) == str(lesson_id)]
+        if filtered:
+            lessons_data = filtered
+
     course_title = course.title if course else (db_session.prompt or "Untitled Course")
+    if not lessons_data:
+        lessons_data = [{
+            "id": 1,
+            "title": course_title,
+            "order": 1,
+            "sections": {}
+        }]
     course_data = {
         "title": course_title,
         "config": {
@@ -842,20 +869,12 @@ def export_course(session_id: str, format: str = "markdown", role: str = "all", 
             media_type="text/html",
             headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.html"}
         )
-    elif format == "pdf":
+    else: # default pdf
         stream = exporter.export_to_pdf(course_data, role)
         return StreamingResponse(
             stream,
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.pdf"}
-        )
-    else: # markdown
-        md_str = exporter.export_to_markdown(course_data, role)
-        stream = io.BytesIO(md_str.encode('utf-8'))
-        return StreamingResponse(
-            stream,
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename={filename_title}_{role}.md"}
         )
 
 @app.get("/api/v1/courses/{session_id}/history")

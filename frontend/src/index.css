@@ -1,5 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
 
+button svg, a svg, .icon-btn svg, .icon-btn-tool svg, .review-card-edit-btn svg {
+  pointer-events: none;
+}
+
 /* ══════════════════════════════════════════════════════════
    CURRICULA AI — Maxy Brand Design System
    Palette: Gold #E9B259 | Navy #2D3561 | Light #E8EAF0
@@ -2776,18 +2780,65 @@ button { font-family: var(--font-body); }
 }
 
 .assets-menu-group {
-  margin-bottom: 24px;
+  margin-bottom: 12px;
 }
 
-.assets-group-title {
-  font-size: 0.8rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.assets-group-header-accordion {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 16px;
+  background: var(--white);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--navy);
+  font-size: 0.88rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.assets-group-header-accordion:hover {
+  background: var(--surface-2);
+  color: var(--navy-deep);
+  border-color: var(--navy-50);
+}
+
+.assets-group-header-accordion.active {
+  background: var(--navy-deep);
+  color: var(--gold);
+  border-color: var(--navy-deep);
+  box-shadow: 0 4px 12px rgba(26, 32, 64, 0.25);
+}
+
+.assets-group-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--surface-3);
   color: var(--text-muted);
-  margin-bottom: 10px;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 6px;
+  transition: all 0.2s ease;
+}
+
+.assets-group-header-accordion.active .assets-group-badge {
+  background: rgba(233, 178, 89, 0.2);
+  color: var(--gold);
+}
+
+.assets-accordion-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0 4px 4px;
+  animation: fadeInAccordion 0.25s ease-out;
+}
+
+@keyframes fadeInAccordion {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .assets-lesson-btn {
@@ -3656,22 +3707,26 @@ button { font-family: var(--font-body); }
 
 .review-card-edit-btn {
   background: transparent;
-  border: none;
-  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  color: var(--navy);
   font-size: 0.85rem;
   font-weight: 600;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 6px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 8px 16px;
+  min-height: 36px;
   border-radius: var(--radius-sm);
   transition: var(--transition-fast);
+  pointer-events: auto;
 }
 
 .review-card-edit-btn:hover {
-  color: var(--navy);
+  color: var(--navy-deep);
   background: var(--surface-2);
+  border-color: var(--navy);
 }
 
 .concept-hero-box {

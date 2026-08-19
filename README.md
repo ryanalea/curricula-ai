@@ -253,12 +253,12 @@ Content Generator
 
 ## 🚧 Roadmap
 
-- [ ] **Course Structure** — Lesson detail panel with per-role section editor
-- [ ] **AI Toolbar** — Regenerate, Rewrite, Expand, Shorten per section
-- [ ] **Quiz Manager** — Generate more, edit, delete individual questions
-- [ ] **Export Hub** — DOCX, PDF, Markdown, HTML, ZIP (per role)
-- [ ] **History & Versioning** — Restore previous versions of content
-- [ ] **File Upload** — Knowledge base from PDF, DOCX, TXT
+- [x] **Course Structure** — Lesson detail panel with per-role section editor
+- [x] **AI Toolbar** — Regenerate, Rewrite, Expand, Shorten per section
+- [x] **Quiz Manager** — Generate more, edit, delete individual questions
+- [x] **Export Hub** — DOCX, PDF, HTML, ZIP (per role)
+- [x] **History & Versioning** — Restore previous versions of content
+- [x] **File Upload** — Knowledge base from PDF, DOCX, TXT
 - [ ] **User Auth** — Login, profiles, multi-project support
 - [ ] **Templates** — Pre-built course templates by category
 

@@ -164,8 +164,9 @@ def export_to_markdown(course_data: dict, role: str) -> str:
     for r in roles_to_export:
         md.append(f"## 📘 {get_role_label(r)}")
         for idx, lesson in enumerate(lessons):
+            l_num = lesson.get('order') or (idx + 1)
             clean_t = clean_lesson_title(lesson.get('title', 'Untitled Lesson'))
-            md.append(f"### Lesson {idx + 1}: {clean_t}")
+            md.append(f"### Lesson {l_num}: {clean_t}")
             sections = get_resolved_lesson_sections(lesson, r)
             
             for sec_type, content in sections.items():
@@ -236,13 +237,13 @@ def export_to_html(course_data: dict, role: str) -> str:
 
         if line_clean.startswith("# "):
             close_list()
-            html_lines.append(f"<h1 style='color:#1A2040;font-family:sans-serif;font-size:24px;border-bottom:2px solid #6366F1;padding-bottom:8px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[2:]))}</h1>")
+            html_lines.append(f"<h1 style='color:#1A2040;font-family:sans-serif;font-size:24px;border-bottom:2.5px solid #E9B259;padding-bottom:8px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[2:]))}</h1>")
         elif line_clean.startswith("## "):
             close_list()
-            html_lines.append(f"<div class='page-break' style='page-break-before:always;'><h2 style='color:#6366F1;font-family:sans-serif;margin-top:28px;font-size:18px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[3:]))}</h2></div>")
+            html_lines.append(f"<div class='page-break' style='page-break-before:always;'><h2 style='color:#2D3561;font-family:sans-serif;margin-top:28px;font-size:18px;border-left:4px solid #E9B259;padding-left:10px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[3:]))}</h2></div>")
         elif line_clean.startswith("### "):
             close_list()
-            html_lines.append(f"<h3 style='color:#1A2040;font-family:sans-serif;margin-top:20px;font-size:15px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[4:]))}</h3>")
+            html_lines.append(f"<h3 style='color:#C8913A;font-family:sans-serif;margin-top:20px;font-size:15px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[4:]))}</h3>")
         elif line_clean.startswith("#### "):
             close_list()
             html_lines.append(f"<h4 style='color:#334155;font-family:sans-serif;margin-top:14px;font-size:13px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[5:]))}</h4>")
@@ -337,8 +338,9 @@ def export_to_docx(course_data: dict, role: str) -> io.BytesIO:
     for r in roles_to_export:
         doc.add_heading(get_role_label(r), level=1)
         for idx, lesson in enumerate(lessons):
+            l_num = lesson.get('order') or (idx + 1)
             clean_t = clean_lesson_title(lesson.get('title', 'Untitled Lesson'))
-            doc.add_heading(f"Lesson {idx + 1}: {clean_t}", level=2)
+            doc.add_heading(f"Lesson {l_num}: {clean_t}", level=2)
             sections = get_resolved_lesson_sections(lesson, r)
             
             for sec_type, content in sections.items():
@@ -452,7 +454,7 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             fontName='Helvetica-Bold',
             fontSize=15,
             leading=18,
-            textColor=colors.HexColor('#4F46E5'),
+            textColor=colors.HexColor('#2D3561'),
             spaceBefore=14,
             spaceAfter=8,
             keepWithNext=True
@@ -607,11 +609,26 @@ def export_all_zip(course_data: dict) -> io.BytesIO:
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w') as zip_file:
         for role in ["creator", "student", "educator"]:
-            md_content = export_to_markdown(course_data, role)
-            zip_file.writestr(f"{role}_pov.md", md_content)
-            
-            html_content = export_to_html(course_data, role)
-            zip_file.writestr(f"{role}_pov.html", html_content)
+            # PDF Document
+            try:
+                pdf_stream = export_to_pdf(course_data, role)
+                zip_file.writestr(f"{role}_pov.pdf", pdf_stream.getvalue())
+            except Exception as e:
+                print(f"Error generating ZIP PDF for {role}: {e}")
+
+            # DOCX Document
+            try:
+                docx_stream = export_to_docx(course_data, role)
+                zip_file.writestr(f"{role}_pov.docx", docx_stream.getvalue())
+            except Exception as e:
+                print(f"Error generating ZIP DOCX for {role}: {e}")
+
+            # HTML Web Page Document
+            try:
+                html_content = export_to_html(course_data, role)
+                zip_file.writestr(f"{role}_pov.html", html_content)
+            except Exception as e:
+                print(f"Error generating ZIP HTML for {role}: {e}")
             
     output.seek(0)
     return output

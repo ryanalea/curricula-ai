@@ -439,27 +439,37 @@ export default function App() {
   const [courseData, setCourseData] = useState(null);
   const [activeLessonId, setActiveLessonId] = useState(null);
   const [activeRole, setActiveRole] = useState('creator');
+  const [openPov, setOpenPov] = useState('creator');
   const [activeSubSection, setActiveSubSection] = useState('overview');
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  const [pdfZoom, setPdfZoom] = useState(100);
+  const [pdfSearchQuery, setPdfSearchQuery] = useState('');
+  const [isPdfSearchOpen, setIsPdfSearchOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
     if (currentStep === 'generated' && sessionId) {
-      fetch(`${API_BASE}/courses/${sessionId}/export?format=pdf&role=${activeRole.toLowerCase()}`)
+      let fetchUrl = `${API_BASE}/courses/${sessionId}/export?format=pdf&role=${activeRole.toLowerCase()}`;
+      if (activeLessonId) {
+        fetchUrl += `&lesson_id=${activeLessonId}`;
+      }
+      fetch(fetchUrl)
         .then(res => {
           if (!res.ok) throw new Error("Failed to fetch PDF preview blob");
           return res.blob();
         })
         .then(blob => {
           if (isMounted) {
-            const url = URL.createObjectURL(blob);
-            setPdfBlobUrl(url);
+            setPdfBlobUrl(prevUrl => {
+              if (prevUrl) URL.revokeObjectURL(prevUrl);
+              return URL.createObjectURL(blob);
+            });
           }
         })
         .catch(err => console.error("PDF Blob error:", err));
     }
     return () => { isMounted = false; };
-  }, [currentStep, sessionId, activeRole]);
+  }, [currentStep, sessionId, activeRole, activeLessonId]);
 
   // ── Phase 3: Interactive Course & AI Toolbar ──
   const [sectionLoading, setSectionLoading] = useState({});
@@ -470,7 +480,7 @@ export default function App() {
 
   // ── Phase 4: Export Hub & Versioning states ──
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState('docx');
+  const [exportFormat, setExportFormat] = useState('pdf');
   const [exportRole, setExportRole] = useState('all');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyList, setHistoryList] = useState([]);
@@ -1139,16 +1149,19 @@ export default function App() {
             setCourseData(sessData);
             if (!activeLessonId) setActiveLessonId(sessData.lessons[0].id);
           }
-          if (sessData.status === 'completed' || data.status === 'completed') {
+          if (sessData.status === 'completed' || data.status === 'completed' || sessData.step === 'generated') {
             if (eventSource) eventSource.close();
             if (fallbackInterval) clearInterval(fallbackInterval);
             setCourseData(sessData);
             if (sessData.lessons?.length > 0) setActiveLessonId(sessData.lessons[0].id);
+            setGenerationProgress(100);
+            setGenerationStatusText('Generation completed! Review and edit your content below.');
+            toast.success("Generation completed! Review & edit your course material below, or click 'Proceed to Assets' when ready.");
             fetchSessions();
           } else if (sessData.status === 'error' || data.status === 'error') {
             if (eventSource) eventSource.close();
             if (fallbackInterval) clearInterval(fallbackInterval);
-            alert(sessData.status_text || data.status_text);
+            toast.error(sessData.status_text || data.status_text);
             setCurrentStep('review');
           }
         }
@@ -4641,56 +4654,58 @@ export default function App() {
                   Preview and download generated documents.
                 </p>
 
-                <div className="assets-menu-group">
-                  <div className="assets-group-title">Creator PDF</div>
-                  {courseData.lessons?.map((lesson, idx) => (
-                    <button
-                      key={`creator-${lesson.id}`}
-                      className={`assets-lesson-btn ${activeRole === 'creator' && activeLessonId === lesson.id ? 'active' : ''}`}
-                      onClick={() => {
-                        setActiveRole('creator');
-                        setActiveLessonId(lesson.id);
-                      }}
-                    >
-                      <span style={{ fontWeight: 700 }}>L0{idx + 1}</span>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lesson.title}</span>
-                    </button>
-                  ))}
-                </div>
+                {['creator', 'student', 'educator'].map((role) => {
+                  const isExpanded = openPov === role;
+                  const roleLabel = role === 'creator' ? 'Creator PDF' : role === 'student' ? 'Student PDF' : 'Educator PDF';
+                  const roleIcon = role === 'creator' ? '🎨' : role === 'student' ? '🎓' : '🏫';
+                  
+                  return (
+                    <div key={role} className="assets-menu-group">
+                      <button
+                        type="button"
+                        className={`assets-group-header-accordion ${isExpanded ? 'active' : ''}`}
+                        onClick={() => {
+                          const nextPov = isExpanded ? null : role;
+                          setOpenPov(nextPov);
+                          if (nextPov) {
+                            setActiveRole(nextPov);
+                            if (courseData.lessons?.length > 0 && !activeLessonId) {
+                              setActiveLessonId(courseData.lessons[0].id);
+                            }
+                          }
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '1.05rem' }}>{roleIcon}</span>
+                          <span>{roleLabel}</span>
+                        </div>
+                        <span className="assets-group-badge">
+                          {courseData.lessons?.length || 0} lessons
+                        </span>
+                      </button>
 
-                <div className="assets-menu-group">
-                  <div className="assets-group-title">Student PDF</div>
-                  {courseData.lessons?.map((lesson, idx) => (
-                    <button
-                      key={`student-${lesson.id}`}
-                      className={`assets-lesson-btn ${activeRole === 'student' && activeLessonId === lesson.id ? 'active' : ''}`}
-                      onClick={() => {
-                        setActiveRole('student');
-                        setActiveLessonId(lesson.id);
-                      }}
-                    >
-                      <span style={{ fontWeight: 700 }}>L0{idx + 1}</span>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lesson.title}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="assets-menu-group">
-                  <div className="assets-group-title">Educator PDF</div>
-                  {courseData.lessons?.map((lesson, idx) => (
-                    <button
-                      key={`educator-${lesson.id}`}
-                      className={`assets-lesson-btn ${activeRole === 'educator' && activeLessonId === lesson.id ? 'active' : ''}`}
-                      onClick={() => {
-                        setActiveRole('educator');
-                        setActiveLessonId(lesson.id);
-                      }}
-                    >
-                      <span style={{ fontWeight: 700 }}>L0{idx + 1}</span>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lesson.title}</span>
-                    </button>
-                  ))}
-                </div>
+                      {isExpanded && (
+                        <div className="assets-accordion-content">
+                          {courseData.lessons?.map((lesson, idx) => (
+                            <button
+                              key={`${role}-${lesson.id}`}
+                              className={`assets-lesson-btn ${activeRole === role && activeLessonId === lesson.id ? 'active' : ''}`}
+                              onClick={() => {
+                                setActiveRole(role);
+                                setActiveLessonId(lesson.id);
+                              }}
+                            >
+                              <span style={{ fontWeight: 700 }}>L0{idx + 1}</span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {lesson.title.replace(/^Lesson\s*\d+\s*[:\-\.]*\s*/i, '')}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Right Column: Document Viewer */}
@@ -4741,33 +4756,41 @@ export default function App() {
 
                 return (
                   <div>
-                    {/* Document Viewer Toolbar */}
-                    <div className="viewer-toolbar">
-                      <div className="toolbar-zoom-group">
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginRight: '8px' }}>
-                          Page {lessonNumber} of {courseData.lessons?.length || 1}
-                        </span>
-                        <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom Out">−</button>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>100%</span>
-                        <button className="icon-btn" style={{ padding: '4px 8px' }} title="Zoom In">+</button>
+                    {/* Document Viewer Header */}
+                    <div className="viewer-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px' }}>
+                      <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: '0.9rem' }}>
+                        Lesson {lessonNumber} of {courseData.lessons?.length || 1} &middot; {curLesson?.title || 'Document Preview'} ({activeRole.toUpperCase()} POV)
                       </div>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => toast.info('Opening search...')} title="Search document">🔍 Search</button>
-                        <button className="file-upload-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', marginBottom: 0 }} onClick={() => window.print()} title="Print document">Print</button>
-                        <button className="purple-start-btn" style={{ fontSize: '0.8rem', padding: '6px 12px', gap: '4px', boxShadow: 'none' }} onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }} title="Save/Download Document">Download PDF</button>
+                      <div>
+                        <button 
+                          className="purple-start-btn" 
+                          style={{ fontSize: '0.85rem', padding: '8px 18px', gap: '6px', boxShadow: '0 2px 8px rgba(99, 102, 241, 0.25)' }} 
+                          onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }} 
+                          title="Download PDF or ZIP"
+                        >
+                          Download Assets
+                        </button>
                       </div>
                     </div>
 
-                    {/* Real PDF Embed or Paper Canvas Preview */}
+                    {/* Real Native PDF Embed */}
                     {sessionId && pdfBlobUrl ? (
-                      <div id="internal-document-container" style={{ background: '#525659', borderRadius: '0 0 var(--radius-md) var(--radius-md)', padding: '12px', border: '1px solid var(--border-color)', borderTop: 'none' }}>
+                      <div id="internal-document-container" style={{ background: '#525659', borderRadius: '0 0 var(--radius-md) var(--radius-md)', padding: '12px', border: '1px solid var(--border-color)', borderTop: 'none', overflow: 'hidden' }}>
                         <embed
                           id="pdf-embed"
                           type="application/pdf"
-                          src={`${pdfBlobUrl}#toolbar=0`}
+                          src={`${pdfBlobUrl}#toolbar=1`}
                           width="100%"
                           height="850px"
-                          style={{ border: 'none', borderRadius: '4px', background: '#FFFFFF', display: 'block' }}
+                          style={{
+                            border: 'none',
+                            borderRadius: '4px',
+                            background: '#FFFFFF',
+                            display: 'block',
+                            transform: `scale(${pdfZoom / 100})`,
+                            transformOrigin: 'top center',
+                            transition: 'transform 0.15s ease-out'
+                          }}
                         />
                       </div>
                     ) : (
@@ -4984,11 +5007,10 @@ export default function App() {
                       value={exportFormat} 
                       onChange={(e) => setExportFormat(e.target.value)}
                     >
-                      <option value="docx">Word Document (.docx)</option>
-                      <option value="markdown">Markdown (.md)</option>
-                      <option value="html">Web Page (.html)</option>
                       <option value="pdf">PDF Document (.pdf)</option>
-                      <option value="zip">ZIP (All formats per role)</option>
+                      <option value="docx">Word Document (.docx)</option>
+                      <option value="html">Web Page (.html)</option>
+                      <option value="zip">ZIP (PDF, DOCX & HTML per role)</option>
                     </select>
                   </div>
 
