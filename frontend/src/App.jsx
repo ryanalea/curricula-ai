@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
-const API_BASE = 'http://127.0.0.1:8000/api/v1';
+const API_BASE = '/api/v1';
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const IconArrow = () => (
@@ -690,80 +690,67 @@ export default function App() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = () => {
     if (!courseData) return;
     const title = courseData.title || 'Course_Curriculum';
     const roleText = activeRole.toLowerCase();
     const cleanTitle = title.replace(/[^\w\s-]/gi, '').replace(/\s+/g, '_') || 'Course';
-    const ext = exportFormat === 'zip' ? 'zip' : exportFormat === 'docx' ? 'docx' : exportFormat === 'html' ? 'html' : 'pdf';
+    const ext = exportFormat === 'zip' ? 'zip' : exportFormat === 'docx' ? 'docx' : exportFormat === 'html' ? 'html' : exportFormat === 'md' ? 'md' : 'pdf';
     const fileName = `${cleanTitle}_${roleText}.${ext}`;
     setIsExporting(true);
 
-    try {
-      if (sessionId) {
-        let downloadUrl = `${API_BASE}/courses/${sessionId}/export/${fileName}?format=${exportFormat}&role=${roleText}&disposition=attachment`;
-        if (activeLessonId && exportFormat !== 'zip') {
-          downloadUrl += `&lesson_id=${activeLessonId}`;
-        }
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.setAttribute('download', fileName);
-        link.target = '_blank';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    if (sessionId) {
+      let downloadUrl = `${API_BASE}/courses/${sessionId}/export/${fileName}?format=${exportFormat}&role=${roleText}&disposition=attachment`;
+      if (activeLessonId && exportFormat !== 'zip') {
+        downloadUrl += `&lesson_id=${activeLessonId}`;
+      }
+      
+      // Direct native browser HTTP download bypasses Windows/Edge Blob URL sandbox restriction
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.target = '_self';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setTimeout(() => {
+        setIsExporting(false);
         setIsExportModalOpen(false);
-        return;
-      }
-
-      // 2. Local fallback if offline or no sessionId
-      const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0];
-      const lessonTitle = curLesson?.title || 'Lesson_Content';
-      let contentString = `# ${title}\n## ${activeRole.toUpperCase()} POV - ${lessonTitle}\n\n`;
-      const curSecs = curLesson?.sections?.[activeRole] || {};
-
-      Object.entries(curSecs).forEach(([secKey, secVal]) => {
-        contentString += `### ${secKey.toUpperCase()}\n`;
-        if (typeof secVal === 'string') {
-          contentString += `${secVal}\n\n`;
-        } else if (Array.isArray(secVal)) {
-          secVal.forEach(item => {
-            contentString += `- ${typeof item === 'object' ? JSON.stringify(item) : item}\n`;
-          });
-          contentString += '\n';
-        } else {
-          contentString += `${JSON.stringify(secVal, null, 2)}\n\n`;
-        }
-      });
-
-      let mimeType = 'text/plain';
-      let fileExt = 'txt';
-
-      if (exportFormat === 'markdown' || exportFormat === 'md') {
-        mimeType = 'text/markdown';
-        fileExt = 'md';
-      } else if (exportFormat === 'html') {
-        mimeType = 'text/html';
-        fileExt = 'html';
-        contentString = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:sans-serif;padding:30px;color:#2D3561;}</style></head><body><pre>${contentString}</pre></body></html>`;
-      } else if (exportFormat === 'pdf' || exportFormat === 'docx') {
-        mimeType = 'application/octet-stream';
-        fileExt = exportFormat;
-      }
-
-      const blob = new Blob([contentString], { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${title.replace(/\s+/g, '_')}_${activeRole.toUpperCase()}_${lessonTitle.replace(/\s+/g, '_')}.${fileExt}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setIsExportModalOpen(false);
-    } finally {
-      setIsExporting(false);
+      }, 500);
+      return;
     }
+
+    // Local fallback if offline or no sessionId
+    const curLesson = courseData.lessons?.find(l => l.id === activeLessonId) || courseData.lessons?.[0];
+    const lessonTitle = curLesson?.title || 'Lesson_Content';
+    let contentString = `# ${title}\n## ${activeRole.toUpperCase()} POV - ${lessonTitle}\n\n`;
+    const curSecs = curLesson?.sections?.[activeRole] || {};
+
+    Object.entries(curSecs).forEach(([secKey, secVal]) => {
+      contentString += `### ${secKey.toUpperCase()}\n`;
+      if (typeof secVal === 'string') {
+        contentString += `${secVal}\n\n`;
+      } else if (Array.isArray(secVal)) {
+        secVal.forEach(item => {
+          contentString += `- ${typeof item === 'object' ? JSON.stringify(item) : item}\n`;
+        });
+        contentString += '\n';
+      } else {
+        contentString += `${JSON.stringify(secVal, null, 2)}\n\n`;
+      }
+    });
+
+    const fileBlob = new Blob([contentString], { type: 'text/plain;charset=utf-8' });
+    const blobUrl = window.URL.createObjectURL(fileBlob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `${fileName}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(blobUrl);
+    setIsExporting(false);
+    setIsExportModalOpen(false);
   };
 
   // ── Phase 5: Knowledge Base File Upload Handlers ──
@@ -4782,9 +4769,9 @@ export default function App() {
                           className="purple-start-btn" 
                           style={{ fontSize: '0.85rem', padding: '8px 18px', gap: '6px', boxShadow: '0 2px 8px rgba(99, 102, 241, 0.25)' }} 
                           onClick={() => { setExportFormat('pdf'); setIsExportModalOpen(true); }} 
-                          title="Download PDF or ZIP"
+                          title="Download Options (PDF, Word, MD, HTML, ZIP)"
                         >
-                          Download Assets
+                          Download Assets &rarr;
                         </button>
                       </div>
                     </div>
