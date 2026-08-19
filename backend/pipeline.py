@@ -923,20 +923,21 @@ async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) 
        - Numbered list of all lessons
        - notes: Brief overview of what will be covered
 
-    3. FOR EACH LESSON, generate these slides:
-       a. LESSON TITLE slide — lesson number and title
-       b. OVERVIEW slide — 4-6 key takeaway bullets from the lesson overview
-       c. LEARNING OUTCOMES slide — bullet list of specific, measurable outcomes
-       d. CORE CONTENT slides — extract ALL key concepts from core_content markdown:
-          - Split into multiple slides if content is rich (max 6 bullets per slide)
-          - Each bullet should be a clear, concise explanation (not just a keyword)
-          - Include sub-concepts and practical implications
-       e. CODE EXAMPLE slide(s) — extract code snippets from core_content or exercises:
-          - Include actual working code with comments
-          - Add language label
-       f. PRACTICE/EXERCISE slide — from student practice data:
-          - Exercise title, description, and starter code if available
-       g. KEY TAKEAWAYS slide — 3-5 summary bullets for the lesson
+3. FOR EACH LESSON, generate these slides:
+        a. LESSON TITLE slide — lesson number and title
+        b. OVERVIEW slide — 4 key takeaway bullets from the lesson overview
+        c. LEARNING OUTCOMES slide — bullet list of specific, measurable outcomes
+        d. CORE CONTENT slides — extract ALL key concepts from core_content markdown:
+           - Split into multiple slides if content is rich (max 4 bullets per slide)
+           - Each bullet should be a clear, concise explanation (not just a keyword)
+           - Include sub-concepts and practical implications
+        e. CODE EXAMPLE slide(s) — extract code snippets from core_content or exercises:
+           - Include actual working code with comments
+           - Add language label
+           - Limit to ~12 lines of code
+        f. PRACTICE/EXERCISE slide — from student practice data:
+           - Exercise title, description, and starter code if available
+        g. KEY TAKEAWAYS slide — 3-5 summary bullets for the lesson
 
     4. END SLIDE:
        - title: "Thank You"
@@ -1048,19 +1049,19 @@ def _mock_pptx_layout(course_data: dict, layout_name: str) -> dict:
 
         overview = creator.get("overview", "No overview available.")
         if overview:
-            overview_bullets = [s.strip() for s in overview.replace("**", "").split(".") if s.strip()][:6]
+            overview_bullets = [s.strip() for s in overview.replace("**", "").split(".") if s.strip()][:4]
             if not overview_bullets:
                 overview_bullets = [overview[:200]]
             slides.append({"type": "content", "title": "Overview", "bullets": overview_bullets, "notes": f"This lesson overview covers: {overview[:300]}"})
 
         outcomes = creator.get("learning_outcomes", [])
         if isinstance(outcomes, list) and outcomes:
-            slides.append({"type": "content", "title": "Learning Outcomes", "bullets": outcomes[:6], "notes": "By the end of this lesson, you will be able to demonstrate understanding of these key concepts and apply them in practice."})
+            slides.append({"type": "content", "title": "Learning Outcomes", "bullets": outcomes[:4], "notes": "By the end of this lesson, you will be able to demonstrate understanding of these key concepts and apply them in practice."})
 
         core_content = creator.get("core_content", "")
         if core_content:
             lines = [l.strip() for l in core_content.replace("**", "").replace("###", "").split("\n") if l.strip() and not l.strip().startswith("#")]
-            bullets = [l for l in lines if not l.startswith("```")][:6]
+            bullets = [l for l in lines if not l.startswith("```")][:4]
             if bullets:
                 slides.append({"type": "content", "title": "Core Concepts", "bullets": bullets, "notes": f"Let's dive into the core concepts. {bullets[0] if bullets else ''}"})
 
@@ -1068,10 +1069,10 @@ def _mock_pptx_layout(course_data: dict, layout_name: str) -> dict:
         if isinstance(practice, dict):
             code_block = practice.get("code_block", "")
             if code_block:
-                slides.append({"type": "code", "title": "Practice Exercise", "code": code_block[:1500], "language": "python", "notes": "Let's try this hands-on exercise. Follow along and run the code to see how it works."})
+                slides.append({"type": "code", "title": "Practice Exercise", "code": code_block[:1000], "language": "python", "notes": "Let's try this hands-on exercise. Follow along and run the code to see how it works."})
             checklist = practice.get("checklist", [])
             if checklist and isinstance(checklist, list):
-                slides.append({"type": "content", "title": "Exercise Checklist", "bullets": [f"✓ {item}" for item in checklist[:6]], "notes": "Complete these steps to practice what you've learned."})
+                slides.append({"type": "content", "title": "Exercise Checklist", "bullets": [f"✓ {item}" for item in checklist[:4]], "notes": "Complete these steps to practice what you've learned."})
 
         facilitator = educator.get("facilitator_guide", "")
         if facilitator:

@@ -297,7 +297,19 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
                 "order": lesson.position,
                 "sections": sections_data
             })
-            
+
+    # Fetch PPTX data for all lessons in this course
+    pptx_by_lesson = {}
+    if course:
+        lesson_ids = [l.id for l in course.lessons]
+        if lesson_ids:
+            pptx_records = db.query(Pptx).filter(Pptx.lesson_id.in_(lesson_ids)).all()
+            for pptx in pptx_records:
+                try:
+                    pptx_by_lesson[pptx.lesson_id] = {"layouts": json.loads(pptx.layouts_json)}
+                except Exception:
+                    pptx_by_lesson[pptx.lesson_id] = {}
+
     # Get course title from Course entity if it exists
     course = db.query(Course).filter(Course.id == session_id).first()
     course_title = course.title if course else (db_session.prompt or "Untitled Course")
@@ -330,7 +342,8 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
         "status": db_session.status,
         "progress": db_session.progress,
         "status_text": db_session.status_text,
-        "lessons": lessons_data
+        "lessons": lessons_data,
+        "pptx_by_lesson": pptx_by_lesson
     }
 
 @app.delete("/api/v1/courses/sessions/{session_id}")

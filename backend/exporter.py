@@ -1009,7 +1009,7 @@ def _add_code_slide(slide, data, primary_rgb, secondary_rgb, accent_rgb, text_rg
     for i, line in enumerate(code_text.split('\n')):
         p = tf2.paragraphs[0] if i == 0 else tf2.add_paragraph()
         p.text = line
-        p.font.size = Pt(14)
+        p.font.size = Pt(10)
         p.font.name = "Courier New"
         if layout == "layout_3":
             p.font.color.rgb = RGBColor(40, 40, 60)

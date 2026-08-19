@@ -2356,6 +2356,9 @@ export default function App() {
         if (newStruct.length > 0) {
           setSelectedStructureLessonId(newStruct[0].id);
         }
+        if (data.pptx_by_lesson) {
+          setPptxDataByLesson(data.pptx_by_lesson);
+        }
         setLastSavedConfigHash(JSON.stringify({
           techTags: loadedTech,
           configDifficulty: data.config?.difficulty || 'Beginner',
@@ -2416,6 +2419,9 @@ export default function App() {
           sections: mergeSections(lesson.sections)
         }));
         setStructure(newStruct);
+        if (data.pptx_by_lesson) {
+          setPptxDataByLesson(data.pptx_by_lesson);
+        }
       }
     } catch (err) {
       console.error("Failed to sync session state:", err);
@@ -5676,7 +5682,7 @@ export default function App() {
 
               {/* Right Column: Document Viewer OR PPT Page */}
               {isPptxPage && (
-                <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--surface-1)' }}>
+                <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--surface-1)', overflow: 'hidden' }}>
                   {!pptxData && activePptxLessonId && (
                     <div style={{ textAlign: 'center', padding: '80px 20px' }}>
                       <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📊</div>
@@ -5723,8 +5729,8 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
-                      <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', position: 'relative' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px', overflow: 'hidden' }}>
+                      <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', position: 'relative', overflow: 'hidden' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                           <button onClick={() => setPptxSlideIndex(i => Math.max(0, i - 1))} disabled={pptxSlideIndex === 0}
                             style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', background: pptxSlideIndex === 0 ? '#333' : 'rgba(255,255,255,0.15)', color: '#fff', fontSize: '0.8rem', fontWeight: 700, cursor: pptxSlideIndex === 0 ? 'not-allowed' : 'pointer' }}>
@@ -5745,7 +5751,20 @@ export default function App() {
                           const textColor = isLayout3 ? theme.text || '#1a202c' : '#fff';
                           const accentColor = theme.accent || '#d69e2e';
                           return (
-                          <div style={{ background: bgColor, borderRadius: '8px', padding: '40px', minHeight: '360px', display: 'flex', flexDirection: 'column', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+<div style={{
+    background: bgColor,
+    borderRadius: '8px',
+    padding: '24px',
+    height: '360px',
+    width: '640px',
+    maxWidth: '100%',
+    margin: '0 auto',
+    overflow: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    position: 'relative'
+}}>
                             {isLayout2 && <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '200px', height: '200px', borderRadius: '50%', background: accentColor, opacity: 0.15 }}></div>}
                             {isLayout3 && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: accentColor }}></div>}
                             {currentPptxSlide.type === 'title' && (
@@ -5761,7 +5780,7 @@ export default function App() {
                               </div>
                             )}
                             {currentPptxSlide.type === 'toc' && (
-                              <div>
+                              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                                 <h2 style={{ color: textColor, fontSize: '1.6rem', fontWeight: 800, marginBottom: '20px' }}>{currentPptxSlide.title}</h2>
                                 <div style={{ width: isLayout3 ? '40px' : '60px', height: isLayout3 ? '2px' : '3px', background: accentColor, marginBottom: '20px', borderRadius: '2px' }}></div>
                                 {(currentPptxSlide.items || []).map((item, i) => (
@@ -5781,7 +5800,7 @@ export default function App() {
                               </div>
                             )}
                             {currentPptxSlide.type === 'content' && (
-                              <div>
+                              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                                 <h2 style={{ color: textColor, fontSize: '1.5rem', fontWeight: 800, marginBottom: '16px' }}>{currentPptxSlide.title}</h2>
                                 <div style={{ width: isLayout3 ? '30px' : '50px', height: isLayout3 ? '2px' : '3px', background: accentColor, marginBottom: '16px', borderRadius: '2px' }}></div>
                                 {(currentPptxSlide.bullets || []).map((bullet, i) => (
@@ -5795,7 +5814,7 @@ export default function App() {
                             {currentPptxSlide.type === 'code' && (
                               <div>
                                 <h2 style={{ color: textColor, fontSize: '1.4rem', fontWeight: 800, marginBottom: '16px' }}>{currentPptxSlide.title}</h2>
-                                <pre style={{ background: isLayout3 ? '#f0f0f5' : isLayout2 ? 'rgba(15,25,45,0.8)' : 'rgba(0,0,0,0.4)', borderRadius: '8px', padding: '16px', color: isLayout3 ? '#28283c' : '#00c878', fontFamily: 'Courier New, monospace', fontSize: '0.85rem', lineHeight: 1.6, overflow: 'auto', border: isLayout3 ? '1px solid #d0d0da' : isLayout2 ? `1px solid ${accentColor}40` : 'none' }}>{currentPptxSlide.code}</pre>
+                                <pre style={{ background: isLayout3 ? '#f0f0f5' : isLayout2 ? 'rgba(15,25,45,0.8)' : 'rgba(0,0,0,0.4)', borderRadius: '8px', padding: '16px', color: isLayout3 ? '#28283c' : '#00c878', fontFamily: 'Courier New, monospace', fontSize: '0.7rem', lineHeight: 1.5, overflowY: 'auto', border: isLayout3 ? '1px solid #d0d0da' : isLayout2 ? `1px solid ${accentColor}40` : 'none' }}>{currentPptxSlide.code}</pre>
                               </div>
                             )}
                             {currentPptxSlide.type === 'end' && (
