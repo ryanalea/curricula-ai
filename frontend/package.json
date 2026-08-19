@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "pdfjs-dist": "^4.7.76"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
