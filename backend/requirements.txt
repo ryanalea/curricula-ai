@@ -12,3 +12,4 @@ reportlab
 pypdf
 python-multipart
 pdfkit
+playwright

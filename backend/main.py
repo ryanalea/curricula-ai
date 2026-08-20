@@ -239,11 +239,17 @@ def create_session(input_data: schemas.KeywordInput, db: Session = Depends(get_d
     tech_tags = grounding.get("tech_tags", [])
     all_suggested_tags = grounding.get("all_suggested_tags", pipeline.get_default_candidate_tags(input_data.keyword, tech_tags))
     
+    # Extract dynamic parameters if present
+    display_title = ai_result.get("display_title", input_data.keyword)
+    explicit_params = ai_result.get("explicit_parameters", {})
+    lesson_count_override = explicit_params.get("lesson_count")
+    duration_override = explicit_params.get("duration")
+
     # Create the session
     db_session = DbSession(
         id=session_id,
         step="context",
-        prompt=input_data.keyword,
+        prompt=display_title,
         tech_tags=json.dumps(tech_tags),
         prerequisites=json.dumps(grounding.get("prerequisites", [])),
         boundaries=json.dumps(grounding.get("out_of_scope", [])),
@@ -253,6 +259,12 @@ def create_session(input_data: schemas.KeywordInput, db: Session = Depends(get_d
         status="idle",
         progress=0
     )
+    
+    if lesson_count_override and isinstance(lesson_count_override, int):
+        db_session.config_lessons = lesson_count_override
+    if duration_override and isinstance(duration_override, str):
+        db_session.config_duration = duration_override
+
     db.add(db_session)
     db.commit()
     db.refresh(db_session)
@@ -663,7 +675,7 @@ async def generate_course_content_task_async(session_id: str):
 
             # 2 & 3. Student and Educator Content concurrently (grounded in Creator content)
             try:
-                student_task = pipeline.generate_student_content(lesson.title, creator_json, lesson_duration=lesson_duration)
+                student_task = pipeline.generate_student_content(lesson.title, creator_json, lesson_duration=lesson_duration, subject_context=subj_ctx)
                 educator_task = pipeline.generate_educator_content(lesson.title, creator_json, lesson_duration=lesson_duration)
                 student_json, educator_json = await asyncio.wait_for(
                     asyncio.gather(student_task, educator_task, return_exceptions=True),

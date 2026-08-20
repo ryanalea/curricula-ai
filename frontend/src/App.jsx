@@ -792,21 +792,21 @@ export default function App() {
   const [selectedTopicCategory, setSelectedTopicCategory] = useState('All Categories');
 
   const trendingTopics = [
-    { category: 'Artificial Intelligence', title: 'Generative AI in Education', desc: 'Implement LLMs in classrooms safely and effectively.', prompt: 'Generative AI integration in modern school education systems' },
-    { category: 'Artificial Intelligence', title: 'Deep Learning Basics', desc: 'Neural networks, backpropagation, and CNN structures.', prompt: 'Deep learning neural networks and convolutional model designs' },
-    { category: 'Data Science', title: 'Data Analysis with Pandas', desc: 'Wrangle, clean, and visualize complex datasets in Python.', prompt: 'Python Pandas data science and wrangling pipelines' },
-    { category: 'Data Science', title: 'Statistical Inference', desc: 'Hypothesis testing, confidence intervals, and regression.', prompt: 'Statistical inference and data analysis principles' },
-    { category: 'Digital Transformation', title: 'Cloud Computing Migration', desc: 'Shift legacy infrastructure to AWS and Azure securely.', prompt: 'Enterprise cloud computing migration strategies' },
-    { category: 'Digital Transformation', title: 'Agile Leadership', desc: 'Modern software delivery frameworks and team dynamics.', prompt: 'Agile project management and engineering leadership' },
-    { category: 'Education Technology', title: 'Gamified Learning Design', desc: 'Design interactive rewards and pathways for student retention.', prompt: 'Gamification design for student learning systems' },
-    { category: 'Software Engineering', title: 'Go Microservices Architecture', desc: 'Build scalable concurrent backend services in Go.', prompt: 'Go microservices concurrent backend pipeline design' },
-    { category: 'Software Engineering', title: 'Next.js 15 Foundations', desc: 'Server components, server actions, and layout routing.', prompt: 'Next.js 15 App router and server actions development' }
+    { category: 'Software Engineering', title: 'Advanced Cloud Architecture', desc: 'Design scalable microservices with Docker, Kubernetes, and Go.', prompt: 'Design a 4-week advanced course on Cloud-Native Microservices Architecture with Go (8 lessons, 2 per week) for senior backend engineers. Use Go (Golang), Docker, Kubernetes, and gRPC. For each lesson provide: title, learning objectives, lecture outline, hands-on coding lab, and a short quiz. Cover concurrent channel structures, distributed tracing, API gateways, circuit breakers, and container orchestration. End with a final project: deploying a resilient, concurrent multi-service backend with gRPC communication on a local Kubernetes cluster, including a rubric and submission checklist.' },
+    { category: 'Artificial Intelligence', title: 'AI & Machine Learning', desc: 'Train neural networks and computer vision models using PyTorch.', prompt: 'Design a 3-week intermediate course on Deep Learning and Computer Vision (6 lessons, 2 per week) for data scientists. Use Python, PyTorch, OpenCV, and Jupyter Notebooks. For each lesson provide: title, learning objectives, lecture outline, hands-on Jupyter coding lab, and a short quiz. Cover backpropagation, convolutional neural networks (CNNs), transfer learning, and object detection frameworks like YOLO. End with a final project: building and training a custom CNN image classifier for autonomous vehicle sign recognition.' },
+    { category: 'Cybersecurity', title: 'Offensive Cybersecurity', desc: 'Master penetration testing, exploit development, and network defense.', prompt: 'Design a 2-week intensive course on Offensive Cybersecurity and Penetration Testing (4 lessons) for security analysts. Use Kali Linux, Metasploit, Wireshark, and Python scripting. For each lesson provide: title, learning objectives, lecture outline, hands-on ethical hacking lab, and a short quiz. Cover network reconnaissance, vulnerability scanning, privilege escalation, and crafting custom Python exploits. End with a final project: conducting a simulated penetration test on a vulnerable lab environment and writing a professional security audit report.' },
+    { category: 'Artificial Intelligence', title: 'Generative AI in Education', desc: 'Implement LLMs in classrooms safely and effectively.', prompt: 'Design a 4-week advanced course on Generative AI Integration in Modern School Education Systems (8 lessons) for school administrators and curriculum designers. Use ChatGPT, Midjourney, and LMS plugins. Cover AI ethics, prompt engineering for educators, student assessment automation, and plagiarism detection. For each lesson provide: title, learning objectives, lecture outline, hands-on lab on prompt design, and a short quiz. End with a final project: creating a fully AI-assisted school curriculum blueprint.' },
+    { category: 'Data Science', title: 'Data Analysis with Pandas', desc: 'Wrangle, clean, and visualize complex datasets in Python.', prompt: 'Design a 2-week practical course on Data Analysis and Wrangling with Python Pandas (4 lessons) for business analysts. Use Python, Pandas, Matplotlib, and Jupyter. Cover data cleaning, merging dataframes, handling missing values, and time-series analysis. For each lesson provide: title, learning objectives, lecture outline, hands-on lab with real CSV datasets, and a short quiz. End with a final project: performing exploratory data analysis (EDA) on a messy financial dataset to extract actionable business insights.' },
+    { category: 'Digital Transformation', title: 'Cloud Computing Migration', desc: 'Shift legacy infrastructure to AWS and Azure securely.', prompt: 'Design a 4-week enterprise course on Cloud Computing Migration Strategies (8 lessons) for IT infrastructure managers and solutions architects. Use AWS Migration Hub, Azure Migrate, and Docker. Cover on-premise assessment, lift-and-shift vs refactoring, security compliance, and cost optimization. For each lesson provide: title, learning objectives, lecture outline, hands-on lab simulating a server migration, and a short quiz. End with a final project: architecting a comprehensive migration plan for a legacy monolithic application to a highly available cloud environment.' },
+    { category: 'Digital Transformation', title: 'Agile Leadership', desc: 'Modern software delivery frameworks and team dynamics.', prompt: 'Design a 2-week advanced course on Agile Project Management and Engineering Leadership (4 lessons) for engineering managers and scrum masters. Use Jira, Confluence, and Miro. Cover servant leadership, sprint planning, resolving team conflicts, and measuring velocity metrics. For each lesson provide: title, learning objectives, lecture outline, hands-on roleplay scenario lab, and a short quiz. End with a final project: developing an Agile transformation roadmap for a dysfunctional engineering team.' },
+    { category: 'Education Technology', title: 'Gamified Learning Design', desc: 'Design interactive rewards and pathways for student retention.', prompt: 'Design a 3-week creative course on Gamification Design for Student Learning Systems (6 lessons) for educational technologists and UI/UX designers. Use Figma, Kahoot, and Unity (basic). Cover motivation theory, points/badges/leaderboards (PBL), narrative design, and adaptive difficulty. For each lesson provide: title, learning objectives, lecture outline, hands-on lab prototyping a gamified UI, and a short quiz. End with a final project: designing a gamified learning pathway prototype for a middle-school science app.' },
+    { category: 'Software Engineering', title: 'Next.js 15 Foundations', desc: 'Server components, server actions, and layout routing.', prompt: 'Design a 2-week modern web course on Next.js 15 App Router and Server Actions Development (4 lessons) for frontend React developers. Use Next.js 15, React 19, TailwindCSS, and Vercel. Cover server components, server actions, nested layouts, data fetching, and caching strategies. For each lesson provide: title, learning objectives, lecture outline, hands-on lab building a dynamic route, and a short quiz. End with a final project: building a full-stack e-commerce storefront with server actions for cart mutations and seamless optimistic UI updates.' }
   ];
 
   const suggestedPrompts = [
-    { title: 'Machine Learning Essentials', desc: 'Training models, feature engineering, and neural network basics.', prompt: 'Machine Learning Essentials with Python' },
-    { title: 'React Native UI Core', desc: 'Build modular component libraries, responsive view grids, and gesture routing.', prompt: 'React Native Mobile App UI development' },
-    { title: 'Modern Go Pipelines', desc: 'Master concurrent channel structures, concurrency patterns, and microservices.', prompt: 'Go Concurrent pipelines and microservice architectural patterns' },
+    { title: 'AI Software Pipeline', desc: 'Design a 2-week intermediate course on Agentic SDLC Pipelines (4 lessons) for engineers.', prompt: 'Design a 2-week intermediate course on Agentic Software Development Life Cycle (SDLC) Pipelines (4 lessons, 2 per week) for software engineers and QA specialists interested in AI-driven automation. Use AI orchestration tools, pipeline automation frameworks, and quality metrics analysis techniques. For each lesson provide: title, learning objectives, lecture outline, hands-on lab, and a short quiz. Cover multi-agent systems, specification enrichment, continuous integration, and evaluation metrics like Cohen’s kappa. End with a final project: build an autonomous SDLC pipeline prototype using open-source AI agents, with a rubric and submission checklist.' },
+    { title: 'Pediatric Gene Expression', desc: 'Design a 2-week intermediate biomedical research course (4 lessons) for researchers.', prompt: 'Design a 2-week intermediate biomedical research course on Pediatric Cellular Mapping and Gene Expression Research (4 lessons, 2 per week) for biomedical researchers and bioinformaticians. Use genomics databases, bioinformatics tools, AI analytics platforms, and data curation software. For each lesson provide: title, learning objectives, lecture outline, hands-on lab analyzing pediatric gene expression data, and a short quiz. Cover genomics, bioinformatics, data curation, AI analytics, interdisciplinary collaboration, and precision medicine. End with a final project: creating a pediatric gene expression analysis report using real datasets and AI tools, with rubric and submission checklist.' },
+    { title: 'Microlearning Design', desc: 'Design a 2-week intermediate Retention-Focused Microlearning Design course (4 lessons).', prompt: 'Design a 2-week intermediate Retention-Focused Microlearning Design course (4 lessons, 2 per week) for instructional designers and L&D specialists. Use AI content generation tools like ChatGPT, adaptive learning platforms such as EdApp, and learning analytics software like Watershed. For each lesson provide: title, learning objectives, lecture outline, hands-on lab creating retrieval-based micro-lessons, and a short quiz. Cover cognitive science principles, retrieval practice, spaced repetition, adaptive scheduling, and engagement mechanics. End with a final project: develop an AI-powered microlearning module with spaced retrieval practice, including a rubric and submission checklist.' },
   ];
 
   // ── Context & Config ──
@@ -1231,6 +1231,7 @@ export default function App() {
       // Direct native browser HTTP download bypasses Windows/Edge Blob URL sandbox restriction
       const link = document.createElement('a');
       link.href = downloadUrl;
+      link.setAttribute('download', fileName);
       link.target = '_self';
       document.body.appendChild(link);
       link.click();
@@ -1877,6 +1878,26 @@ export default function App() {
 
     return () => window.removeEventListener('scroll', handleScrollSpy);
   }, [currentStep, activeRole, currentGeneratingLessonIdx]);
+
+  // ── IntersectionObserver for Section Titles Animation ──
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      },
+      { threshold: 0.2 }
+    );
+
+    const titleElements = document.querySelectorAll('.elice-section-title');
+    titleElements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, [currentView, currentStep, showMyCourses]);
+
 
   // ── Agent Auto-Workflow Orchestrator ──
   const runAgentPipeline = async (sessId, sessionObj) => {
@@ -2605,7 +2626,10 @@ export default function App() {
       </div>
 
       {/* ── Main Content ── */}
-      <div className={`main-content ${currentView === 'landing' ? 'landing-mode' : ''}`}>
+      <div
+        key={currentView}
+        className={`main-content page-transition ${currentView === 'landing' ? 'landing-mode' : ''}`}
+      >
 
 
         {/* ── Cinematic Landing Page ── */}
@@ -2814,7 +2838,7 @@ export default function App() {
             {/* Trending Topics Section */}
             <h2 className="elice-section-title">Trending Topics</h2>
             <div className="trending-pills">
-              {['All Categories', 'Artificial Intelligence', 'Data Science', 'Digital Transformation', 'Education Technology', 'Software Engineering'].map(cat => (
+              {['All Categories', 'Artificial Intelligence', 'Cybersecurity', 'Data Science', 'Digital Transformation', 'Education Technology', 'Software Engineering'].map(cat => (
                 <button
                   key={cat}
                   className={`trending-pill ${selectedTopicCategory === cat ? 'active' : ''}`}
@@ -3529,12 +3553,23 @@ export default function App() {
                 )}
 
                 <h2 style={{ marginTop: '40px', marginBottom: '20px', fontSize: '1.25rem', fontWeight: 800 }}>Try these examples</h2>
+                
+                <div className="trending-pills" style={{ marginBottom: '20px' }}>
+                  {['All Categories', 'Artificial Intelligence', 'Cybersecurity', 'Data Science', 'Digital Transformation', 'Education Technology', 'Software Engineering'].map(cat => (
+                    <button
+                      key={cat}
+                      className={`trending-pill ${selectedTopicCategory === cat ? 'active' : ''}`}
+                      onClick={() => setSelectedTopicCategory(cat)}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="suggested-grid">
-                  {[
-                    { title: 'Software Engineering', desc: 'Build scalable concurrent backend systems and concurrent channel structures in Go.', prompt: 'Go Concurrent pipelines and microservice architectural patterns' },
-                    { title: 'Artificial Intelligence', desc: 'Introduction to neural networks, backpropagation, and machine learning models.', prompt: 'Machine Learning Essentials with Python' },
-                    { title: 'Education Technology', desc: 'Designing interactive gamified learning systems and virtual classroom platforms.', prompt: 'Gamification design for student learning systems' }
-                  ].map((card, idx) => (
+                  {trendingTopics
+                    .filter(t => selectedTopicCategory === 'All Categories' || t.category === selectedTopicCategory)
+                    .map((card, idx) => (
                     <div key={idx} className="suggested-card" onClick={() => setPromptText(card.prompt)} style={{ cursor: 'pointer' }}>
                       <h3>{card.title}</h3>
                       <p>{card.desc}</p>
@@ -5324,26 +5359,14 @@ export default function App() {
                                   </div>
                                 )}
                               </div>
-                              {renderCustomSections()}
-                            </>
-                          )}
-
-                          {/* Student POV Workspace (Full Document View) */}
-                          {activeRole === 'student' && (
-                            <>
-                              <div id="step7-sec-why_this_matters" className="why-matters-card" style={{ scrollMarginTop: '110px' }}>
-                                <h4 style={{ marginBottom: '10px', color: 'var(--navy)' }}>💡 Why This Matters</h4>
-                                {editingSection === 'why_this_matters' ? (
-                                  <textarea className="prompt-textarea" style={{ minHeight: '100px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
-                                ) : (
-                                  <ContentRenderer text={activeLessonContent.why_this_matters} />
-                                )}
-                                {renderAIActionBar('why_this_matters', activeLessonContent.why_this_matters)}
-                              </div>
 
                               <div id="step7-sec-practice" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Interactive Coding Sandbox</h3>
+                                  <h3 style={{ margin: 0 }}>
+                                    {activeLessonContent.practice?.content_type === 'markdown' || !activeLessonContent.practice?.code_block
+                                      ? '📋 Interactive Scenario & Case Study'
+                                      : '💻 Interactive Coding Sandbox'}
+                                  </h3>
                                   {editingSection === 'practice' ? (
                                     <button className="ai-pill-btn edit" onClick={() => {
                                       try {
@@ -5361,9 +5384,15 @@ export default function App() {
                                   <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <>
-                                    <pre className="code-block">{activeLessonContent.practice?.code_block || activeLessonContent.practice?.starter_code || '// No starter code template provided'}</pre>
+                                    {activeLessonContent.practice?.content_type === 'markdown' || !activeLessonContent.practice?.code_block ? (
+                                      <div className="why-matters-card" style={{ background: 'var(--surface-2)', marginBottom: '16px', borderLeft: '4px solid var(--gold)' }}>
+                                        <ContentRenderer text={activeLessonContent.practice?.scenario || activeLessonContent.practice?.interactive_exercise || activeLessonContent.practice?.description || (typeof activeLessonContent.practice === 'string' ? activeLessonContent.practice : 'Read the scenario below and complete the checklist items.')} />
+                                      </div>
+                                    ) : (
+                                      <pre className="code-block">{activeLessonContent.practice?.code_block || activeLessonContent.practice?.starter_code || '// No starter code template provided'}</pre>
+                                    )}
                                     <div className="exercise-task" style={{ marginTop: '10px' }}>
-                                      <strong>Task:</strong> {activeLessonContent.practice?.interactive_exercise || activeLessonContent.practice?.task || 'Complete the interactive exercise below.'}
+                                      <strong>Task / Objective:</strong> {activeLessonContent.practice?.interactive_exercise || activeLessonContent.practice?.task || 'Complete the interactive exercise below.'}
                                     </div>
                                     <h4 style={{ fontSize: '0.95rem', fontWeight: 750, marginTop: '16px' }}>Practice Checklist</h4>
                                     <ul className="checklist">
@@ -5911,6 +5940,7 @@ export default function App() {
                           
                           return (
                             <embed
+                              key={embedSrc}
                               id="pdf-embed"
                               type="application/pdf"
                               src={embedSrc}
@@ -6026,8 +6056,12 @@ export default function App() {
                     </div>
 
                     <div className="content-block">
-                      <h3>Interactive Coding Sandbox</h3>
-                      <pre className="code-block">{activeLessonContent.practice?.code_block || '// No code block available'}</pre>
+                      <h3>{activeLessonContent.practice?.content_type === 'markdown' ? 'Interactive Scenario / Case Study' : 'Interactive Coding Sandbox'}</h3>
+                      {activeLessonContent.practice?.content_type === 'markdown' ? (
+                        <ContentRenderer text={activeLessonContent.practice?.code_block || ''} />
+                      ) : (
+                        <pre className="code-block">{activeLessonContent.practice?.code_block || '// No code block available'}</pre>
+                      )}
                       <div className="exercise-task">
                         <strong>Task:</strong> {activeLessonContent.practice?.interactive_exercise || 'No exercise available.'}
                       </div>

@@ -197,37 +197,88 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
     
     try:
         prompt = f"""
-        Given the course topic '{keyword}', target audience '{audience}', difficulty level '{difficulty}':
-        Generate:
-        1. A rich text content overview/context for this topic (2-3 paragraphs).
-        2. 20 relevant tags/topics for this course (mix of technical skills, tools, concepts, and pedagogical methods related to this topic).
-        3. 3 Prerequisites required before starting.
-        4. 3 Learning boundaries (out of scope topics) that keep the scope focused.
-        5. 3 Expected learning outcomes.
-        6. Target audience.
+        [ROLE]
+        You are an Intent Classification & Extraction Engine.
 
-        Return your output as a JSON object with exactly these top-level keys:
-        'subject_context' (string), 
-        'all_suggested_tags' (array of 20 strings),
-        'prerequisites' (array), 
-        'out_of_scope' (array), 
-        'learning_outcomes' (array), 
-        'target_audience' (string).
+        [TASK]
+        Analyze the following user input for a course: '{keyword}'
+        Target audience '{audience}', difficulty level '{difficulty}'.
+        
+        1. Determine if this input is a simple topic (1-5 words) or a complex instructional prompt.
+           If it is a simple topic or lacks specific instructions, set 'is_complex': false, and leave explicit parameters empty/null.
+        2. Extract a 'display_title' (catchy, max 4-6 words) representing the core topic.
+        3. Determine the 'course_domain' (e.g., "Coding", "Business & Management", "Pedagogy & Design", "Humanities", etc.).
+        4. Determine the best 'interactivity_type' (e.g., "Coding Sandbox", "Case Study Simulator", "Roleplay Simulator", "Step-by-Step Worksheet").
+        5. Extract any explicit user instructions if present (if 'is_complex' is true):
+           - 'lesson_count' (integer, e.g., 4)
+           - 'duration' (string, e.g., "2 weeks" or "1 hour")
+           - 'tools' (array of strings, e.g., ["ChatGPT", "EdApp"])
+           - 'final_project' (string)
+           - 'explicit_outline' (array of strings, module/lesson titles provided by user)
+        6. Generate standard grounding data:
+           - A rich text content overview/context for this topic (2-3 paragraphs).
+           - 20 relevant tags/topics (mix of technical skills, tools, concepts).
+           - 3 Prerequisites.
+           - 3 Learning boundaries (out of scope topics).
+           - 3 Expected learning outcomes.
+
+        [FORMAT]
+        Return a JSON object exactly like this:
+        {{
+          "is_complex": boolean,
+          "display_title": "...",
+          "course_domain": "...",
+          "interactivity_type": "...",
+          "explicit_parameters": {{
+            "lesson_count": integer or null,
+            "duration": "string or null",
+            "tools": ["...", "..."],
+            "final_project": "string or null",
+            "explicit_outline": ["...", "..."]
+          }},
+          "subject_context": "string", 
+          "all_suggested_tags": ["..."],
+          "prerequisites": ["..."], 
+          "out_of_scope": ["..."], 
+          "learning_outcomes": ["..."], 
+          "target_audience": "string"
+        }}
         """
+        # Using gpt-4o as explicitly requested for this router step
+        router_model = "gpt-4o" if "gpt" in OPENAI_MODEL else OPENAI_MODEL
+        
         response = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=router_model,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            max_tokens=1800,
+            max_tokens=2500,
             temperature=0.7
         )
         data = safe_load_json(response.choices[0].message.content)
-        # Normalize: if AI returned flat structure (no 'grounding' key), wrap it
+        
+        # Build injected context
+        injected_context = f"[DOMAIN: {data.get('course_domain', 'General')}]\n"
+        injected_context += f"[INTERACTIVITY: {data.get('interactivity_type', 'Interactive Practice')}]\n"
+        explicit_params = data.get("explicit_parameters", {})
+        if explicit_params.get("tools"):
+            injected_context += f"[TOOLS REQUIRED: {', '.join(explicit_params.get('tools', []))}]\n"
+        if explicit_params.get("final_project"):
+            injected_context += f"[FINAL PROJECT: {explicit_params.get('final_project')}]\n"
+        if explicit_params.get("explicit_outline") and len(explicit_params.get("explicit_outline")) > 0:
+            outline_str = ", ".join(explicit_params.get("explicit_outline"))
+            injected_context += f"[EXPLICIT OUTLINE: {outline_str}]\n"
+            
+        injected_context += "\n" + data.get("subject_context", "")
+        
+        # Normalize: wrap into grounding
         if "grounding" not in data:
             data = {
-                "subject_context": data.get("subject_context", ""),
+                "display_title": data.get("display_title", keyword),
+                "is_complex": data.get("is_complex", False),
+                "explicit_parameters": explicit_params,
+                "subject_context": injected_context,
                 "grounding": {
-                    "tech_tags": data.get("tech_tags", []),
+                    "tech_tags": data.get("all_suggested_tags", [])[:3],
                     "all_suggested_tags": data.get("all_suggested_tags", []),
                     "prerequisites": data.get("prerequisites", []),
                     "out_of_scope": data.get("out_of_scope", []),
@@ -354,6 +405,7 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         [TASK]
         1. Design exactly {lessons_count} DISTINCT lessons for the course '{proposal_title}'.
         Grounding parameters (prerequisites, learning outcomes, tech tags, out-of-scope topics): {json.dumps(grounding_data)}.
+        CRITICAL: If the Grounding parameters or subject_context contains an `[EXPLICIT OUTLINE: ...]`, you MUST strictly use those explicit module/lesson titles as your lesson list in the exact order requested, adapting only the metadata.
         2. Design exactly 3 custom-tailored, highly relevant additional sections for EACH of the 3 roles (creator, student, educator). These 3 sections per role apply to the WHOLE course and will be used in EVERY lesson, so they must be topic-appropriate for the course as a whole, not for a single lesson.
 
         [RULES]
@@ -474,10 +526,11 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     Struktur Lesson (daftar seluruh lesson dalam course ini, untuk konteks urutan & agar tidak tumpang tidak): {lesson_structure}
  
     [RULES]
+    - NO FORCED CODING: Check the [DOMAIN: ...] in Grounding parameters. If the domain is NOT "Coding", you MUST NOT generate Python/Programming code snippets unless explicitly requested. Use frameworks, templates, or key scripts for non-coding topics.
     - Sesuaikan kedalaman materi core_content agar setara dengan materi bacaan/studi mandiri selama 40% dari total {lesson_duration} durasi pelajaran.
     - Tulis materi secara teknis, presisi, mendalam, dan komprehensif. Dilarang menulis ringkasan singkat atau hanya garis besar saja.
     - Berikan minimal dua sub-topik mendalam dalam core_content lengkap dengan penjelasan arsitektur dan contoh kasus nyata di industri.
-    - Sertakan minimal satu blok kode implementasi teknis yang utuh. DILARANG KERAS menggunakan placeholder seperti '// TODO' atau 'pass' di dalam kode. Kode harus fungsional dan siap pakai.
+    - Sertakan minimal satu blok implementasi teknis (atau framework/template jika non-coding). DILARANG KERAS menggunakan placeholder seperti '// TODO' atau 'pass' di dalam blok tersebut. Blok harus fungsional dan siap pakai.
  
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
@@ -522,7 +575,7 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     )
     return safe_load_json(response.choices[0].message.content)
 
-async def generate_student_content(lesson_title: str, creator_content: dict, lesson_duration: str = "60 mins"):
+async def generate_student_content(lesson_title: str, creator_content: dict, lesson_duration: str = "60 mins", subject_context: str = ""):
     core_content_creator = creator_content.get("core_content", "")
     creator_exercises = creator_content.get("exercises", [])
     
@@ -534,6 +587,7 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
             "practice": {
                 "interactive_exercise": "Try changing the parameters in the starter template.",
                 "code_block": "def run():\n    # Implement practice logic\n    print('Demo')",
+                "content_type": "code",
                 "checklist": ["Identify key features", "Run the sample script"]
             },
             "debugging": "Common bug: IndentationError. Fix: Ensure 4 spaces are used for indentation.",
@@ -544,6 +598,9 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
     [ROLE]
     Anda adalah Lead Learning Experience Designer (LX Designer) & Tutor AI Interaktif yang ahli menyajikan materi pembelajaran yang menyenangkan, intuitif, dan *hands-on*.
  
+    [SUBJECT CONTEXT & DOMAIN METADATA]
+    {subject_context}
+
     [TASK]
     Berdasarkan materi induk dan daftar latihan Creator berikut, transformasikan materi Lesson: "{lesson_title}" menjadi modul belajar interaktif khusus untuk POV STUDENT.
     Target Durasi Belajar: {lesson_duration} per lesson.
@@ -551,10 +608,16 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
     Daftar Latihan Creator: {json.dumps(creator_exercises)}
  
     [RULES]
-    - Rancang latihan interaktif dan draf kode awal (*starter code*) yang secara logis membutuhkan waktu pengerjaan 40% dari total {lesson_duration} durasi pelajaran (hands-on practice).
-    - Bagian 'practice.code_block' HARUS berupa draf kode awal yang utuh, fungsional, dan **berhubungan langsung dengan Latihan Creator**: {json.dumps(creator_exercises)}.
-    - DILARANG menggunakan placeholder kosong seperti '// TODO' atau 'pass' di dalam draf kode. Tulis kode templat awal yang bisa langsung dicoba oleh siswa dengan menyisakan area parameter/fungsi logis tertentu untuk mereka selesaikan.
-    - Bagian 'debugging' harus menyajikan minimal 2 kesalahan umum teknis yang nyata beserta cuplikan kode salah, pesan error, dan solusi perbaikannya yang spesifik untuk bab ini.
+    - Rancang latihan interaktif yang secara logis membutuhkan waktu pengerjaan 40% dari total {lesson_duration} durasi pelajaran (hands-on practice).
+    - **CRITICAL DOMAIN ROUTING RULE**:
+      * Periksa [DOMAIN: ...] pada SUBJECT CONTEXT & DOMAIN METADATA di atas.
+      * Jika DOMAIN adalah Business, Management, Strategy, Executive, Design, Medical, Healthcare, Pedagogy, atau bidang NON-KODING lainnya:
+        1. HARUS set `"content_type": "markdown"`.
+        2. DILARANG KERAS menghasilkan kode pemrograman Python, Pandas, NumPy, atau compiler script dalam `code_block`.
+        3. Isi `code_block` dengan teks deskripsi skenario studi kasus / panduan roleplay simulasi bisnis nyata.
+      * HANYA set `"content_type": "code"` jika DOMAIN secara eksplisit adalah Coding, Software Engineering, atau Computer Programming.
+    - DILARANG menggunakan placeholder kosong seperti '// TODO' atau 'pass'.
+    - Bagian 'debugging' harus menyajikan minimal 2 kesalahan umum (common mistakes/pitfalls/anti-patterns bisnis/konseptual) yang spesifik untuk bab ini, beserta solusinya (TANPA istilah compiler/koding jika domain non-koding).
  
     [FORMAT]
     Kembalikan output murni dalam JSON terstruktur:
@@ -563,10 +626,11 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
       "learning_journey": "Langkah-langkah belajar berformat MARKDOWN dengan list bernomor (1. 2. 3.), merujuk konsep konkret dari Materi Induk, bukan langkah generik",
       "practice": {{
         "interactive_exercise": "Panduan praktik langkah demi langkah yang membimbing siswa menyelesaikan Latihan Creator di atas",
-        "code_block": "Kode starter teknis yang lengkap, fungsional, dan siap pakai siswa (TANPA placeholder kosong)",
+        "code_block": "Teks studi kasus skenario bisnis utuh jika non-koding (ATAU kode starter teknis jika domain koding)",
+        "content_type": "markdown (jika non-koding) atau code (jika koding)",
         "checklist": ["Checklist pemahaman spesifik 1", "Checklist pemahaman spesifik 2", "Checklist pemahaman spesifik 3"]
       }},
-      "debugging": "Kesalahan umum teknis (common bugs) spesifik bab ini dengan cuplikan log error dan solusinya, format markdown",
+      "debugging": "Kesalahan umum / Anti-Patterns / Common Mistakes spesifik bab ini dengan penjelasan dan solusinya, format markdown",
       "ethics": "Pertimbangan etika atau best practice yang relevan dengan topik lesson ini secara spesifik"
     }}
  

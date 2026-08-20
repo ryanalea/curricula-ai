@@ -16,6 +16,11 @@ except ImportError:
     pdfkit = None
 
 try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    sync_playwright = None
+
+try:
     from reportlab.lib.pagesizes import letter
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -52,7 +57,7 @@ def format_section_content_to_md(content, indent: int = 0) -> list[str]:
                     lines.append(f"{pad}- **Question:** {q}")
                     if "options" in item and isinstance(item["options"], list):
                         for opt in item["options"]:
-                            correct_marker = " ✅" if opt == item.get("answer") else ""
+                            correct_marker = " **(Correct Answer)**" if opt == item.get("answer") else ""
                             lines.append(f"{pad}  - {opt}{correct_marker}")
                     if item.get("explanation"):
                         lines.append(f"{pad}  - *Explanation:* {item['explanation']}")
@@ -189,12 +194,413 @@ def _inline_markdown_to_html(text: str) -> str:
     text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r"<em>\1</em>", text)
     return text
 
+def _md_block_to_html(md_text: str) -> str:
+    """Renders a markdown snippet (paragraphs, ### headers, - lists, ```code```)
+    into the dark-theme component markup used by the new PDF/HTML template."""
+    if not md_text:
+        return ""
+    md_text = re.sub(r'[\U00010000-\U0010ffff]', '', str(md_text))
+    lines_out = []
+    in_code = False
+    code_buf = []
+    list_open = False
+
+    def close_list():
+        nonlocal list_open
+        if list_open:
+            lines_out.append("</ul>")
+            list_open = False
+
+    for raw in str(md_text).split("\n"):
+        line = raw.strip()
+        if line.startswith("```"):
+            if not in_code:
+                close_list()
+                in_code = True
+                code_buf = []
+            else:
+                in_code = False
+                code_text = html_lib.escape("\n".join(code_buf))
+                lines_out.append(f"<div class='codeblock'>{code_text}</div>")
+            continue
+        if in_code:
+            code_buf.append(raw)
+            continue
+        if line.startswith("### "):
+            close_list()
+            lines_out.append(f"<div class='md-h3'>{_inline_markdown_to_html(html_lib.escape(line[4:]))}</div>")
+        elif line.startswith("#### "):
+            close_list()
+            lines_out.append(f"<div class='md-h4'>{_inline_markdown_to_html(html_lib.escape(line[5:]))}</div>")
+        elif line.startswith("- ") or line.startswith("* "):
+            if not list_open:
+                lines_out.append("<ul class='md-ul'>")
+                list_open = True
+            lines_out.append(f"<li>{_inline_markdown_to_html(html_lib.escape(line[2:]))}</li>")
+        elif line == "":
+            close_list()
+        else:
+            close_list()
+            lines_out.append(f"<p class='md-p'>{_inline_markdown_to_html(html_lib.escape(line))}</p>")
+    close_list()
+    return "\n".join(lines_out)
+
+
+# ---------------------------------------------------------------------------
+# New dark-theme, component-based HTML/PDF template
+# (cover page, TOC, quiz cards, exercise cards, code blocks, comparison-style
+# cards) rendered through Chromium (Playwright) for full modern CSS support.
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_CSS = """
+@page { size: A4; margin: 0; }
+* { box-sizing: border-box; }
+body {
+    margin: 0; background: #ffffff; color: #1e2433;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+.cover, .toc-page {
+    width: 210mm; min-height: 297mm; display: flex; flex-direction: column; justify-content: space-between;
+    page-break-after: always; background: #ffffff;
+    padding: 18mm 16mm;
+}
+.content-wrap { padding: 16mm 16mm 4mm; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-badge {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg,#2563eb,#0d9488);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; color: #ffffff; font-size: 15px;
+}
+.brand-name { font-size: 15px; font-weight: 800; color: #1e2433; line-height: 1.15; }
+.brand-sub { font-size: 9px; letter-spacing: 2px; color: #0d9488; font-weight: 700; }
+.cover-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.module-badge {
+    border: 1px solid rgba(15,23,42,0.12); border-radius: 8px;
+    padding: 8px 14px; font-size: 9px; letter-spacing: 2px; color: #5b6178;
+    text-align: right; text-transform: uppercase; line-height: 1.6;
+}
+.eyebrow { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: #0d9488; font-weight: 700; }
+.cover h1 { font-size: 40px; line-height: 1.15; font-weight: 800; color: #1e2433; margin: 14px 0 0; max-width: 500px; }
+.cover h1 .accent { color: #2563eb; }
+.cover-desc { margin-top: 18px; font-size: 13px; line-height: 1.7; color: #5b6178; max-width: 460px; }
+.cover-desc b { color: #1e2433; }
+.pill-row { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 8px; }
+.pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid rgba(15,23,42,0.12); background: #f8fafc;
+    border-radius: 999px; padding: 7px 14px; font-size: 10.5px; color: #3b4257;
+}
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #16a34a; }
+.pill .dot.blue { background: #2563eb; }
+.cover-footer, .toc-footer {
+    display: flex; justify-content: space-between; border-top: 1px solid rgba(15,23,42,0.1); padding-top: 14px;
+}
+.cover-footer .label, .toc-footer .label { font-size: 9px; letter-spacing: 1px; color: #8b93b8; }
+.cover-footer .value, .toc-footer .value { font-size: 12px; color: #1e2433; font-weight: 600; margin-top: 4px; }
+
+.toc-title { font-size: 28px; font-weight: 800; color: #1e2433; margin: 10px 0 22px; }
+.stat-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 26px; }
+.stat-card { border: 1px solid rgba(15,23,42,0.1); border-radius: 10px; padding: 12px; background: #f8fafc; }
+.stat-card .num { font-size: 13px; font-weight: 800; color: #2563eb; }
+.stat-card .lbl { font-size: 8.5px; letter-spacing: 1px; color: #7a81a3; margin-top: 4px; text-transform: uppercase; }
+.toc-row {
+    display: flex; align-items: center; gap: 14px; padding: 11px 4px;
+    border-bottom: 1px solid rgba(15,23,42,0.08); font-size: 12.5px; color: #2b3147;
+}
+.toc-num { color: #8b93b8; font-weight: 700; width: 20px; }
+.toc-row .flex1 { flex: 1; }
+.toc-row .pgnum { color: #0d9488; font-weight: 700; }
+
+/* ---- flowing content pages ---- */
+.content-wrap { background: #ffffff; }
+.lesson-divider {
+    page-break-before: always; padding-top: 4mm;
+}
+.kicker-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.kicker-num {
+    width: 24px; height: 24px; border-radius: 6px; background: rgba(13,148,136,0.12);
+    color: #0d9488; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+}
+.section-tag { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: #7a81a3; font-weight: 700; }
+.role-tag {
+    display: inline-block; margin-bottom: 8px; font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    color: #ffffff; background: #0d9488; border-radius: 4px; padding: 3px 9px; font-weight: 800;
+}
+h2.section-title { font-size: 22px; font-weight: 800; color: #1e2433; margin: 4px 0 16px; page-break-after: avoid; }
+h3.lesson-title { font-size: 26px; font-weight: 800; color: #1e2433; margin: 6px 0 4px; }
+
+.md-h3 { font-size: 14px; font-weight: 700; color: #1e2433; margin: 16px 0 6px; page-break-after: avoid; }
+.md-h4 { font-size: 12px; font-weight: 700; color: #1d4ed8; margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.md-p { font-size: 11.5px; color: #3b4257; line-height: 1.7; margin: 0 0 8px; }
+.md-ul { margin: 4px 0 10px; padding-left: 18px; }
+.md-ul li { font-size: 11.5px; color: #3b4257; line-height: 1.7; margin-bottom: 3px; }
+
+.codeblock {
+    background: #f8fafc; border: 1px solid rgba(15,23,42,0.1); border-radius: 10px;
+    padding: 12px 14px; font-family: Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 9.5px; line-height: 1.6; color: #1e2433; white-space: pre-wrap; word-wrap: break-word;
+    margin: 8px 0 12px; page-break-inside: avoid;
+}
+
+.check-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 14px; }
+.check-item { display: flex; gap: 10px; align-items: flex-start; font-size: 11.5px; color: #2b3147; line-height: 1.6; page-break-inside: avoid; }
+.check-item .tick {
+    flex: none; width: 17px; height: 17px; border-radius: 50%; background: rgba(22,163,74,0.12);
+    color: #16a34a; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin-top: 1px;
+}
+
+.card { border: 1px solid rgba(15,23,42,0.1); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; background: #f8fafc; page-break-inside: avoid; }
+.ex-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ex-head .t { font-size: 13px; font-weight: 700; color: #1e2433; }
+.badge { font-size: 8.5px; font-weight: 800; letter-spacing: 1px; padding: 3px 9px; border-radius: 999px; text-transform: uppercase; }
+.badge.medium { background: rgba(202,138,4,0.15); color: #a16207; }
+.badge.hard { background: rgba(220,38,38,0.15); color: #b91c1c; }
+.badge.easy { background: rgba(22,163,74,0.15); color: #15803d; }
+.card-desc { font-size: 11.5px; color: #5b6178; line-height: 1.65; }
+
+.quiz-q { font-size: 12.5px; font-weight: 700; color: #1e2433; margin-bottom: 10px; }
+.quiz-opt { display: flex; align-items: center; gap: 9px; font-size: 11px; color: #3b4257; padding: 4px 0; }
+.quiz-opt .radio { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #aab1ce; flex: none; }
+.quiz-opt.correct .radio { background: #16a34a; border-color: #16a34a; }
+.quiz-opt.correct { color: #1e2433; font-weight: 600; }
+.quiz-why { margin-top: 8px; font-size: 10.5px; color: #2563eb; line-height: 1.6; }
+
+table.cmp { width: 100%; border-collapse: collapse; font-size: 10.5px; margin: 8px 0 14px; page-break-inside: avoid; }
+table.cmp th { text-align: left; color: #0d9488; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid rgba(15,23,42,0.15); }
+table.cmp td { padding: 9px 10px; border-bottom: 1px solid rgba(15,23,42,0.08); color: #3b4257; line-height: 1.5; vertical-align: top; }
+table.cmp tr td:first-child { color: #2563eb; font-weight: 700; }
+
+.doc-footer { text-align: center; font-size: 9px; color: #8b93b8; margin-top: 20px; padding-top: 10px; border-top: 1px solid rgba(15,23,42,0.08); }
+"""
+
+
+def _pill(label: str, blue: bool = False) -> str:
+    dot_cls = "dot blue" if blue else "dot"
+    return f"<span class='pill'><span class='{dot_cls}'></span>{html_lib.escape(str(label))}</span>"
+
+
+def _render_quiz_card(item: dict) -> str:
+    q = html_lib.escape(str(item.get("question", "")))
+    options = item.get("options", []) or []
+    answer = item.get("answer")
+    opts_html = []
+    for opt in options:
+        is_correct = (opt == answer)
+        cls = "quiz-opt correct" if is_correct else "quiz-opt"
+        opts_html.append(f"<div class='{cls}'><div class='radio'></div>{html_lib.escape(str(opt))}</div>")
+    why = item.get("explanation", "")
+    why_html = f"<div class='quiz-why'>Why: {html_lib.escape(str(why))}</div>" if why else ""
+    return (
+        "<div class='card'>"
+        f"<div class='quiz-q'>{q}</div>"
+        + "".join(opts_html)
+        + why_html +
+        "</div>"
+    )
+
+
+def _render_exercise_card(item: dict) -> str:
+    title = html_lib.escape(str(item.get("title") or item.get("name") or "Exercise"))
+    desc = html_lib.escape(str(item.get("description", "")))
+    difficulty = str(item.get("difficulty", "")).lower()
+    badge_html = f"<span class='badge {difficulty}'>{html_lib.escape(difficulty)}</span>" if difficulty in ("easy", "medium", "hard") else ""
+    code = item.get("code_template") or item.get("starter_code")
+    code_html = f"<div class='codeblock'>{html_lib.escape(str(code))}</div>" if code else ""
+    return (
+        "<div class='card'>"
+        f"<div class='ex-head'><div class='t'>{title}</div>{badge_html}</div>"
+        f"<div class='card-desc'>{desc}</div>"
+        f"{code_html}"
+        "</div>"
+    )
+
+
+def _render_rubric_table(rubric: list) -> str:
+    rows = []
+    for r in rubric:
+        crit = html_lib.escape(str(r.get("criteria", "")))
+        exc = html_lib.escape(str(r.get("excellent", "")))
+        good = html_lib.escape(str(r.get("good", "")))
+        needs = html_lib.escape(str(r.get("needs_improvement", "")))
+        rows.append(f"<tr><td>{crit}</td><td>{exc}</td><td>{good}</td><td>{needs}</td></tr>")
+    return (
+        "<table class='cmp'><tr><th>Criteria</th><th>Excellent</th><th>Good</th><th>Needs Improvement</th></tr>"
+        + "".join(rows) + "</table>"
+    )
+
+
+def _render_section(section_type: str, content) -> str:
+    """Renders one lesson section (by its known type) into dark-theme HTML."""
+    label = section_type.replace("_", " ").title()
+    out = [f"<div class='md-h3' style='font-size:15px;margin-top:20px;'>{html_lib.escape(label)}</div>"]
+
+    if section_type == "learning_outcomes" and isinstance(content, list):
+        items = "".join(
+            f"<div class='check-item'><div class='tick'>&#10003;</div>{html_lib.escape(str(c))}</div>"
+            for c in content
+        )
+        out.append(f"<div class='check-list'>{items}</div>")
+    elif section_type == "exercises" and isinstance(content, list):
+        out.extend(_render_exercise_card(item) if isinstance(item, dict) else f"<div class='card'><div class='card-desc'>{html_lib.escape(str(item))}</div></div>" for item in content)
+    elif section_type == "quizzes" and isinstance(content, list):
+        out.extend(_render_quiz_card(item) if isinstance(item, dict) else "" for item in content)
+    elif section_type == "rubric" and isinstance(content, list):
+        out.append(_render_rubric_table(content))
+    elif section_type == "discussion_questions" and isinstance(content, list):
+        items = "".join(f"<li>{html_lib.escape(str(c))}</li>" for c in content)
+        out.append(f"<ul class='md-ul'>{items}</ul>")
+    elif section_type == "practice" and isinstance(content, dict):
+        code = content.get("code_block")
+        if code:
+            out.append(f"<div class='codeblock'>{html_lib.escape(str(code))}</div>")
+        if content.get("interactive_exercise"):
+            out.append(f"<p class='md-p'><b>Try it:</b> {html_lib.escape(str(content['interactive_exercise']))}</p>")
+        checklist = content.get("checklist")
+        if isinstance(checklist, list) and checklist:
+            items = "".join(
+                f"<div class='check-item'><div class='tick'>&#10003;</div>{html_lib.escape(str(c))}</div>"
+                for c in checklist
+            )
+            out.append(f"<div class='check-list'>{items}</div>")
+    elif section_type == "lesson_plan" and isinstance(content, dict):
+        for k, v in content.items():
+            out.append(f"<p class='md-p'><b>{html_lib.escape(k.replace('_',' ').title())}:</b> {html_lib.escape(str(v))}</p>")
+    elif isinstance(content, str):
+        out.append(_md_block_to_html(content))
+    elif isinstance(content, list):
+        items = "".join(f"<li>{html_lib.escape(str(c)) if not isinstance(c, dict) else html_lib.escape(json.dumps(c))}</li>" for c in content)
+        out.append(f"<ul class='md-ul'>{items}</ul>")
+    elif isinstance(content, dict):
+        for k, v in content.items():
+            if isinstance(v, (str, int, float)):
+                out.append(f"<p class='md-p'><b>{html_lib.escape(k.replace('_',' ').title())}:</b> {html_lib.escape(str(v))}</p>")
+    return "\n".join(out)
+
+
+def export_to_html_v2(course_data: dict, role: str) -> str:
+    """New dark-theme, component-based HTML template matching the
+    Maxy Academy / Curricula AI PDF design (cover, TOC, quiz cards,
+    exercise cards, code blocks)."""
+    title = course_data.get("title", "Untitled Course")
+    cfg = course_data.get("config", {})
+    difficulty = cfg.get("difficulty", "Beginner")
+    audience = cfg.get("target_audience", "Student")
+    lessons = course_data.get("lessons", []) or course_data.get("structure") or [{"title": title}]
+    roles_to_export = ["creator", "student", "educator"] if role == "all" else [role]
+
+    parts = []
+
+    # ---- Cover ----
+    parts.append(f"""
+    <div class="cover">
+        <div class="cover-top">
+            <div class="brand">
+                <div class="brand-badge">M</div>
+                <div><div class="brand-name">Maxy<br>Academy</div><div class="brand-sub">CURRICULA AI</div></div>
+            </div>
+            <div class="module-badge">{html_lib.escape(get_role_label(role).upper())}<br>{len(lessons)} LESSON(S)</div>
+        </div>
+        <div>
+            <div class="eyebrow">&mdash; &nbsp;COURSE MATERIAL</div>
+            <h1>{_inline_markdown_to_html(html_lib.escape(title))}</h1>
+            <div class="cover-desc">Generated course material covering <b>{len(lessons)} lesson(s)</b> for {html_lib.escape(str(audience))} at {html_lib.escape(str(difficulty))} level.</div>
+            <div class="pill-row">
+                {_pill('Difficulty: ' + str(difficulty))}
+                {_pill('Audience: ' + str(audience), blue=True)}
+                {_pill('Format: ' + get_role_label(role))}
+            </div>
+        </div>
+        <div class="cover-footer">
+            <div><div class="label">AUDIENCE</div><div class="value">{html_lib.escape(str(audience))}</div></div>
+            <div style="text-align:right;"><div class="label">PREPARED FOR</div><div class="value">Curricula AI Creator Program</div></div>
+        </div>
+    </div>
+    """)
+
+    # ---- TOC ----
+    toc_rows = "".join(
+        f"<div class='toc-row'><div class='toc-num'>{(l.get('order') or i+1):02d}</div><div class='flex1'>{html_lib.escape(clean_lesson_title(l.get('title','Untitled Lesson')))}</div></div>"
+        for i, l in enumerate(lessons)
+    )
+    parts.append(f"""
+    <div class="toc-page">
+        <div>
+            <div class="eyebrow">IN THIS DOCUMENT</div>
+            <div class="toc-title">Table of contents</div>
+            <div class="stat-row">
+                <div class="stat-card"><div class="num">{html_lib.escape(str(difficulty))}</div><div class="lbl">Difficulty</div></div>
+                <div class="stat-card"><div class="num">{len(lessons)}</div><div class="lbl">Lessons</div></div>
+                <div class="stat-card"><div class="num">{html_lib.escape(str(audience))}</div><div class="lbl">Audience</div></div>
+                <div class="stat-card"><div class="num">{html_lib.escape(get_role_label(role))}</div><div class="lbl">Perspective</div></div>
+            </div>
+            {toc_rows}
+        </div>
+        <div class="toc-footer">
+            <div><div class="label">DOCUMENT</div><div class="value">{html_lib.escape(title)}</div></div>
+            <div style="text-align:right;"><div class="label">SOURCE</div><div class="value">Curricula AI</div></div>
+        </div>
+    </div>
+    """)
+
+    # ---- Lesson content ----
+    content_html = ["<div class='content-wrap'>"]
+    for idx, lesson in enumerate(lessons):
+        lesson_title = clean_lesson_title(lesson.get("title", "Untitled Lesson"))
+        lesson_num = lesson.get('order') or (idx + 1)
+        content_html.append(f"""
+        <div class="lesson-divider">
+            <div class="kicker-row"><div class="kicker-num">{lesson_num:02d}</div><div class="section-tag">LESSON {lesson_num:02d}</div></div>
+            <h3 class="lesson-title">{_inline_markdown_to_html(html_lib.escape(lesson_title))}</h3>
+        </div>
+        """)
+        for r in roles_to_export:
+            sections = get_resolved_lesson_sections(lesson, r)
+            if not sections:
+                continue
+            if len(roles_to_export) > 1:
+                content_html.append(f"<div class='role-tag'>{html_lib.escape(get_role_label(r))}</div>")
+            for sec_type, content in sections.items():
+                content_html.append(_render_section(sec_type, content))
+
+    content_html.append("</div>")
+    content_html.append(f"<div class='doc-footer'>Maxy Academy &middot; Curricula AI &middot; {html_lib.escape(get_role_label(role))}</div>")
+    parts.append("\n".join(content_html))
+
+    body = "\n".join(parts)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{html_lib.escape(title)}</title>
+<style>{_TEMPLATE_CSS}</style>
+</head>
+<body>
+{body}
+</body>
+</html>"""
+
+
 def export_to_html(course_data: dict, role: str) -> str:
+    """Public entry point used by main.py — renders the new dark-theme
+    template. Falls back to the legacy markdown-based renderer only if
+    something in the structured renderer blows up on malformed data."""
+    try:
+        return export_to_html_v2(course_data, role)
+    except Exception as e:
+        print(f"New HTML template failed, falling back to legacy renderer: {e}")
+        return export_to_html_legacy(course_data, role)
+
+
+def export_to_html_legacy(course_data: dict, role: str) -> str:
     md_content = export_to_markdown(course_data, role)
 
     # Sanitize emojis that wkhtmltopdf cannot render in default Windows fonts
     md_content = re.sub(r'[\U00010000-\U0010ffff]', '', md_content)
     md_content = re.sub(r'[\u2600-\u27BF]', '', md_content)
+
+    _pdf_difficulty = course_data.get('config', {}).get('difficulty', 'Beginner')
+    _pdf_audience = course_data.get('config', {}).get('target_audience', 'Student')
 
     html_lines = []
     in_code_block = False
@@ -223,13 +629,24 @@ def export_to_html(course_data: dict, role: str) -> str:
                 in_code_block = False
                 code_text = html_lib.escape("\n".join(code_buffer))
                 html_lines.append(
-                    f"<pre style='background:#1E293B;color:#E2E8F0;padding:14px 16px;border-radius:8px;"
+                    "<div style='margin:12px 0;border-radius:8px;overflow:hidden;border:1px solid #334155;'>"
+                    "<div style='background:#0F172A;padding:6px 12px;display:block;'>"
+                    "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:#F87171;margin-right:5px;'></span>"
+                    "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:#FBBF24;margin-right:5px;'></span>"
+                    "<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:#34D399;'></span>"
+                    "</div>"
+                    f"<pre style='background:#1E293B;color:#E2E8F0;padding:14px 16px;margin:0;"
                     f"overflow-x:auto;font-family:Consolas,Menlo,monospace;font-size:11.5px;line-height:1.5;"
-                    f"margin:10px 0;white-space:pre-wrap;word-wrap:break-word;'><code>{code_text}</code></pre>"
+                    f"white-space:pre-wrap;word-wrap:break-word;'><code>{code_text}</code></pre>"
+                    "</div>"
                 )
             continue
         if in_code_block:
             code_buffer.append(raw_line)
+            continue
+
+        # Skip the plain-text difficulty/audience line — it's rendered as pill badges instead
+        if line_clean.startswith("**Difficulty:**"):
             continue
 
         # Escape HTML special chars in normal (non-code) content, then apply inline markdown
@@ -237,21 +654,43 @@ def export_to_html(course_data: dict, role: str) -> str:
 
         if line_clean.startswith("# "):
             close_list()
-            html_lines.append(f"<h1 style='color:#1A2040;font-family:sans-serif;font-size:24px;border-bottom:2.5px solid #E9B259;padding-bottom:8px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[2:]))}</h1>")
+            html_lines.append(
+                "<div style='background:linear-gradient(135deg,#1A2040,#2D3561);border-radius:12px;"
+                "padding:32px 30px 24px 30px;margin-bottom:22px;border-bottom:5px solid #E9B259;'>"
+                f"<h1 style='color:#FFFFFF;font-family:sans-serif;font-size:25px;margin:0;line-height:1.35;'>{_inline_markdown_to_html(html_lib.escape(line_clean[2:]))}</h1>"
+                "<div style='color:#E9B259;font-family:sans-serif;font-size:11px;letter-spacing:1.5px;margin-top:10px;text-transform:uppercase;'>Curricula AI &middot; Course Material</div>"
+                "</div>"
+                "<div style='display:block;margin-bottom:20px;'>"
+                f"<span style='display:inline-block;background:#FFF8EC;color:#C8913A;border:1px solid #E9B259;border-radius:20px;padding:4px 14px;font-family:sans-serif;font-size:10.5px;font-weight:bold;margin-right:6px;'>{html_lib.escape(str(_pdf_difficulty))}</span>"
+                f"<span style='display:inline-block;background:#FFF8EC;color:#C8913A;border:1px solid #E9B259;border-radius:20px;padding:4px 14px;font-family:sans-serif;font-size:10.5px;font-weight:bold;margin-right:6px;'>{html_lib.escape(str(_pdf_audience))}</span>"
+                f"<span style='display:inline-block;background:#2D3561;color:#FFFFFF;border-radius:20px;padding:4px 14px;font-family:sans-serif;font-size:10.5px;font-weight:bold;'>{html_lib.escape(str(role.upper()))} POV</span>"
+                "</div>"
+            )
         elif line_clean.startswith("## "):
             close_list()
-            html_lines.append(f"<div class='page-break' style='page-break-before:always;'><h2 style='color:#2D3561;font-family:sans-serif;margin-top:28px;font-size:18px;border-left:4px solid #E9B259;padding-left:10px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[3:]))}</h2></div>")
+            html_lines.append(
+                "<div class='page-break' style='page-break-before:always;background:#FFF8EC;border-left:5px solid #E9B259;"
+                "border-radius:6px;padding:12px 16px;margin-top:6px;'>"
+                f"<h2 style='color:#2D3561;font-family:sans-serif;margin:0;font-size:17px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[3:]))}</h2>"
+                "</div>"
+            )
         elif line_clean.startswith("### "):
             close_list()
-            html_lines.append(f"<h3 style='color:#C8913A;font-family:sans-serif;margin-top:20px;font-size:15px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[4:]))}</h3>")
+            html_lines.append(
+                "<h3 style='color:#FFFFFF;background:#C8913A;display:inline-block;font-family:sans-serif;"
+                f"margin-top:22px;margin-bottom:6px;font-size:13.5px;padding:5px 12px;border-radius:5px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[4:]))}</h3>"
+            )
         elif line_clean.startswith("#### "):
             close_list()
-            html_lines.append(f"<h4 style='color:#334155;font-family:sans-serif;margin-top:14px;font-size:13px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[5:]))}</h4>")
+            html_lines.append(
+                "<h4 style='color:#2D3561;font-family:sans-serif;margin-top:14px;margin-bottom:4px;font-size:12.5px;"
+                f"text-transform:uppercase;letter-spacing:0.5px;border-bottom:1.5px solid #E2E8F0;padding-bottom:4px;'>{_inline_markdown_to_html(html_lib.escape(line_clean[5:]))}</h4>"
+            )
         elif raw_line.startswith("  - ") or raw_line.startswith("    - "):
             item = _inline_markdown_to_html(html_lib.escape(line_clean[2:]))
             if list_mode != "ul-nested":
                 close_list()
-                html_lines.append("<ul style='margin:4px 0 8px 0;padding-left:20px;'><li style='list-style:none;'><ul style='margin:2px 0;padding-left:18px;'>")
+                html_lines.append("<ul style='margin:4px 0 8px 0;padding-left:20px;list-style-type:circle;'><li style='list-style:none;'><ul style='margin:2px 0;padding-left:18px;list-style-type:circle;'>")
                 list_mode = "ul-nested"
             html_lines.append(f"<li style='font-family:sans-serif;line-height:1.5;color:#475569;margin-bottom:3px;'>{item}</li>")
         elif line_clean.startswith("- "):
@@ -301,6 +740,9 @@ def export_to_html(course_data: dict, role: str) -> str:
         li {{
             page-break-inside: avoid;
         }}
+        pre, div[style*="0F172A"] {{
+            page-break-inside: avoid;
+        }}
         @media print {{
             body {{ padding: 0; }}
             .page-break {{ page-break-before: always; }}
@@ -308,10 +750,10 @@ def export_to_html(course_data: dict, role: str) -> str:
     </style>
 </head>
 <body>
-    <div style="text-align: right; font-size: 11px; color: #64748B; border-bottom: 1px solid #CBD5E1; padding-bottom: 6px; margin-bottom: 20px;">
-        Curricula AI &middot; Maxy Academy &middot; {role.upper()} POV
-    </div>
     {body}
+    <div style="text-align:center;font-size:9.5px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:10px;margin-top:26px;font-family:sans-serif;">
+        Curricula AI &middot; Maxy Academy
+    </div>
 </body>
 </html>"""
 
@@ -368,10 +810,46 @@ def md_to_reportlab_html(text: str) -> str:
     s = re.sub(r'`([^`]+?)`', r'<font name="Courier" color="#BE185D">\1</font>', s)
     return s
 
+def _render_pdf_with_playwright(html_content: str) -> bytes:
+    """Renders HTML to PDF bytes using headless Chromium. This supports the
+    full modern CSS the new template needs (flexbox, grid, gradients) which
+    wkhtmltopdf's old WebKit engine cannot render correctly."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_content(html_content, wait_until="networkidle")
+            pdf_bytes = page.pdf(
+                format="A4",
+                print_background=True,
+                margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+            )
+        finally:
+            browser.close()
+    return pdf_bytes
+
+
 def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
     html_content = export_to_html(course_data, role)
-    
-    # 0. Find wkhtmltopdf binary path
+
+    # 0. Preferred path: Playwright / headless Chromium (full CSS support —
+    #    this is what makes the dark-theme cover/TOC/quiz-card/table layout
+    #    render correctly; wkhtmltopdf below cannot).
+    if sync_playwright:
+        try:
+            pdf_bytes = _render_pdf_with_playwright(html_content)
+            out0 = io.BytesIO()
+            out0.write(pdf_bytes)
+            out0.seek(0)
+            return out0
+        except Exception as e:
+            print(f"Playwright PDF render failed, falling back to wkhtmltopdf/reportlab: {e}")
+
+    # Fallback chain below uses the legacy light-theme renderer, since
+    # wkhtmltopdf/reportlab can't render the new template's CSS reliably.
+    html_content = export_to_html_legacy(course_data, role)
+
+    # 1. Find wkhtmltopdf binary path
     import os
     import subprocess
     import tempfile
@@ -388,13 +866,26 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             wkhtmltopdf_bin = p
             break
 
+    wkhtmltopdf_options = {
+        'quiet': '',
+        'footer-center': 'Page [page] of [topage]',
+        'footer-font-size': '8',
+        'footer-font-name': 'Arial',
+        'footer-text-color': '#94A3B8',
+        'footer-spacing': '4',
+    }
+
     # 1. Try pdfkit if available
     if pdfkit:
         try:
             config = None
             if wkhtmltopdf_bin != "wkhtmltopdf" and os.path.exists(wkhtmltopdf_bin):
                 config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_bin)
-            pdf_bytes = pdfkit.from_string(html_content, False, configuration=config)
+            try:
+                pdf_bytes = pdfkit.from_string(html_content, False, options=wkhtmltopdf_options, configuration=config)
+            except Exception:
+                # Footer options rejected by this wkhtmltopdf build — retry without them
+                pdf_bytes = pdfkit.from_string(html_content, False, configuration=config)
             out1 = io.BytesIO()
             out1.write(pdf_bytes)
             out1.seek(0)
@@ -409,7 +900,11 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             html_path = html_file.name
         
         pdf_path = html_path + '.pdf'
-        res = subprocess.run([wkhtmltopdf_bin, html_path, pdf_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        footer_args = ['--footer-center', 'Page [page] of [topage]', '--footer-font-size', '8', '--footer-font-name', 'Arial']
+        res = subprocess.run([wkhtmltopdf_bin] + footer_args + [html_path, pdf_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res.returncode != 0 or not os.path.exists(pdf_path):
+            # Retry without footer options in case this wkhtmltopdf build rejects them
+            res = subprocess.run([wkhtmltopdf_bin, html_path, pdf_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if res.returncode == 0 and os.path.exists(pdf_path):
             with open(pdf_path, 'rb') as f:
                 pdf_bytes = f.read()
@@ -444,30 +939,44 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             parent=styles['Title'],
             fontName='Helvetica-Bold',
             fontSize=18,
-            leading=22,
-            textColor=colors.HexColor('#1A2040'),
-            spaceAfter=10
+            leading=24,
+            alignment=0,
+            textColor=colors.HexColor('#FFFFFF'),
+            backColor=colors.HexColor('#1A2040'),
+            borderColor=colors.HexColor('#E9B259'),
+            borderWidth=0,
+            borderPadding=(16, 16, 16, 16),
+            borderRadius=8,
+            spaceAfter=14
         )
         h1_style = ParagraphStyle(
             'Heading1Custom',
             parent=styles['Heading1'],
             fontName='Helvetica-Bold',
-            fontSize=15,
-            leading=18,
+            fontSize=14,
+            leading=17,
+            alignment=0,
             textColor=colors.HexColor('#2D3561'),
-            spaceBefore=14,
-            spaceAfter=8,
+            backColor=colors.HexColor('#FFF8EC'),
+            borderPadding=(8, 8, 10, 10),
+            borderRadius=5,
+            spaceBefore=16,
+            spaceAfter=10,
             keepWithNext=True
         )
         h2_style = ParagraphStyle(
             'Heading2Custom',
             parent=styles['Heading2'],
             fontName='Helvetica-Bold',
-            fontSize=12,
-            leading=15,
-            textColor=colors.HexColor('#1A2040'),
-            spaceBefore=10,
-            spaceAfter=6,
+            fontSize=11.5,
+            leading=14,
+            alignment=0,
+            textColor=colors.HexColor('#FFFFFF'),
+            backColor=colors.HexColor('#C8913A'),
+            borderPadding=(5, 5, 8, 8),
+            borderRadius=4,
+            spaceBefore=12,
+            spaceAfter=7,
             keepWithNext=True
         )
         h3_style = ParagraphStyle(
@@ -574,8 +1083,25 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             else:
                 story.append(Paragraph(md_to_reportlab_html(line_clean), body_style))
 
+        def _draw_page_decor(canvas_obj, doc_obj):
+            try:
+                canvas_obj.saveState()
+                width, height = letter
+                # Thin accent bar across the top of every page
+                canvas_obj.setFillColor(colors.HexColor('#E9B259'))
+                canvas_obj.rect(0, height - 6, width, 6, fill=1, stroke=0)
+                # Footer: page number + brand
+                canvas_obj.setFont('Helvetica', 8)
+                canvas_obj.setFillColor(colors.HexColor('#94A3B8'))
+                canvas_obj.drawCentredString(width / 2.0, 24, f"Page {doc_obj.page}")
+                canvas_obj.drawString(36, 24, "Curricula AI")
+                canvas_obj.drawRightString(width - 36, 24, "Maxy Academy")
+                canvas_obj.restoreState()
+            except Exception:
+                pass
+
         try:
-            doc.build(story)
+            doc.build(story, onFirstPage=_draw_page_decor, onLaterPages=_draw_page_decor)
             out3.seek(0)
             return out3
         except Exception as e:
