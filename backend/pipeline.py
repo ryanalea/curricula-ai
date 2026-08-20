@@ -31,7 +31,7 @@ else:
         OPENAI_MODEL = "gpt-4o-mini"
 
 def safe_load_json(raw_text: str):
-    """Safely cleans and loads JSON strings, ignoring markdown code blocks if present."""
+    """Safely cleans and loads JSON strings, extracting JSON blocks and fixing trailing commas."""
     if not raw_text:
         return {}
     cleaned = raw_text.strip()
@@ -42,7 +42,24 @@ def safe_load_json(raw_text: str):
     if cleaned.endswith("```"):
         cleaned = cleaned[:-3]
     cleaned = cleaned.strip()
-    return json.loads(cleaned)
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        # Fallback: extract the outermost JSON object or array using regex
+        match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', cleaned)
+        if match:
+            target = match.group(1)
+            try:
+                return json.loads(target)
+            except Exception:
+                # Fix trailing commas
+                fixed = re.sub(r',\s*([\]}])', r'\1', target)
+                try:
+                    return json.loads(fixed)
+                except Exception:
+                    pass
+    return {}
 
 # Mock generation data for offline demo fallback
 MOCK_GROUNDING = {

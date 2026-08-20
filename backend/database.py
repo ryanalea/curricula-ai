@@ -1,7 +1,6 @@
 import os
-
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -25,10 +24,19 @@ try:
 except Exception as e:
     print(f"[Database Warning] MySQL connection failed ({e}). Falling back to SQLite database.")
     SQLITE_URL = "sqlite:///./course_generator.db"
-    engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
+    engine = create_engine(
+        SQLITE_URL,
+        connect_args={"check_same_thread": False, "timeout": 30}
+    )
+    # Enable WAL mode for concurrent reading/writing
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL;"))
+            conn.commit()
+    except Exception:
+        pass
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 
 Base = declarative_base()
 

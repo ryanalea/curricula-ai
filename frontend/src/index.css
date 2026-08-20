@@ -2552,10 +2552,11 @@ html {
   padding: 4px 10px;
   border-radius: 9999px;
   align-self: flex-start;
-  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .card-title {
