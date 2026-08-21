@@ -1031,7 +1031,7 @@ async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) 
     - Bullets must be informative sentences, NOT single keywords
     - Each content slide should teach something specific
     - Speaker notes must be detailed speaking scripts (2-4 sentences per slide), not just "This slide covers..."
-    - Use the actual lesson data provided — do not make up generic content
+    - Use the actual lesson data provided - do not make up generic content
     - Extract real concepts, real code, real exercises from the lesson data
     - If core_content has code examples, include them in code slides
     - If exercises exist, create practice slides from them
@@ -1073,7 +1073,7 @@ async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) 
     - Max 6 bullets per content slide. Split into multiple slides if needed.
     - Title slide subtitle MUST be empty string "".
     - Return pure JSON only, no preamble.
-    - Do NOT truncate or abbreviate — provide complete, comprehensive content.
+    - Do NOT truncate or abbreviate - provide complete, comprehensive content.
     """
 
     try:
