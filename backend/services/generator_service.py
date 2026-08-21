@@ -1,13 +1,24 @@
 import asyncio
 import json
+import uuid
 from database import SessionLocal
 from models import Session as DbSession, Course, Lesson, Section
 import pipeline
 from services.progress_service import progress_publisher
 
+CANCELED_SESSIONS = set()
+ACTIVE_TASKS = {}
+
+def cancel_session(session_id: str):
+    CANCELED_SESSIONS.add(session_id)
+
+def is_session_canceled(session_id: str) -> bool:
+    return session_id in CANCELED_SESSIONS
+
 
 def generate_course_content_task(session_id: str):
     """Entry point for BackgroundTasks or thread executor."""
+    CANCELED_SESSIONS.discard(session_id)
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -22,6 +33,10 @@ def generate_course_content_task(session_id: str):
 
 async def generate_course_content_task_async(session_id: str):
     """Core asynchronous course generation pipeline worker."""
+    CANCELED_SESSIONS.discard(session_id)
+    task_id = str(uuid.uuid4())
+    ACTIVE_TASKS[session_id] = task_id
+    
     db = SessionLocal()
     try:
         db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
@@ -60,6 +75,19 @@ async def generate_course_content_task_async(session_id: str):
         total_lessons = len(lessons_outline)
 
         for idx, item in enumerate(lessons_outline):
+            if is_session_canceled(session_id) or db_session.status == "canceled" or ACTIVE_TASKS.get(session_id) != task_id:
+                print(f"[Generator] Session {session_id} canceled or replaced. Halting immediately.")
+                return
+
+            try:
+                db.refresh(db_session)
+            except Exception:
+                pass
+
+            if is_session_canceled(session_id) or db_session.status == "canceled" or ACTIVE_TASKS.get(session_id) != task_id:
+                print(f"[Generator] Session {session_id} canceled or replaced. Halting immediately.")
+                return
+
             status_msg = f"Generating content for Lesson {idx+1}/{total_lessons}: {item['title']}"
             prog_val = int(10 + (idx / total_lessons) * 80)
             db_session.status_text = status_msg
@@ -203,31 +231,71 @@ async def generate_course_content_task_async(session_id: str):
 
             # 4. Custom/unlocked sections
             sections_dict = item.get("sections", {})
+            if not isinstance(sections_dict, dict):
+                sections_dict = {}
             for role_name in ["creator", "student", "educator"]:
                 role_sects = sections_dict.get(role_name, [])
-                for s in role_sects:
-                    if not s.get("locked", False) and s.get("type"):
-                        try:
-                            cs_content = await pipeline.generate_custom_section_content(
-                                lesson.title,
-                                s.get("title"),
-                                s.get("instruction", "Write curriculum content."),
-                                grounding_data
-                            )
+                if not isinstance(role_sects, list):
+                    role_sects = []
+                unlocked_sects = [s for s in role_sects if isinstance(s, dict) and not s.get("locked", False) and s.get("type")]
+                if unlocked_sects:
+                    try:
+                        cs_dict = await pipeline.generate_custom_sections_content(
+                            lesson.title,
+                            unlocked_sects,
+                            grounding_data
+                        )
+                        if isinstance(cs_dict, dict):
+                            for s in unlocked_sects:
+                                sec_type = s.get("type")
+                                sec_title = s.get("title", "Custom Section")
+                                slug_title = re.sub(r'[^a-z0-9_]', '_', sec_title.lower()).strip('_')
+                                
+                                # 1. Exact matches
+                                content_val = cs_dict.get(sec_type) or cs_dict.get(slug_title) or cs_dict.get(sec_title)
+                                
+                                # 2. Case-insensitive / normalized key matches
+                                if not content_val:
+                                    search_keys = {sec_type.lower(), slug_title.lower(), sec_title.lower()}
+                                    for k, v in cs_dict.items():
+                                        if k.lower() in search_keys:
+                                            content_val = v
+                                            break
+                                
+                                # 3. Dedicated unique fallback per section (never steal from another section)
+                                if not content_val:
+                                    content_val = f"### {sec_title}\nThis section provides comprehensive details and actionable guidelines for **{sec_title}** within {lesson.title}."
+
+                                db.query(Section).filter(
+                                    Section.lesson_id == lesson.id,
+                                    Section.role == role_name,
+                                    Section.section_type == sec_type
+                                ).delete()
+                                sec = Section(
+                                    lesson_id=lesson.id,
+                                    role=role_name,
+                                    section_type=sec_type,
+                                    content_text=json.dumps(content_val)
+                                )
+                                db.add(sec)
+                    except Exception as e_cs:
+                        print(f"Error generating custom sections for role {role_name}: {e_cs}")
+                        for s in unlocked_sects:
+                            sec_type = s.get("type")
+                            sec_title = s.get("title", "Custom Section")
+                            fallback_val = f"### {sec_title}\nDetailed curriculum content for {sec_title} in {lesson.title}."
                             db.query(Section).filter(
                                 Section.lesson_id == lesson.id,
                                 Section.role == role_name,
-                                Section.section_type == s.get("type")
+                                Section.section_type == sec_type
                             ).delete()
                             sec = Section(
                                 lesson_id=lesson.id,
                                 role=role_name,
-                                section_type=s.get("type"),
-                                content_text=json.dumps(cs_content)
+                                section_type=sec_type,
+                                content_text=json.dumps(fallback_val)
                             )
                             db.add(sec)
-                        except Exception as e_cs:
-                            print(f"Error generating custom section '{s.get('title')}': {e_cs}")
 
             db.commit()
 

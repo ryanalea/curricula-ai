@@ -64,8 +64,8 @@ export function Step2ContextConfig({
               <IconLayers />
             </div>
             <div>
-              <h3 className="tech-tags-title">Technical Tags &amp; Topics</h3>
-              <p className="tech-tags-subtitle">Choose the technologies that will power your project. Showing up to {Math.min(allSuggestedTags.length, 20)} relevant suggestions.</p>
+              <h3 className="tech-tags-title">Key Topics &amp; Skill Tags</h3>
+              <p className="tech-tags-subtitle">Select key skills, concepts, and tools for this course. Showing up to {Math.min(allSuggestedTags.length, 20)} relevant suggestions.</p>
             </div>
           </div>
           <div className="tech-tags-count-badge">
@@ -100,7 +100,7 @@ export function Step2ContextConfig({
           <input
             type="text"
             className="tech-tags-custom-input"
-            placeholder="Add custom tech stack..."
+            placeholder="Add custom skill or concept tag..."
             value={newTag}
             onChange={(e) => setNewTag(e.target.value)}
             onKeyDown={handleAddCustomTag}
@@ -130,40 +130,61 @@ export function Step2ContextConfig({
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-1)', padding: '12px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Avg. Duration per Lesson (Min)</span>
-              <span style={{ fontSize: '0.75rem', color: '#888' }}>{configDuration} min</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              {[5, 10, 15, 30, 60, 90, 120].map(p => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setConfigDuration(p)}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    border: `1px solid ${configDuration === p ? 'var(--gold)' : 'var(--border-color)'}`,
-                    background: configDuration === p ? 'var(--gold)' : 'transparent',
-                    color: configDuration === p ? '#fff' : 'var(--navy)',
-                  }}
-                >
-                  {p}
-                </button>
-              ))}
-              <input
-                type="number"
-                min="1"
-                max="480"
-                value={configDuration}
-                onChange={(e) => setConfigDuration(Math.max(1, Math.min(480, Number(e.target.value) || 0)))}
-                style={{ minHeight: 'auto', padding: '6px 8px', maxWidth: '70px', marginBottom: 0, textAlign: 'center' }}
-              />
-              <span style={{ fontSize: '0.75rem', color: '#888' }}>min</span>
-            </div>
+            {(() => {
+              let numVal = 60;
+              if (typeof configDuration === 'number' && !isNaN(configDuration)) {
+                numVal = configDuration;
+              } else if (typeof configDuration === 'string') {
+                if (configDuration.includes('week') || configDuration.includes('day')) {
+                  numVal = 60;
+                } else {
+                  const parsed = parseInt(configDuration, 10);
+                  numVal = !isNaN(parsed) && parsed > 0 ? parsed : 60;
+                }
+              }
+              const isWeekScope = typeof configDuration === 'string' && (configDuration.includes('week') || configDuration.includes('day'));
+
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Avg. Duration per Lesson (Min)</span>
+                    <span style={{ fontSize: '0.75rem', color: '#888' }}>
+                      {isWeekScope ? `${configDuration} (${numVal} min/lesson)` : `${numVal} min`}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    {[5, 10, 15, 30, 60, 90, 120].map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setConfigDuration(p)}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          border: `1px solid ${numVal === p ? 'var(--gold)' : 'var(--border-color)'}`,
+                          background: numVal === p ? 'var(--gold)' : 'transparent',
+                          color: numVal === p ? '#fff' : 'var(--navy)',
+                        }}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                    <input
+                      type="number"
+                      min="1"
+                      max="480"
+                      value={numVal}
+                      onChange={(e) => setConfigDuration(Math.max(1, Math.min(480, Number(e.target.value) || 60)))}
+                      style={{ minHeight: 'auto', padding: '6px 8px', maxWidth: '70px', marginBottom: 0, textAlign: 'center' }}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: '#888' }}>min</span>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -365,13 +386,13 @@ export function Step2ContextConfig({
 
             {isPreviewMode ? (
               <div className="prompt-textarea editor-preview-box">
-                <ContentRenderer text={subjectContext || '*No content to preview yet.*'} />
+                <ContentRenderer text={(subjectContext ? subjectContext.replace(/\[(DOMAIN|INTERACTIVITY|TOOLS REQUIRED|FINAL PROJECT|EXPLICIT OUTLINE):[^\]]*\]\n?/gi, '').trim() : '') || '*No content to preview yet.*'} />
               </div>
             ) : (
               <textarea
                 ref={contextTextareaRef}
                 className="prompt-textarea"
-                value={subjectContext}
+                value={(subjectContext || '').replace(/\[(DOMAIN|INTERACTIVITY|TOOLS REQUIRED|FINAL PROJECT|EXPLICIT OUTLINE):[^\]]*\]\n?/gi, '').trim()}
                 onChange={(e) => setSubjectContext(e.target.value)}
                 style={{ minHeight: '220px' }}
                 placeholder="Add any extra context about this subject matter to improve AI quality…"

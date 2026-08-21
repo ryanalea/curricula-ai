@@ -145,7 +145,7 @@ export function Step5Structure({
                   </span>
                   <input
                     type="text"
-                    value={item.title}
+                    value={(item.title || '').replace(/^Lesson\s*\d+[\s\:\.\-]*/i, '')}
                     onChange={(e) => {
                       const updated = [...structure];
                       updated[idx].title = e.target.value;
@@ -289,8 +289,14 @@ export function Step5Structure({
                                   type="text"
                                   value={sec.title}
                                   onChange={(e) => {
-                                    const updated = [...structure];
-                                    updated[lIdx].sections[activeStructureRole][sIdx].title = e.target.value;
+                                    const val = e.target.value;
+                                    const updated = structure.map(lesson => {
+                                      const lSecs = lesson.sections ? JSON.parse(JSON.stringify(lesson.sections)) : JSON.parse(JSON.stringify(defaultSections));
+                                      if (lSecs[activeStructureRole]?.[sIdx]) {
+                                        lSecs[activeStructureRole][sIdx].title = val;
+                                      }
+                                      return { ...lesson, sections: lSecs };
+                                    });
                                     setStructure(updated);
                                   }}
                                   className="structure-title-input"
@@ -301,8 +307,14 @@ export function Step5Structure({
                                 type="text"
                                 value={sec.instruction}
                                 onChange={(e) => {
-                                  const updated = [...structure];
-                                  updated[lIdx].sections[activeStructureRole][sIdx].instruction = e.target.value;
+                                  const val = e.target.value;
+                                  const updated = structure.map(lesson => {
+                                    const lSecs = lesson.sections ? JSON.parse(JSON.stringify(lesson.sections)) : JSON.parse(JSON.stringify(defaultSections));
+                                    if (lSecs[activeStructureRole]?.[sIdx]) {
+                                      lSecs[activeStructureRole][sIdx].instruction = val;
+                                    }
+                                    return { ...lesson, sections: lSecs };
+                                  });
                                   setStructure(updated);
                                 }}
                                 placeholder="AI instructions for this section..."
@@ -321,8 +333,13 @@ export function Step5Structure({
                               <button 
                                 className="icon-btn-tool danger" 
                                 onClick={() => {
-                                  const updated = [...structure];
-                                  updated[lIdx].sections[activeStructureRole] = sections.filter((_, i) => i !== sIdx);
+                                  const updated = structure.map(lesson => {
+                                    const lSecs = lesson.sections ? JSON.parse(JSON.stringify(lesson.sections)) : JSON.parse(JSON.stringify(defaultSections));
+                                    if (lSecs[activeStructureRole]) {
+                                      lSecs[activeStructureRole] = lSecs[activeStructureRole].filter((_, i) => i !== sIdx);
+                                    }
+                                    return { ...lesson, sections: lSecs };
+                                  });
                                   setStructure(updated);
                                 }}
                               >

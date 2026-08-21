@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { IconSpinner, IconCheck, IconChevronLeft, IconChevronRight } from '../icons/Icons';
 import { CreatorView } from '../views/CreatorView';
 import { StudentView } from '../views/StudentView';
@@ -39,6 +40,24 @@ export function Step7Generating({
   renderCustomSections,
   toast
 }) {
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [isCanceling, setIsCanceling] = useState(false);
+
+  const handleConfirmCancel = () => {
+    setIsCanceling(true);
+    fetch(`${API_BASE}/courses/sessions/${sessionId}/cancel`, { method: 'POST' }).catch((e) => {
+      console.error("Cancel API call error:", e);
+    });
+
+    setTimeout(() => {
+      setIsCanceling(false);
+      setShowCancelModal(false);
+      setGenerationProgress(0);
+      setCurrentStep('review');
+      if (toast) toast.info("Generation canceled. Returned to Step 6 Review.");
+    }, 150);
+  };
+
   // ── Scroll Spy ──────────────────────────────────────────────────────────────
   const observerRef = useRef(null);
 
@@ -89,6 +108,19 @@ export function Step7Generating({
     return () => { if (observerRef.current) observerRef.current.disconnect(); };
   }, [activeRole, currentGeneratingLessonIdx, setupScrollSpy]);
 
+  // Keep activeLessonId strictly synchronized with currently selected structure lesson for Edit/Save/AI Actions
+  useEffect(() => {
+    const structLesson = (structure || [])[currentGeneratingLessonIdx];
+    const matchedLesson = courseData?.lessons?.find(l => 
+      (structLesson?.id && l.id === structLesson.id) || 
+      (structLesson?.title && (l.title === structLesson.title || l.title?.replace(/^Lesson\s*\d+\s*:\s*/i, '') === structLesson.title?.replace(/^Lesson\s*\d+\s*:\s*/i, '')))
+    ) || courseData?.lessons?.[currentGeneratingLessonIdx];
+
+    if (matchedLesson?.id && setActiveLessonId) {
+      setActiveLessonId(matchedLesson.id);
+    }
+  }, [currentGeneratingLessonIdx, courseData, structure, setActiveLessonId]);
+
   return (
     <div>
       <div className="header" style={{ alignItems: 'flex-start', marginBottom: '24px', gap: '16px' }}>
@@ -105,20 +137,55 @@ export function Step7Generating({
 
           {/* Collapsible Prompt Accordion */}
           {promptText && (
-            <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden', maxWidth: '600px' }}>
+            <div 
+              style={{ 
+                marginTop: '10px', 
+                background: promptExpanded ? 'rgba(72,107,245,0.06)' : 'var(--surface-2)', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: 'var(--radius-md)', 
+                overflow: 'hidden', 
+                maxWidth: '600px',
+                transition: 'all 0.2s ease'
+              }}
+            >
               <button
+                type="button"
                 onClick={() => setPromptExpanded(v => !v)}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: 'transparent', border: 'none', cursor: 'pointer', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+                style={{ 
+                  width: '100%', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between', 
+                  padding: '9px 14px', 
+                  background: 'transparent', 
+                  border: 'none', 
+                  cursor: 'pointer', 
+                  color: 'var(--blue)', 
+                  fontSize: '0.8rem', 
+                  fontWeight: 700 
+                }}
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  {promptExpanded ? 'Hide Full Prompt' : 'View Original Prompt'}
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  View Original Prompt
                 </span>
-                <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ transform: promptExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.22s ease', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+                <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ transform: promptExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', marginLeft: 'auto', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
               </button>
               {promptExpanded && (
-                <div style={{ padding: '10px 14px 13px', borderTop: '1px solid var(--border-color)', fontSize: '0.83rem', color: 'var(--text-secondary)', lineHeight: 1.65, fontStyle: 'italic', maxHeight: '190px', overflowY: 'auto' }}>
-                  "{promptText}"
+                <div 
+                  style={{ 
+                    padding: '10px 14px 14px', 
+                    borderTop: '1px solid var(--border-color)', 
+                    fontSize: '0.84rem', 
+                    color: 'var(--text-secondary)', 
+                    lineHeight: 1.6, 
+                    fontStyle: 'italic', 
+                    maxHeight: '180px', 
+                    overflowY: 'auto',
+                    background: '#ffffff'
+                  }}
+                >
+                  "{promptText ? promptText.replace(/\[(DOMAIN|INTERACTIVITY|TOOLS REQUIRED|FINAL PROJECT|EXPLICIT OUTLINE):[^\]]*\]\n?/gi, '').trim() : ''}"
                 </div>
               )}
             </div>
@@ -181,20 +248,10 @@ export function Step7Generating({
           </div>
           {generationProgress < 100 && (
             <button 
+              type="button"
               className="cancel-gen-btn"
-              style={{ background: 'transparent', border: '1.5px solid #F87171', color: '#EF4444', fontWeight: 700, padding: '4px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-              onClick={async () => {
-                if (confirm('Are you sure you want to cancel the generation?')) {
-                  try {
-                    await fetch(`${API_BASE}/courses/sessions/${sessionId}/cancel`, { method: 'POST' });
-                  } catch (e) {
-                    console.error("Cancel API call error:", e);
-                  }
-                  setGenerationProgress(0);
-                  setCurrentStep('review');
-                  if (toast) toast.info("Generation canceled. Returned to Step 6 Review.");
-                }
-              }}
+              style={{ background: 'transparent', border: '1.5px solid #F87171', color: '#EF4444', fontWeight: 700, padding: '5px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative', zIndex: 10 }}
+              onClick={() => setShowCancelModal(true)}
             >
               Cancel
             </button>
@@ -235,11 +292,11 @@ export function Step7Generating({
 
           <div style={{ textAlign: 'center' }}>
             <span style={{ fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
-              LESSON {currentGeneratingLessonIdx + 1} OF {structure.length || 1}
+              LESSON {currentGeneratingLessonIdx + 1} OF {(structure || []).length || 1}
             </span>
             <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--navy)', margin: 0 }}>
               {(() => {
-                const rawTitle = structure[currentGeneratingLessonIdx]?.title || 'Crafting an Actionable AI Strategy Blueprint';
+                const rawTitle = (structure || [])[currentGeneratingLessonIdx]?.title || 'Crafting an Actionable AI Strategy Blueprint';
                 return rawTitle.replace(/^Lesson\s*\d+\s*:\s*/i, '');
               })()}
             </h3>
@@ -248,8 +305,8 @@ export function Step7Generating({
           <button 
             className="library-page-btn playful-card" 
             style={{ width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
-            onClick={() => setCurrentGeneratingLessonIdx(Math.min((structure.length || 1) - 1, currentGeneratingLessonIdx + 1))}
-            disabled={currentGeneratingLessonIdx >= (structure.length || 1) - 1}
+            onClick={() => setCurrentGeneratingLessonIdx(Math.min(((structure || []).length || 1) - 1, currentGeneratingLessonIdx + 1))}
+            disabled={currentGeneratingLessonIdx >= ((structure || []).length || 1) - 1}
             title="Next Lesson"
           >
             <IconChevronRight />
@@ -291,7 +348,7 @@ export function Step7Generating({
             {(() => {
               // ── Build TOC respecting user-defined section order from structure ──
               const curTocLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
-              const structTocLesson = structure.find(l => l.id === curTocLesson?.id || l.title === curTocLesson?.title) || structure[0];
+              const structTocLesson = (structure || []).find(l => l.id === curTocLesson?.id || l.title === curTocLesson?.title) || (structure || [])[0];
               const structSections = structTocLesson?.sections?.[activeRole] || [];
 
               // Canonical label map for built-in types
@@ -327,10 +384,11 @@ export function Step7Generating({
 
               let secList;
               if (structSections.length > 0) {
-                // Use structure order; locked sections are the built-ins, unlocked are custom
+                // Use structure order; locked sections are built-ins, unlocked are custom
                 secList = structSections.map(s => {
-                  const domId = DOM_ID_MAP[s.type] || s.type;
-                  return { id: domId, title: LABEL_MAP[s.type] || s.title };
+                  const domId = s.type === 'outcomes' ? 'learning_outcomes' : s.type === 'quiz' ? 'quizzes' : s.type === 'why_matters' ? 'why_this_matters' : s.type === 'facilitator' ? 'facilitator_guide' : s.type === 'discussion' ? 'discussion_questions' : s.type;
+                  const label = LABEL_MAP[s.type] || s.title || s.type;
+                  return { id: domId, title: label };
                 });
               } else {
                 // Fallback hardcoded order
@@ -433,7 +491,11 @@ export function Step7Generating({
             {/* Live Rendered Content Body */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               {(() => {
-                const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
+                const structTocLesson = (structure || [])[currentGeneratingLessonIdx] || (structure || [])[0];
+                const curLesson = courseData?.lessons?.find(l => 
+                  (structTocLesson?.id && l.id === structTocLesson.id) ||
+                  (structTocLesson?.title && (l.title === structTocLesson.title || l.title?.replace(/^Lesson\s*\d+\s*:\s*/i, '') === structTocLesson.title?.replace(/^Lesson\s*\d+\s*:\s*/i, '')))
+                ) || courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
                 const curSecs = curLesson?.sections?.[activeRole] || {};
                 const lessonTitle = curLesson?.title || courseData?.title || 'Machine Learning Essentials';
 
@@ -507,6 +569,7 @@ export function Step7Generating({
                     {activeRole === 'student' && (
                       <StudentView
                         activeLessonContent={activeLessonContent}
+                        sectionOrder={structTocLesson?.sections?.student || []}
                         editingSection={editingSection}
                         setEditingSection={setEditingSection}
                         editingText={editingText}
@@ -523,6 +586,7 @@ export function Step7Generating({
                     {activeRole === 'educator' && (
                       <EducatorView
                         activeLessonContent={activeLessonContent}
+                        sectionOrder={structTocLesson?.sections?.educator || []}
                         editingSection={editingSection}
                         setEditingSection={setEditingSection}
                         editingText={editingText}
@@ -541,6 +605,105 @@ export function Step7Generating({
           </div>
         </div>
       </div>
+
+      {/* In-App Cancel Confirmation Modal via Portal */}
+      {showCancelModal && typeof document !== 'undefined' && createPortal(
+        <div 
+          className="modal-overlay" 
+          style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            width: '100vw', 
+            height: '100vh', 
+            background: 'rgba(15, 23, 42, 0.7)', 
+            backdropFilter: 'blur(8px)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 99999999 
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget && !isCanceling) setShowCancelModal(false); }}
+        >
+          <div 
+            style={{ 
+              background: '#ffffff', 
+              padding: '36px 32px', 
+              borderRadius: '24px', 
+              maxWidth: '440px', 
+              width: '90%', 
+              textAlign: 'center', 
+              boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.35)', 
+              border: '1px solid rgba(226, 232, 240, 0.9)',
+              animation: 'scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', border: '1px solid #fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto', boxShadow: '0 4px 14px rgba(239, 68, 68, 0.15)' }}>
+              <svg width="28" height="28" fill="none" stroke="#dc2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="15" y1="9" x2="9" y2="15"></line>
+                <line x1="9" y1="9" x2="15" y2="15"></line>
+              </svg>
+            </div>
+
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0f172a', marginBottom: '10px', letterSpacing: '-0.02em' }}>
+              Cancel Course Generation?
+            </h3>
+            
+            <p style={{ fontSize: '0.92rem', color: '#64748b', marginBottom: '24px', lineHeight: 1.5 }}>
+              Are you sure you want to stop generating? Content generated so far will be saved and you will return to <strong>Step 6 Review</strong> to adjust your configuration.
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button 
+                type="button"
+                style={{ 
+                  flex: 1, 
+                  padding: '12px 18px', 
+                  borderRadius: '12px', 
+                  background: '#ffffff', 
+                  color: '#475569', 
+                  border: '1px solid #cbd5e1',
+                  fontWeight: 700,
+                  fontSize: '0.9rem',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setShowCancelModal(false)}
+                disabled={isCanceling}
+              >
+                Keep Generating
+              </button>
+              <button 
+                type="button"
+                style={{ 
+                  flex: 1, 
+                  padding: '12px 18px', 
+                  borderRadius: '12px', 
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', 
+                  color: '#ffffff', 
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.9rem',
+                  cursor: isCanceling ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)'
+                }}
+                onClick={handleConfirmCancel}
+                disabled={isCanceling}
+              >
+                {isCanceling ? <IconSpinner /> : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

@@ -71,13 +71,21 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
   const handleRemoveAttachedFile = async () => {
     setPendingFile(null);
     setUploadedFileName('');
+    
+    // Clean document context mention from subjectContext state
+    setSubjectContext(prev => {
+      if (!prev) return '';
+      return prev.replace(/=== Context from (?:Reference Document|Uploaded File) [^=]+===\n[\s\S]*?(?=\n\n|$)/gi, '').trim();
+    });
+
     if (sessionId) {
       try {
-        await fetch(`${API_BASE}/sessions/${sessionId}/documents`, { method: 'DELETE' });
+        await fetch(`${API_BASE}/courses/sessions/${sessionId}/documents`, { method: 'DELETE' });
       } catch (err) {
         console.error('Failed to delete document from session:', err);
       }
     }
+    if (toast) toast.info("Attached reference document removed.");
   };
 
   const [showHeadingDropdown, setShowHeadingDropdown] = useState(false);
@@ -180,7 +188,13 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
   };
 
   const handleAIAction = async (sectionType, action, params = {}) => {
+    // If user is currently in edit mode on this section, confirm before overwriting
+    if (editingSection === sectionType) {
+      const ok = window.confirm(`You are currently editing this section. Running AI ${action} will overwrite your unsaved edits. Continue?`);
+      if (!ok) return;
+    }
     setSectionLoading(prev => ({ ...prev, [sectionType]: true }));
+
     try {
       const res = await fetch(`${API_BASE}/lessons/${activeLessonId}/sections/ai-action`, {
         method: 'POST',
@@ -288,6 +302,10 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
               toast.success("Generation completed! Review & edit your course material below, or click 'Proceed to Assets' when ready.");
               fetchSessions();
             }
+          } else if (sessData.status === 'canceled' || data.status === 'canceled') {
+            if (eventSource) eventSource.close();
+            if (fallbackInterval) clearInterval(fallbackInterval);
+            setCurrentStep('review');
           } else if (sessData.status === 'error' || data.status === 'error') {
             if (eventSource) eventSource.close();
             if (fallbackInterval) clearInterval(fallbackInterval);
@@ -357,17 +375,24 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-    if (uploadedFileName) {
-      const confirmReplace = window.confirm(`Replacing attached document "${uploadedFileName}" with "${file.name}". Continue?`);
+    if (activeFileName) {
+      const confirmReplace = window.confirm(`Replacing attached document "${activeFileName}" with "${file.name}". Continue?`);
       if (!confirmReplace) {
         event.target.value = '';
         return;
       }
     }
 
+    if (!sessionId) {
+      setPendingFile(file);
+      setUploadedFileName(file.name);
+      event.target.value = '';
+      toast.success(`Attached reference document: ${file.name}`);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      if (!sessionId) return;
       const formData = new FormData();
       formData.append('file', file);
       const uploadRes = await fetch(`${API_BASE}/sessions/${sessionId}/documents/upload`, {
@@ -376,10 +401,18 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
       });
       if (uploadRes.ok) {
         const uploadData = await uploadRes.json();
-        setUploadedFileName(uploadData.filename || file.name);
-        toast.success(`Successfully uploaded reference document: ${file.name}`);
+        const fname = uploadData.filename || uploadData.document_filename || file.name;
+        setUploadedFileName(fname);
+        if (uploadData.subject_context) {
+          setSubjectContext(uploadData.subject_context);
+        }
+        if (uploadData.tech_tags && Array.isArray(uploadData.tech_tags)) {
+          setTechTags(prev => Array.from(new Set([...prev, ...uploadData.tech_tags])));
+        }
+        toast.success(`Successfully uploaded reference document: ${fname}`);
       } else {
-        toast.error('Failed to upload document.');
+        const errJson = await uploadRes.json().catch(() => ({}));
+        toast.error(errJson.detail || 'Failed to upload document.');
       }
     } catch (err) {
       console.error(err);
@@ -401,8 +434,14 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
       });
       if (uploadRes.ok) {
         const uploadData = await uploadRes.json();
-        setSubjectContext(uploadData.subject_context);
-        setUploadedFileName(uploadData.filename || pendingFile.name);
+        const fname = uploadData.filename || uploadData.document_filename || pendingFile.name;
+        setUploadedFileName(fname);
+        if (uploadData.subject_context) {
+          setSubjectContext(uploadData.subject_context);
+        }
+        if (uploadData.tech_tags && Array.isArray(uploadData.tech_tags)) {
+          setTechTags(prev => Array.from(new Set([...prev, ...uploadData.tech_tags])));
+        }
       }
     } catch (err) {
       console.error('Failed to upload pending file:', err);
@@ -445,14 +484,15 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
         setConfigDuration(data.config?.duration || 60);
         setConfigDifficulty(data.config?.difficulty || 'Beginner');
         setConfigAudience(data.config?.target_audience || 'Student');
-        setSubjectContext(data.subject_context || '');
+        const cleanContext = (data.subject_context || '').replace(/\[(DOMAIN|INTERACTIVITY|TOOLS REQUIRED|FINAL PROJECT|EXPLICIT OUTLINE):[^\]]*\]\n?/gi, '').trim();
+        setSubjectContext(cleanContext);
         const initialConfigHash = JSON.stringify({
           techTags: loadedTech,
           configDifficulty: data.config?.difficulty || 'Beginner',
           configAudience: data.config?.target_audience || 'Student',
           configLessons: data.config?.lessons_count || 5,
           configDuration: data.config?.duration || 60,
-          subjectContext: data.subject_context || '',
+          subjectContext: cleanContext,
         });
         setLastSavedConfigHash(initialConfigHash);
         setCurrentView('wizard');
@@ -553,7 +593,7 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
       configAudience,
       configLessons,
       configDuration,
-      subjectContext,
+      subjectContext: (subjectContext || '').replace(/\s+/g, ' ').trim(),
     });
 
     try {
@@ -705,6 +745,10 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
   };
 
   const handleTriggerGeneration = async () => {
+    if (courseData?.lessons?.length > 0) {
+      if (toast) toast.info("Regenerating course. Previous partial or edited content will be overwritten.");
+    }
+
     setIsLoading(true);
     completedToastSessionRef.current = null;
     try {
@@ -722,9 +766,13 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
         setGenerationProgress(5);
         setGenerationStatusText('Preparing generation pipeline...');
         setCurrentStep('generating');
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        if (toast) toast.error(errData.detail || 'Failed to start generation pipeline. Please check backend server.');
       }
     } catch (err) {
-      console.error(err);
+      console.error('Trigger generation error:', err);
+      if (toast) toast.error('Connection error starting generation. Please ensure Python backend is running.');
     } finally {
       setIsLoading(false);
     }
@@ -732,6 +780,12 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
 
   const handleJumpToReview = async () => {
     if (!sessionId) return;
+    // Fix 1: If proposals & structure already exist, skip regeneration and go directly to review
+    if (proposals.length > 0 && structure.length > 0) {
+      setCurrentStep('review');
+      return;
+    }
+
     setIsLoading(true);
     try {
       await fetch(`${API_BASE}/courses/sessions/${sessionId}/config`, {
@@ -885,26 +939,56 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
   };
 
   const moveSection = (lessonId, roleKey, fromIdx, toIdx) => {
-    const updated = [...structure];
-    const lIdx = updated.findIndex(l => l.id === lessonId);
-    if (lIdx === -1) return;
-    const sections = [...(updated[lIdx].sections?.[roleKey] || [])];
-    if (fromIdx < 0 || toIdx < 0 || fromIdx >= sections.length || toIdx >= sections.length) return;
-    const [moved] = sections.splice(fromIdx, 1);
-    sections.splice(toIdx, 0, moved);
-    updated[lIdx].sections[roleKey] = sections;
+    const updated = structure.map(lesson => {
+      const lSecs = lesson.sections ? JSON.parse(JSON.stringify(lesson.sections)) : JSON.parse(JSON.stringify(defaultSections));
+      const sections = [...(lSecs[roleKey] || [])];
+      if (fromIdx >= 0 && toIdx >= 0 && fromIdx < sections.length && toIdx < sections.length) {
+        const [moved] = sections.splice(fromIdx, 1);
+        sections.splice(toIdx, 0, moved);
+        lSecs[roleKey] = sections;
+      }
+      return { ...lesson, sections: lSecs };
+    });
     setStructure(updated);
   };
 
-  const goToDashboard = () => {
-    setCurrentView('home');
-    setCurrentStep('dashboard');
-    setShowMyCourses(false);
+  const resetWizardState = () => {
     setSessionId(null);
     setPromptText('');
+    setPromptExpanded(false);
+    setTechTags([]);
+    setAllSuggestedTags([]);
+    setNewTag('');
+    setConfigLessons(5);
+    setConfigDuration(60);
+    setConfigDifficulty('Beginner');
+    setConfigAudience('Student');
+    setSubjectContext('');
+    setPendingFile(null);
+    setUploadedFileName('');
+    setPrerequisites([]);
+    setBoundaries([]);
+    setLearningOutcomes([]);
     setProposals([]);
+    setSelectedProposalId(null);
+    setLastSavedConfigHash(null);
     setStructure([]);
+    setSelectedStructureLessonId(null);
     setCourseData(null);
+    setActiveLessonId(null);
+    setCurrentGeneratingLessonIdx(0);
+    setGenerationProgress(0);
+    setGenerationStatusText('');
+    setEditingSection(null);
+    setEditingText('');
+    setShowMyCourses(false);
+    completedToastSessionRef.current = null;
+  };
+
+  const goToDashboard = () => {
+    resetWizardState();
+    setCurrentView('home');
+    setCurrentStep('dashboard');
   };
 
   // ── Render Helpers ──
@@ -1017,6 +1101,7 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
     handleJumpToReview, handleResumeSession,
     moveLesson, deleteLesson, addLesson, moveSection,
     goToDashboard,
+    resetWizardState,
     checkCanEdit, handleAIAction, handleSaveManualEdit,
     renderAIActionBar, renderCustomSections,
     fetchSessions

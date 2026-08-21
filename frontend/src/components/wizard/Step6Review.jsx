@@ -55,20 +55,55 @@ export function Step6Review({
                     return words.slice(0, 7).join(' ') + (words.length > 7 ? '…' : '');
                   })()}
                 </h3>
-
-                {/* Collapsible full prompt accordion */}
                 {promptText && (
-                  <div style={{ marginTop: '10px', background: 'rgba(72,107,245,0.05)', border: '1px solid rgba(72,107,245,0.18)', borderRadius: '10px', overflow: 'hidden' }}>
+                  <div 
+                    style={{ 
+                      marginTop: '12px', 
+                      background: promptExpanded ? 'rgba(72,107,245,0.06)' : 'rgba(72,107,245,0.03)', 
+                      border: '1px solid rgba(72,107,245,0.2)', 
+                      borderRadius: '10px', 
+                      overflow: 'hidden',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
                     <button
+                      type="button"
                       onClick={() => setPromptExpanded(v => !v)}
-                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', gap: '8px', color: 'var(--blue)', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.03em' }}
+                      style={{ 
+                        width: '100%', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between', 
+                        padding: '10px 14px', 
+                        background: 'transparent', 
+                        border: 'none', 
+                        cursor: 'pointer', 
+                        color: 'var(--blue)', 
+                        fontSize: '0.84rem', 
+                        fontWeight: 700 
+                      }}
                     >
-                      <span>{promptExpanded ? 'Hide Full Prompt' : 'View Original Prompt & Approach'}</span>
-                      <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ transform: promptExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.22s ease', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        View Original Prompt & Approach
+                      </span>
+                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ transform: promptExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', marginLeft: 'auto', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
                     {promptExpanded && (
-                      <div style={{ padding: '8px 14px 12px', borderTop: '1px solid rgba(72,107,245,0.18)', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.65, fontStyle: 'italic', maxHeight: '180px', overflowY: 'auto' }}>
-                        "{promptText}"
+                      <div 
+                        style={{ 
+                          padding: '12px 16px', 
+                          borderTop: '1px solid rgba(72,107,245,0.18)', 
+                          fontSize: '0.85rem', 
+                          color: 'var(--text-secondary)', 
+                          lineHeight: 1.65, 
+                          fontStyle: 'italic', 
+                          maxHeight: '200px', 
+                          overflowY: 'auto',
+                          background: '#ffffff'
+                        }}
+                      >
+                        "{promptText ? promptText.replace(/\[(DOMAIN|INTERACTIVITY|TOOLS REQUIRED|FINAL PROJECT|EXPLICIT OUTLINE):[^\]]*\]\n?/gi, '').trim() : ''}"
                       </div>
                     )}
                   </div>
@@ -96,9 +131,16 @@ export function Step6Review({
                 </div>
               )}
 
-              <div className="concept-description-text" style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.65', margin: '14px 0' }}>
-                <ContentRenderer text={subjectContext || `This course is engineered to provide comprehensive, hands-on mastery of ${promptText || 'the selected topic'}, covering foundational setup, core architectures, and real-world project implementation.`} />
-              </div>
+              {(() => {
+                const displayContext = subjectContext
+                  ? subjectContext.replace(/\[(DOMAIN|INTERACTIVITY|TOOLS REQUIRED|FINAL PROJECT|EXPLICIT OUTLINE):[^\]]*\]\n?/gi, '').trim()
+                  : '';
+                return (
+                  <div className="concept-description-text" style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.65', margin: '14px 0' }}>
+                    <ContentRenderer text={displayContext || `This course is engineered to provide comprehensive, hands-on mastery of ${promptText || 'the selected topic'}, covering foundational setup, core architectures, and real-world project implementation.`} />
+                  </div>
+                );
+              })()}
 
               <div className="concept-tech-pills-row">
                 {techTags.length > 0 ? techTags.map(tag => (
@@ -129,14 +171,10 @@ export function Step6Review({
               <div className="alignment-section-group">
                 <span className="alignment-section-label">PREREQUISITES</span>
                 <ul className="alignment-section-list green">
-                  {prerequisites.length > 0 ? prerequisites.map((item, idx) => (
+                  {prerequisites && prerequisites.length > 0 ? prerequisites.map((item, idx) => (
                     <li key={idx}>{item}</li>
                   )) : (
-                    <>
-                      <li>Can independently scope and plan a tech project</li>
-                      <li>Proficient with version control (e.g., Git)</li>
-                      <li>Comfortable seeking and incorporating feedback in teams</li>
-                    </>
+                    <li style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>No prerequisites specified.</li>
                   )}
                 </ul>
               </div>
@@ -144,14 +182,10 @@ export function Step6Review({
               <div className="alignment-section-group">
                 <span className="alignment-section-label">OUT OF SCOPE &amp; ASSUMPTIONS</span>
                 <ul className="alignment-section-list yellow">
-                  {boundaries.length > 0 ? boundaries.map((item, idx) => (
+                  {boundaries && boundaries.length > 0 ? boundaries.map((item, idx) => (
                     <li key={idx}>{item}</li>
                   )) : (
-                    <>
-                      <li>Instruction on core programming languages or frameworks</li>
-                      <li>Detailed tutorials on version control systems</li>
-                      <li>One-on-one mentorship for project ideation</li>
-                    </>
+                    <li style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>No out-of-scope boundaries defined.</li>
                   )}
                 </ul>
               </div>
@@ -159,14 +193,10 @@ export function Step6Review({
               <div className="alignment-section-group">
                 <span className="alignment-section-label">LEARNING OUTCOMES</span>
                 <ul className="alignment-section-list purple">
-                  {learningOutcomes.length > 0 ? learningOutcomes.map((item, idx) => (
+                  {learningOutcomes && learningOutcomes.length > 0 ? learningOutcomes.map((item, idx) => (
                     <li key={idx}>{item}</li>
                   )) : (
-                    <>
-                      <li>Design and present a complete technical project solution</li>
-                      <li>Evaluate and iterate project implementations using peer feedback</li>
-                      <li>Explain project design decisions and trade-offs to stakeholders</li>
-                    </>
+                    <li style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Standard learning outcomes apply.</li>
                   )}
                 </ul>
               </div>
@@ -195,7 +225,7 @@ export function Step6Review({
                 {structure.length > 0 ? structure.map((item, idx) => (
                   <div key={item.id} className="milestone-pill-item">
                     <span className="milestone-code">M{idx + 1 < 10 ? `0${idx + 1}` : idx + 1}</span>
-                    <span className="milestone-title">{item.title}</span>
+                    <span className="milestone-title">{(item.title || '').replace(/^Lesson\s*\d+[\s\:\.\-]*/i, '')}</span>
                   </div>
                 )) : (
                   [
@@ -223,17 +253,8 @@ export function Step6Review({
 
             <div className="review-card-v2-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {['creator', 'student', 'educator'].map(role => {
-                const roleSectionsMap = new Map();
-                structure.forEach(l => {
-                  (l.sections?.[role] || []).forEach(s => {
-                    const key = s.type || s.title?.toUpperCase();
-                    if (key && !roleSectionsMap.has(key)) {
-                      roleSectionsMap.set(key, s);
-                    }
-                  });
-                });
-                const secList = Array.from(roleSectionsMap.values());
-                const displayList = secList.length > 0 ? secList : (
+                const firstWithRole = (structure || []).find(l => l.sections?.[role] && l.sections[role].length > 0);
+                const displayList = firstWithRole ? firstWithRole.sections[role] : (
                   role === 'creator' ? defaultSections.creator :
                   role === 'student' ? defaultSections.student : defaultSections.educator
                 );

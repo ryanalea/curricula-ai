@@ -20,8 +20,9 @@ def get_course_history(session_id: str, db: Session = Depends(get_db)):
     } for h in history_list]
 
 
+@router.post("/api/v1/courses/{session_id}/history/{history_id}/restore")
 @router.post("/api/v1/history/{history_id}/restore")
-def restore_course_history(history_id: int, db: Session = Depends(get_db)):
+def restore_course_history(history_id: int, session_id: str = None, db: Session = Depends(get_db)):
     h = db.query(History).filter(History.id == history_id).first()
     if not h:
         raise HTTPException(status_code=404, detail="History entry not found")

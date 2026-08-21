@@ -8,7 +8,9 @@ from typing import Any
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables explicitly from backend/.env
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(env_path)
 load_dotenv()
 
 # Initialize client (OpenAI / OpenRouter)
@@ -195,7 +197,7 @@ def get_default_candidate_tags(keyword: str, tech_tags: list = None) -> list:
             combined.append(tag)
     return combined[:20]
 
-def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: str = "Beginner", audience: str = "Student"):
+def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: str = "Beginner", audience: str = "Student", document_context: str = ""):
     candidate_tags = get_default_candidate_tags(keyword, tags)
     selected_tags = tags if tags and len(tags) > 0 else (candidate_tags[:3] if candidate_tags else ["Project-Based Learning", "Experiential Learning"])
     if not client:
@@ -212,6 +214,8 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
             }
         }
     
+    doc_snippet = f"\n\n[ATTACHED REFERENCE DOCUMENT CONTENT]:\n{document_context[:3500]}\n" if document_context else ""
+
     try:
         prompt = f"""
         [ROLE]
@@ -219,20 +223,23 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
 
         [TASK]
         Analyze the following user input for a course: '{keyword}'
-        Target audience '{audience}', difficulty level '{difficulty}'.
+        Target audience '{audience}', difficulty level '{difficulty}'.{doc_snippet}
         
-        1. Determine if this input is a simple topic (1-5 words) or a complex instructional prompt.
+        1. Analyze the user input and reference document if attached. If input contains typos, informal slang, or messy casing (e.g., 'belajar ai dAn python untk pemula'), automatically proofread, normalize, and formalize it into a clean, professional course topic.
+           If the input is complete gibberish or random noise (e.g., 'asdfghjkl', '123456'), replace it with a high-quality, meaningful educational topic (e.g., 'Modern Artificial Intelligence Fundamentals').
+        2. Determine if this input is a simple topic (1-5 words) or a complex instructional prompt.
            If it is a simple topic or lacks specific instructions, set 'is_complex': false, and leave explicit parameters empty/null.
-        2. Extract a 'display_title' (catchy, max 4-6 words) representing the core topic.
-        3. Determine the 'course_domain' (e.g., "Coding", "Business & Management", "Pedagogy & Design", "Humanities", etc.).
-        4. Determine the best 'interactivity_type' (e.g., "Coding Sandbox", "Case Study Simulator", "Roleplay Simulator", "Step-by-Step Worksheet").
-        5. Extract any explicit user instructions if present (if 'is_complex' is true):
+        3. Extract a clean, professional 'display_title' (catchy, max 4-6 words) representing the core topic in proper Title Case (English). If a reference document is provided, reflect its primary focus (e.g., Google Antigravity).
+        4. Determine the 'course_domain' (e.g., "Coding", "Business & Management", "Pedagogy & Design", "Humanities", etc.).
+        5. Determine the best 'interactivity_type' (e.g., "Coding Sandbox", "Case Study Simulator", "Roleplay Simulator", "Step-by-Step Worksheet").
+        6. CRITICAL: If ATTACHED REFERENCE DOCUMENT CONTENT is provided above, you MUST prioritize and deeply incorporate its specific tools, framework names, concepts, and unique terms (e.g., Antigravity) into the display_title, subject_context, tech_tags, prerequisites, and learning_outcomes!
+        6. Extract any explicit user instructions if present (if 'is_complex' is true):
            - 'lesson_count' (integer, e.g., 4)
            - 'duration' (string, e.g., "2 weeks" or "1 hour")
            - 'tools' (array of strings, e.g., ["ChatGPT", "EdApp"])
            - 'final_project' (string)
            - 'explicit_outline' (array of strings, module/lesson titles provided by user)
-        6. Generate standard grounding data:
+        7. Generate standard grounding data:
            - A rich text content overview/context for this topic (2-3 paragraphs).
            - 20 relevant tags/topics (mix of technical skills, tools, concepts).
            - 3 Prerequisites.
@@ -273,41 +280,48 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
         )
         data = safe_load_json(response.choices[0].message.content)
         
-        # Build injected context
-        injected_context = f"[DOMAIN: {data.get('course_domain', 'General')}]\n"
-        injected_context += f"[INTERACTIVITY: {data.get('interactivity_type', 'Interactive Practice')}]\n"
-        explicit_params = data.get("explicit_parameters", {})
-        if explicit_params.get("tools"):
-            injected_context += f"[TOOLS REQUIRED: {', '.join(explicit_params.get('tools', []))}]\n"
-        if explicit_params.get("final_project"):
-            injected_context += f"[FINAL PROJECT: {explicit_params.get('final_project')}]\n"
-        if explicit_params.get("explicit_outline") and len(explicit_params.get("explicit_outline")) > 0:
-            outline_str = ", ".join(explicit_params.get("explicit_outline"))
-            injected_context += f"[EXPLICIT OUTLINE: {outline_str}]\n"
-            
-        injected_context += "\n" + data.get("subject_context", "")
+        # Store clean subject_context text without raw system brackets
+        clean_context = data.get("subject_context", "").strip()
+        import re
+        clean_context = re.sub(r'\[(DOMAIN|INTERACTIVITY|TOOLS REQUIRED|FINAL PROJECT|EXPLICIT OUTLINE):[^\]]*\]\n?', '', clean_context).strip()
+        injected_context = clean_context
         
-        # Normalize: wrap into grounding
-        if "grounding" not in data:
-            data = {
-                "display_title": data.get("display_title", keyword),
-                "is_complex": data.get("is_complex", False),
-                "explicit_parameters": explicit_params,
-                "subject_context": injected_context,
-                "grounding": {
-                    "tech_tags": data.get("all_suggested_tags", [])[:3],
-                    "all_suggested_tags": data.get("all_suggested_tags", []),
-                    "prerequisites": data.get("prerequisites", []),
-                    "out_of_scope": data.get("out_of_scope", []),
-                    "learning_outcomes": data.get("learning_outcomes", []),
-                    "target_audience": data.get("target_audience", audience or "Student")
-                }
+        explicit_params = data.get("explicit_parameters", {})
+        if not isinstance(explicit_params, dict):
+            explicit_params = {}
+
+        # Prioritize tools and key skills extracted by AI
+        extracted_tools = explicit_params.get("tools", [])
+        suggested_tags = data.get("all_suggested_tags", [])
+        
+        # Build prioritized selected tech tags
+        selected_tech = []
+        for t in extracted_tools + suggested_tags:
+            if t and t not in selected_tech:
+                selected_tech.append(t)
+        if not selected_tech:
+            selected_tech = get_default_candidate_tags(keyword)[:4]
+
+        # Combine all suggested tags with extracted tools
+        combined_suggested = []
+        for t in selected_tech + suggested_tags:
+            if t and t not in combined_suggested:
+                combined_suggested.append(t)
+
+        return {
+            "display_title": data.get("display_title", keyword),
+            "is_complex": data.get("is_complex", bool(explicit_params)),
+            "explicit_parameters": explicit_params,
+            "subject_context": injected_context,
+            "grounding": {
+                "tech_tags": selected_tech[:4],
+                "all_suggested_tags": combined_suggested[:20] if combined_suggested else get_default_candidate_tags(keyword),
+                "prerequisites": data.get("prerequisites", []),
+                "out_of_scope": data.get("out_of_scope", []),
+                "learning_outcomes": data.get("learning_outcomes", []),
+                "target_audience": data.get("target_audience", audience or "Student")
             }
-        # AI generate all_suggested_tags, ambil 3 pertama sebagai default
-        suggested = data["grounding"].get("all_suggested_tags", [])
-        data["grounding"]["tech_tags"] = suggested[:3] if suggested else get_default_candidate_tags(keyword)[:3]
-        data["grounding"]["all_suggested_tags"] = suggested if suggested else get_default_candidate_tags(keyword)
-        return data
+        }
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
         fallback_tags = get_default_candidate_tags(keyword)
@@ -422,7 +436,7 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         [TASK]
         1. Design exactly {lessons_count} DISTINCT lessons for the course '{proposal_title}'.
         Grounding parameters (prerequisites, learning outcomes, tech tags, out-of-scope topics): {json.dumps(grounding_data)}.
-        CRITICAL: If the Grounding parameters or subject_context contains an `[EXPLICIT OUTLINE: ...]`, you MUST strictly use those explicit module/lesson titles as your lesson list in the exact order requested, adapting only the metadata.
+        CRITICAL: You MUST return EXACTLY {lessons_count} items in the 'lessons' array. If an explicit outline contains more or fewer items, consolidate or adapt them so the final count of lessons returned is EXACTLY {lessons_count}.
         2. Design exactly 3 custom-tailored, highly relevant additional sections for EACH of the 3 roles (creator, student, educator). These 3 sections per role apply to the WHOLE course and will be used in EVERY lesson, so they must be topic-appropriate for the course as a whole, not for a single lesson.
 
         [RULES]
@@ -506,12 +520,15 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
                 return fallback_lessons
 
             out_lessons = []
-            for i, l in enumerate(lessons):
-                title = l.get("title") or fallback_topics[i % len(fallback_topics)]
+            for i, l in enumerate(lessons[:lessons_count]):
+                raw_title = l.get("title") or fallback_topics[i % len(fallback_topics)]
+                clean_title = re.sub(r'^Lesson\s*\d+[\s\:\.\-]*', '', raw_title, flags=re.IGNORECASE).strip()
+                if not clean_title:
+                    clean_title = raw_title
                 out_lessons.append({
                     "id": l.get("id") or i + 1,
-                    "title": title,
-                    "order": l.get("order") or i + 1,
+                    "title": clean_title,
+                    "order": i + 1,
                     "sections": copy.deepcopy(processed_shared)
                 })
             return out_lessons
@@ -591,6 +608,57 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
         )
     )
     return safe_load_json(response.choices[0].message.content)
+
+async def generate_custom_sections_content(lesson_title: str, custom_sections: list, grounding_data: str = ""):
+    if not custom_sections:
+        return {}
+    if not client:
+        res = {}
+        for sec in custom_sections:
+            sec_type = sec.get("type", "custom")
+            title = sec.get("title", "Custom Section")
+            res[sec_type] = f"### {title}\nThis section provides comprehensive details and actionable guidelines for {title} within {lesson_title}."
+        return res
+
+    prompt = f"""
+    [ROLE]
+    You are a Senior Technical Curriculum Author.
+
+    [TASK]
+    Generate detailed, high-quality, professional Markdown content for the following custom curriculum sections for Lesson: '{lesson_title}'.
+    Grounding context: {grounding_data}
+
+    Sections to generate:
+    {json.dumps(custom_sections, indent=2)}
+
+    [FORMAT]
+    Return a pure JSON object where the key for each section is EXACTLY its 'type' string from the input array above (e.g. "{custom_sections[0].get('type', 'custom')}").
+    Example:
+    {{
+      "{custom_sections[0].get('type', 'custom')}": "Markdown content..."
+    }}
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                max_tokens=2500,
+                temperature=0.7
+            )
+        )
+        return safe_load_json(response.choices[0].message.content)
+    except Exception as e:
+        print(f"Error generating custom sections: {e}")
+        res = {}
+        for sec in custom_sections:
+            sec_type = sec.get("type", "custom")
+            title = sec.get("title", "Custom Section")
+            res[sec_type] = f"### {title}\nDetailed curriculum notes and actionable instructions for {title} in {lesson_title}."
+        return res
 
 async def generate_student_content(lesson_title: str, creator_content: dict, lesson_duration: str = "60 mins", subject_context: str = ""):
     core_content_creator = creator_content.get("core_content", "")
@@ -750,9 +818,22 @@ async def run_section_action(section_type: str, content: str, action: str, param
         await asyncio.sleep(0.5)
         return f"[Action: {action.upper()}] {content}"
     
+    action_instructions = {
+        "expand": "Elaborate deeply with rich technical detail, practical examples, and new sub-sections (using '### ' sub-headings) to expand coverage.",
+        "shorten": "Condense the OVERALL section structurally. Consolidate paragraphs, and remove or merge non-essential sub-sections or sub-headings (including sub-topics added during expansion) into a clean, tight, high-level overview without fluff.",
+        "simplify": "Rewrite using plain language, intuitive real-world analogies, and beginner-friendly explanations while keeping key concepts intact.",
+        "improve": "Enhance clarity, professional tone, technical accuracy, and flow.",
+        "rewrite": "Rephrase and restructure the content completely while preserving core technical meaning.",
+        "fact_check": "Review and verify technical claims, updating any outdated statements or code logic."
+    }
+    
+    specific_instruction = action_instructions.get(action.lower(), f"Perform '{action}' on the section content.")
+
     prompt = f"""
     [TASK]
-    Perform the action '{action}' on the following section content of type '{section_type}'.
+    {specific_instruction}
+    
+    Section Type: '{section_type}'
     
     [CONTENT]
     {content}
@@ -761,8 +842,11 @@ async def run_section_action(section_type: str, content: str, action: str, param
     {json.dumps(params or {})}
     
     [CONSTRAINTS]
-    - Keep formatting intact. If it is markdown, keep it as markdown.
-    - Respond only with the updated content text. Do not add intro or outro.
+    - If action is 'shorten': Perform an OVERALL structural condensation. Remove redundant sub-sections/sub-headings and merge content into a concise, high-impact summary.
+    - If action is 'expand': Add deeper technical explanations and new relevant sub-headings.
+    - If action is 'simplify': Use clear analogies and plain language.
+    - Keep Markdown formatting clean and valid.
+    - Respond ONLY with the updated content text. Do not include intro or outro conversational text.
     """
     loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(

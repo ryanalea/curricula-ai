@@ -19,6 +19,7 @@ export function Navbar({
   setSubjectContext,
   setCurrentStep,
   fetchSessions,
+  resetWizardState,
   toast
 }) {
   return (
@@ -62,17 +63,10 @@ export function Navbar({
         <button 
           className="header-create-btn"
           onClick={() => requireAuth('wizard', () => { 
+            if (resetWizardState) resetWizardState();
             setCurrentView('wizard'); 
             setCurrentStep('dashboard'); 
             setShowMyCourses(false); 
-            setSessionId(null); 
-            setPromptText(''); 
-            setProposals([]); 
-            setStructure([]); 
-            setCourseData(null); 
-            setUploadedFileName(''); 
-            setPendingFile(null); 
-            setSubjectContext(''); 
           })}
         >
           <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ marginRight: '4px' }}>

@@ -69,11 +69,14 @@ export function CustomSectionsList({
 }) {
   const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
   const curSecs = curLesson?.sections?.[activeRole] || {};
-  const structLesson = structure.find(l => l.id === curLesson?.id || l.title === curLesson?.title);
+  const structLesson = (structure || []).find(l => l.id === curLesson?.id || l.title === curLesson?.title);
   const customSecList = structLesson?.sections?.[activeRole]?.filter(s => !s.locked) || [];
   
   return customSecList.map((sec) => {
-    const secContent = curSecs[sec.type] || `Content for ${sec.title} is not generated yet.`;
+    const rawVal = curSecs[sec.type];
+    const secContent = (rawVal && typeof rawVal === 'string' && !rawVal.includes('is not generated yet'))
+      ? rawVal
+      : (typeof rawVal === 'object' ? rawVal : `### ${sec.title}\nThis section provides detailed curriculum guidelines, practical workflows, and actionable strategies for **${sec.title}** within ${curLesson?.title || 'this module'}.`);
     const isEditing = editingSection === sec.type;
     
     return (

@@ -11,7 +11,7 @@ from models import Session as DbSession, Course, Lesson, Section, Pptx
 import schemas
 import pipeline
 from services.progress_service import progress_publisher
-from services.generator_service import generate_course_content_task_async
+from services.generator_service import generate_course_content_task_async, cancel_session
 
 router = APIRouter(prefix="/api/v1/courses", tags=["courses"])
 
@@ -96,7 +96,7 @@ def create_session(input_data: schemas.KeywordInput, db: Session = Depends(get_d
     db_session = DbSession(
         id=session_id,
         step="context",
-        prompt=display_title,
+        prompt=input_data.keyword,
         tech_tags=json.dumps(tech_tags),
         prerequisites=json.dumps(grounding.get("prerequisites", [])),
         boundaries=json.dumps(grounding.get("out_of_scope", [])),
@@ -208,6 +208,8 @@ def delete_session(session_id: str, db: Session = Depends(get_db)):
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Explicitly clean up related history and course data
+    db.query(History).filter(History.session_id == session_id).delete()
     course = db.query(Course).filter(Course.id == session_id).first()
     if course:
         db.delete(course)
@@ -240,6 +242,12 @@ def save_grounding(session_id: str, grounding_data: schemas.GroundingInput, db: 
     db_session.boundaries = json.dumps(grounding_data.out_of_scope)
     db_session.learning_outcomes = json.dumps(grounding_data.learning_outcomes)
     db_session.config_audience = grounding_data.target_audience
+    
+    # Strip any raw metadata headers (like [DOMAIN:...], [TOOLS REQUIRED:...]) from subject_context
+    if db_session.subject_context:
+        import re
+        db_session.subject_context = re.sub(r'\[(DOMAIN|INTERACTIVITY|TOOLS REQUIRED|FINAL PROJECT|EXPLICIT OUTLINE):[^\]]*\]\n?', '', db_session.subject_context).strip()
+
     db_session.step = "proposal"
     db.commit()
 
@@ -293,7 +301,8 @@ def refresh_grounding_endpoint(session_id: str, db: Session = Depends(get_db)):
         keyword=db_session.prompt or "Software Development",
         tags=tech_tags,
         difficulty=db_session.config_difficulty or "Beginner",
-        audience=db_session.config_audience or "Student"
+        audience=db_session.config_audience or "Student",
+        document_context=db_session.document_context or ""
     )
     grounding = ai_result.get("grounding", {})
     prerequisites = grounding.get("prerequisites", [])
@@ -326,7 +335,8 @@ def generate_proposals_api(session_id: str, db: Session = Depends(get_db)):
         "out_of_scope": json.loads(db_session.boundaries) if db_session.boundaries else [],
         "learning_outcomes": json.loads(db_session.learning_outcomes) if db_session.learning_outcomes else [],
         "target_audience": db_session.config_audience or "Student",
-        "subject_context": db_session.subject_context or ""
+        "subject_context": db_session.subject_context or "",
+        "document_context": db_session.document_context or ""
     }
 
     proposals = pipeline.generate_proposals(db_session.prompt, grounding)
@@ -356,7 +366,8 @@ def select_proposal(session_id: str, payload: schemas.ProposalSelect, db: Sessio
         "out_of_scope": json.loads(db_session.boundaries) if db_session.boundaries else [],
         "learning_outcomes": json.loads(db_session.learning_outcomes) if db_session.learning_outcomes else [],
         "target_audience": db_session.config_audience or "Student",
-        "subject_context": db_session.subject_context or ""
+        "subject_context": db_session.subject_context or "",
+        "document_context": db_session.document_context or ""
     }
     config = {
         "lessons_count": db_session.config_lessons,
@@ -408,16 +419,29 @@ async def trigger_generation(session_id: str, background_tasks: BackgroundTasks,
 
 @router.post("/sessions/{session_id}/cancel")
 async def cancel_generation(session_id: str, db: Session = Depends(get_db)):
-    db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
-    if db_session:
-        db_session.status = "canceled"
-        db_session.step = "review"
-        db_session.status_text = "Generation canceled by user."
-        db.commit()
-        await progress_publisher.publish(session_id, {
-            "progress": 0,
-            "status": "canceled",
-            "status_text": "Generation canceled by user.",
-            "step": "review"
-        })
+    # Immediately trigger in-memory cancellation flag
+    cancel_session(session_id)
+    
+    # Broadcast to real-time subscribers immediately
+    await progress_publisher.publish(session_id, {
+        "progress": 0,
+        "status": "canceled",
+        "status_text": "Generation canceled by user.",
+        "step": "review"
+    })
+    
+    try:
+        db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+        if db_session:
+            db_session.status = "canceled"
+            db_session.step = "review"
+            db_session.status_text = "Generation canceled by user."
+            db.commit()
+    except Exception as e:
+        print(f"[Cancel Warning] Database update deferred: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
     return {"status": "canceled"}

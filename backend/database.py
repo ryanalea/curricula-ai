@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -18,7 +18,6 @@ DATABASE_URL = os.getenv("DATABASE_URL") or (
 
 try:
     engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=3600)
-    # Test connection
     with engine.connect() as conn:
         pass
 except Exception as e:
@@ -26,15 +25,16 @@ except Exception as e:
     SQLITE_URL = "sqlite:///./course_generator.db"
     engine = create_engine(
         SQLITE_URL,
-        connect_args={"check_same_thread": False, "timeout": 30}
+        connect_args={"check_same_thread": False, "timeout": 60}
     )
-    # Enable WAL mode for concurrent reading/writing
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("PRAGMA journal_mode=WAL;"))
-            conn.commit()
-    except Exception:
-        pass
+
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=60000")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

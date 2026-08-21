@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
@@ -23,11 +24,59 @@ async def upload_document_endpoint(session_id: str, file: UploadFile = File(...)
 
     db_session.document_context = parsed_text
     db_session.document_filename = file.filename
+
+    # Auto-extract key technology terms / topics from the document content
+    extracted_tags = []
+    if parsed_text:
+        import re
+        # Find capitalized technology words / phrases or unique terms from document
+        potential_terms = re.findall(r'\b[A-Z][a-zA-Z0-9\+\#\.\-]{2,}\b', parsed_text[:4000])
+        stop_words = {'The', 'This', 'That', 'With', 'From', 'Have', 'They', 'What', 'When', 'Where', 'Which', 'Your', 'About', 'Using', 'Course', 'Lesson', 'Overview'}
+        filtered_terms = [t for t in potential_terms if t not in stop_words]
+        
+        # Deduplicate preserving order, take top 4 unique document tags
+        for t in filtered_terms:
+            if t not in extracted_tags and len(extracted_tags) < 4:
+                extracted_tags.append(t)
+
+    # Merge extracted file tags into session's tech_tags
+    existing_tags = json.loads(db_session.tech_tags) if db_session.tech_tags else []
+    merged_tags = list(existing_tags)
+    for tag in extracted_tags:
+        if tag not in merged_tags:
+            merged_tags.append(tag)
+
+    db_session.tech_tags = json.dumps(merged_tags)
     db.commit()
+
+    # Re-run pipeline grounding with the newly uploaded reference document content
+    try:
+        import pipeline
+        ai_result = pipeline.generate_concept_and_grounding(
+            keyword=db_session.prompt or "Software Development",
+            tags=merged_tags,
+            difficulty=db_session.config_difficulty or "Beginner",
+            audience=db_session.config_audience or "Student",
+            document_context=parsed_text
+        )
+        if ai_result.get("subject_context"):
+            db_session.subject_context = ai_result["subject_context"]
+        grounding = ai_result.get("grounding", {})
+        if grounding.get("prerequisites"):
+            db_session.prerequisites = json.dumps(grounding["prerequisites"])
+        if grounding.get("out_of_scope"):
+            db_session.boundaries = json.dumps(grounding["out_of_scope"])
+        if grounding.get("learning_outcomes"):
+            db_session.learning_outcomes = json.dumps(grounding["learning_outcomes"])
+        db.commit()
+    except Exception as e:
+        print(f"Error refreshing grounding with document: {e}")
+
     return {
         "status": "success",
         "filename": file.filename,
         "document_filename": file.filename,
+        "tech_tags": merged_tags,
         "subject_context": db_session.subject_context
     }
 

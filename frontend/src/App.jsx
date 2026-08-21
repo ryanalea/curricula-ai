@@ -114,6 +114,7 @@ export default function App() {
         setSubjectContext={wizard.setSubjectContext}
         setCurrentStep={setCurrentStep}
         fetchSessions={wizard.fetchSessions}
+        resetWizardState={wizard.resetWizardState}
         toast={toast}
       />
 
@@ -138,12 +139,9 @@ export default function App() {
           <LandingPage
             onNavigate={(view) => {
               if (view === 'wizard') { 
+                if (wizard.resetWizardState) wizard.resetWizardState();
                 setCurrentView('wizard'); 
                 setCurrentStep('dashboard'); 
-                wizard.setSessionId(null); 
-                wizard.setProposals([]); 
-                wizard.setStructure([]); 
-                wizard.setCourseData(null); 
               } else {
                 setCurrentView(view);
               }
@@ -205,6 +203,7 @@ export default function App() {
             API_BASE={API_BASE}
             setDeleteTargetSession={wizard.setDeleteTargetSession}
             handleResumeSession={(sess) => wizard.handleResumeSession(sess, exports.setPptxDataByLesson)}
+            resetWizardState={wizard.resetWizardState}
           />
         )}
 

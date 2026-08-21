@@ -14,9 +14,44 @@ import { VersionHistoryModal } from '../components/modals/VersionHistoryModal';
 
 const API_BASE = '/api/v1';
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('Wizard Component Error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '40px 20px', textAlign: 'center', maxWidth: '600px', margin: '40px auto', background: 'var(--white)', border: '1px solid var(--border-color)', borderRadius: '16px', boxShadow: 'var(--shadow-lg)' }}>
+          <span style={{ fontSize: '3rem', display: 'block', marginBottom: '16px' }}>⚠️</span>
+          <h3 style={{ color: 'var(--navy)', marginBottom: '8px', fontSize: '1.25rem', fontWeight: 800 }}>Something went wrong loading this step</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px', lineHeight: 1.5 }}>
+            {this.state.error?.message || 'An unexpected rendering error occurred.'}
+          </p>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+            <button className="action-btn" onClick={() => this.setState({ hasError: false })}>
+              🔄 Retry Step
+            </button>
+            <button className="file-upload-btn" onClick={() => window.location.reload()}>
+              🏠 Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function WizardPage({ wizard, exports, currentStep, setCurrentStep, toast }) {
   return (
-    <>
+    <ErrorBoundary>
       <StepProgressBar currentStep={currentStep} onStepClick={(stepKey) => setCurrentStep(stepKey)} />
 
       {wizard.isLoading && currentStep === 'dashboard' ? (
@@ -334,6 +369,6 @@ export function WizardPage({ wizard, exports, currentStep, setCurrentStep, toast
           />
         </>
       )}
-    </>
+    </ErrorBoundary>
   );
 }
