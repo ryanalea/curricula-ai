@@ -4528,7 +4528,7 @@ export default function App() {
                           ) : (
                             sections.map((sec, sIdx) => (
                               <div
-                                key={sec.id}
+                                key={sec.id || `${activeStructureRole}-${sIdx}`}
                                 className="section-list-item"
                                 draggable
                                 onDragStart={(e) => {
@@ -4538,7 +4538,17 @@ export default function App() {
                                 onDrop={(e) => {
                                   e.preventDefault();
                                   const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
-                                  moveSection(lesson.id, activeStructureRole, fromIdx, sIdx);
+                                  if (!isNaN(fromIdx) && fromIdx !== sIdx) {
+                                    const updated = structure.map(lessonItem => {
+                                      const lSecs = lessonItem.sections ? JSON.parse(JSON.stringify(lessonItem.sections)) : JSON.parse(JSON.stringify(defaultSections));
+                                      if (lSecs[activeStructureRole]) {
+                                        const item = lSecs[activeStructureRole].splice(fromIdx, 1)[0];
+                                        lSecs[activeStructureRole].splice(sIdx, 0, item);
+                                      }
+                                      return { ...lessonItem, sections: lSecs };
+                                    });
+                                    setStructure(updated);
+                                  }
                                 }}
                                 style={{
                                   display: 'flex',
@@ -4559,8 +4569,21 @@ export default function App() {
                                         type="text"
                                         value={sec.title}
                                         onChange={(e) => {
-                                          const updated = [...structure];
-                                          updated[lIdx].sections[activeStructureRole][sIdx].title = e.target.value;
+                                          const newTitle = e.target.value;
+                                          const targetType = sec.type;
+                                          const oldTitle = sec.title;
+                                          const updated = structure.map((lessonItem) => {
+                                            const lSecs = lessonItem.sections ? JSON.parse(JSON.stringify(lessonItem.sections)) : JSON.parse(JSON.stringify(defaultSections));
+                                            if (lSecs[activeStructureRole]) {
+                                              lSecs[activeStructureRole] = lSecs[activeStructureRole].map(s => {
+                                                if ((targetType && s.type === targetType) || s.title === oldTitle) {
+                                                  return { ...s, title: newTitle };
+                                                }
+                                                return s;
+                                              });
+                                            }
+                                            return { ...lessonItem, sections: lSecs };
+                                          });
                                           setStructure(updated);
                                         }}
                                         className="structure-title-input"
@@ -4571,8 +4594,21 @@ export default function App() {
                                       type="text"
                                       value={sec.instruction}
                                       onChange={(e) => {
-                                        const updated = [...structure];
-                                        updated[lIdx].sections[activeStructureRole][sIdx].instruction = e.target.value;
+                                        const newInst = e.target.value;
+                                        const targetType = sec.type;
+                                        const oldTitle = sec.title;
+                                        const updated = structure.map((lessonItem) => {
+                                          const lSecs = lessonItem.sections ? JSON.parse(JSON.stringify(lessonItem.sections)) : JSON.parse(JSON.stringify(defaultSections));
+                                          if (lSecs[activeStructureRole]) {
+                                            lSecs[activeStructureRole] = lSecs[activeStructureRole].map(s => {
+                                              if ((targetType && s.type === targetType) || s.title === oldTitle) {
+                                                return { ...s, instruction: newInst };
+                                              }
+                                              return s;
+                                            });
+                                          }
+                                          return { ...lessonItem, sections: lSecs };
+                                        });
                                         setStructure(updated);
                                       }}
                                       placeholder="AI instructions for this section..."
@@ -4590,10 +4626,22 @@ export default function App() {
                                   ) : (
                                     <button 
                                       className="icon-btn-tool danger" 
+                                      title="Hapus section dari kurikulum"
                                       onClick={() => {
-                                        const updated = [...structure];
-                                        updated[lIdx].sections[activeStructureRole] = sections.filter((_, i) => i !== sIdx);
+                                        const targetType = sec.type;
+                                        const targetTitle = sec.title;
+                                        const updated = structure.map((lessonItem) => {
+                                          const lSecs = lessonItem.sections ? JSON.parse(JSON.stringify(lessonItem.sections)) : JSON.parse(JSON.stringify(defaultSections));
+                                          if (lSecs[activeStructureRole]) {
+                                            lSecs[activeStructureRole] = lSecs[activeStructureRole].filter(s => {
+                                              if (targetType && s.type) return s.type !== targetType;
+                                              return s.title !== targetTitle;
+                                            });
+                                          }
+                                          return { ...lessonItem, sections: lSecs };
+                                        });
                                         setStructure(updated);
+                                        toast.success(`Section "${sec.title}" berhasil dihapus.`);
                                       }}
                                     >
                                       <IconTrash />
@@ -4975,20 +5023,8 @@ export default function App() {
 
                   <div className="review-card-v2-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                     {['creator', 'student', 'educator'].map(role => {
-                      const roleSectionsMap = new Map();
-                      structure.forEach(l => {
-                        (l.sections?.[role] || []).forEach(s => {
-                          const key = s.type || s.title?.toUpperCase();
-                          if (key && !roleSectionsMap.has(key)) {
-                            roleSectionsMap.set(key, s);
-                          }
-                        });
-                      });
-                      const secList = Array.from(roleSectionsMap.values());
-                      const displayList = secList.length > 0 ? secList : (
-                        role === 'creator' ? defaultSections.creator :
-                        role === 'student' ? defaultSections.student : defaultSections.educator
-                      );
+                      const curLesson = structure.find(l => l.id === selectedStructureLessonId) || structure[0];
+                      const secList = curLesson?.sections?.[role] || defaultSections[role] || [];
                       const colorClass = role === 'creator' ? 'purple' : role === 'student' ? 'blue' : 'green';
 
                       return (
@@ -4998,15 +5034,15 @@ export default function App() {
                               <span className={`persona-dot ${colorClass}`}></span>
                               <span>{role.toUpperCase()}</span>
                             </div>
-                            <span className="persona-count-badge">{displayList.length} Sections</span>
+                            <span className="persona-count-badge">{secList.length} Sections</span>
                           </div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '10px', fontStyle: 'italic' }}>
                             Applied to all {structure.length} lesson{structure.length > 1 ? 's' : ''} (same structure, per-lesson content)
                           </div>
                           <div className="persona-tags-wrap">
-                            {displayList.map(sec => (
+                            {secList.map(sec => (
                               <span 
-                                key={sec.id || sec.title} 
+                                key={sec.id || sec.type || sec.title} 
                                 className="persona-section-tag"
                                 style={!sec.locked ? { border: '1.5px solid var(--gold)', background: '#fff8e6', fontWeight: 700, color: 'var(--navy)' } : {}}
                               >
