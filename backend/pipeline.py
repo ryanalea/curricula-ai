@@ -514,61 +514,60 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     if not client:
         await asyncio.sleep(0.5)
         return {
-            "overview": f"Panduan komprehensif yang menguraikan modul pembelajaran untuk {lesson_title}.",
-            "learning_outcomes": ["Memahami mekanisme dan konsep inti materi", "Menerapkan langkah praktis secara mandiri"],
-            "core_content": f"### Pengantar {lesson_title}\nBerikut adalah materi pokok untuk {lesson_title}. Pembahasan mencakup prinsip fundamental dan implementasi nyata di lapangan.",
-            "exercises": [{"title": "Latihan Praktik 1", "instruction": "Lakukan eksplorasi langkah demi langkah sesuai panduan materi.", "difficulty": "Mudah"}],
-            "quiz": [{"question": f"Apa tujuan utama dari pembelajaran {lesson_title}?", "options": ["Meningkatkan pemahaman konsep", "Melewatkan tahapan analisis", "Mengurangi efisiensi"], "answer": "Meningkatkan pemahaman konsep", "explanation": "Pemahaman konsep mendalam adalah landasan utama pembelajaran."}],
-            "prompt_templates": ["Berikan studi kasus tambahan mengenai topik ini."]
+            "overview": f"A comprehensive instructional guide outlining the curriculum module for {lesson_title}.",
+            "learning_outcomes": ["Understand the core mechanisms and foundational concepts", "Apply practical steps independently in real-world scenarios"],
+            "core_content": f"### Introduction to {lesson_title}\nThis section provides the essential knowledge base for {lesson_title}, covering foundational principles and practical industry implementation.",
+            "exercises": [{"title": "Practical Lab 1", "instruction": "Follow the step-by-step hands-on guide according to the lesson specifications.", "difficulty": "Beginner"}],
+            "quiz": [{"question": f"What is the primary objective of studying {lesson_title}?", "options": ["Enhance conceptual and practical mastery", "Bypass verification and quality checks", "Reduce system efficiency"], "answer": "Enhance conceptual and practical mastery", "explanation": "Deep conceptual understanding provides the basis for reliable implementation."}],
+            "prompt_templates": ["Provide an additional case study analysis for this topic."]
         }
     
     prompt = f"""
     [ROLE]
-    Anda adalah Curriculum Architect & Technical Content Creator Senior yang bertugas merancang dokumen induk teknis dan instruksional untuk modul kursus.
+    You are a Senior Curriculum Architect & Technical Content Creator designing core instructional and technical documents for course modules.
  
     [TASK]
-    Berdasarkan struktur kurikulum dan parameter grounding berikut, hasilkan konten utama untuk POV CREATOR pada Lesson: "{lesson_title}".
-    Target Durasi Belajar: {lesson_duration} per lesson.
-    Parameter Grounding: {grounding_data}
-    Struktur Lesson (daftar seluruh lesson dalam course ini, untuk konteks urutan & agar tidak tumpang tidak): {lesson_structure}
+    Based on the curriculum structure and grounding parameters below, generate the primary technical material for the CREATOR POV on Lesson: "{lesson_title}".
+    Target Learning Duration: {lesson_duration} per lesson.
+    Grounding Parameters: {grounding_data}
+    Lesson Structure Context: {lesson_structure}
  
     [RULES]
-    - BAHASA: WAJIB MENGGUNAKAN 100% BAHASA INDONESIA yang baku, komunikatif, dan profesional. DILARANG KERAS menggunakan bahasa Inggris (kecuali istilah teknis baku).
-    - NO FORCED CODING: Check the [DOMAIN: ...] in Grounding parameters. If the domain is NOT "Coding", you MUST NOT generate Python/Programming code snippets unless explicitly requested. Gunakan kerangka kerja (framework), resep, tabel langkah, atau template untuk topik non-koding.
-    - Sesuaikan kedalaman materi core_content agar setara dengan materi bacaan/studi mandiri selama 40% dari total {lesson_duration} durasi pelajaran.
-    - Tulis materi secara teknis, presisi, mendalam, dan komprehensif. Dilarang menulis ringkasan singkat atau hanya garis besar saja.
-    - Berikan minimal dua sub-topik mendalam dalam core_content lengkap dengan penjelasan arsitektur dan contoh kasus nyata di industri.
-    - Sertakan minimal satu blok implementasi praktis (atau framework/resep/template jika non-coding). DILARANG KERAS menggunakan placeholder seperti '// TODO' atau 'pass'. Blok harus fungsional dan siap pakai.
+    - LANGUAGE: Write all standard curriculum content in professional, clear, and high-quality English.
+    - NO FORCED CODING: Check the [DOMAIN: ...] in Grounding parameters. If the domain is NOT "Coding", you MUST NOT generate programming code snippets. Use structured frameworks, procedural steps, recipes, tables, or templates for non-coding topics.
+    - Ensure the depth of core_content corresponds to reading/self-study material taking up 40% of the total {lesson_duration} lesson duration.
+    - Provide in-depth, precise, and comprehensive content. Do not write brief summaries or bullet-point outlines only.
+    - Include at least two in-depth sub-topics in core_content with clear explanations and real-world industry examples.
+    - Include at least one practical implementation block (or workflow/recipe/framework if non-coding). NEVER use placeholders like '// TODO' or 'pass'.
  
     [FORMAT]
-    Kembalikan output murni dalam JSON terstruktur:
+    Return a pure JSON object:
     {{
-      "overview": "2-3 kalimat deskripsi mendalam dalam Bahasa Indonesia yang spesifik untuk lesson '{lesson_title}' ini saja",
-      "learning_outcomes": ["Capaian Pembelajaran spesifik 1", "Capaian Pembelajaran spesifik 2", "Capaian Pembelajaran spesifik 3"],
-      "core_content": "Materi lengkap dalam Bahasa Indonesia format MARKDOWN memakai heading '### ' untuk tiap sub-topik (minimal 2 sub-topik). Harus sangat mendalam dan lengkap sesuai target durasi {lesson_duration}.",
+      "overview": "2-3 sentences of comprehensive description specific to lesson '{lesson_title}'",
+      "learning_outcomes": ["Specific Learning Outcome 1", "Specific Learning Outcome 2", "Specific Learning Outcome 3"],
+      "core_content": "Full detailed material in MARKDOWN format using '### ' headings for each sub-topic (minimum 2 sub-topics). In-depth and aligned with {lesson_duration}.",
       "exercises": [
         {{
-          "title": "Nama latihan yang spesifik untuk topik lesson ini",
-          "instruction": "Instruksi latihan detail, langkah-demi-langkah, dan actionable dalam Bahasa Indonesia",
-          "difficulty": "Mudah/Menengah/Lanjutan"
+          "title": "Specific exercise name for this lesson topic",
+          "instruction": "Detailed, step-by-step, actionable practice instructions",
+          "difficulty": "Beginner/Intermediate/Advanced"
         }}
       ],
       "quiz": [
         {{
-          "question": "Pertanyaan dalam Bahasa Indonesia yang menguji pemahaman konsep spesifik lesson ini",
+          "question": "Clear question testing conceptual understanding of this lesson",
           "options": ["A", "B", "C", "D"],
-          "answer": "Salah satu string di options, persis sama",
-          "explanation": "Penjelasan kunci jawaban dalam Bahasa Indonesia"
+          "answer": "One exact matching string from options",
+          "explanation": "Clear explanation of the correct answer"
         }}
       ],
-      "prompt_templates": ["Contoh prompt AI dalam Bahasa Indonesia untuk eksplorasi lebih lanjut"]
+      "prompt_templates": ["Sample AI prompt for deeper exploration"]
     }}
  
     [CONSTRAINT]
-    - IMPORTANT: WAJIB gunakan 100% Bahasa Indonesia untuk seluruh teks yang dihasilkan. DILARANG menggunakan bahasa Inggris.
-    - WAJIB spesifik ke topik lesson "{lesson_title}" — DILARANG memakai kalimat generik/template tanpa menyebutkan konsep konkretnya.
-    - Sediakan minimal 2 exercises dan minimal 3 quiz.
-    - Tanpa salam pengantar, berikan respons JSON valid murni.
+    - Write in English.
+    - Minimum 2 exercises and minimum 3 quiz questions.
+    - Provide pure valid JSON with no introductory conversational text.
     """
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
@@ -590,64 +589,52 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
     if not client:
         await asyncio.sleep(0.5)
         return {
-            "why_this_matters": f"Memahami {lesson_title} sangat penting karena menjadi pondasi keterampilan utama yang langsung dapat diterapkan.",
-            "learning_journey": f"Ikuti alur belajar interaktif berikut untuk menguasai {lesson_title}.",
+            "why_this_matters": f"Understanding {lesson_title} is essential as it provides the core practical competencies directly applicable in real-world situations.",
+            "learning_journey": f"Follow this structured learning journey to master {lesson_title}.",
             "practice": {
-                "interactive_exercise": "Jalankan simulasi langkah demi langkah sesuai skenario yang diberikan.",
-                "code_block": "Lakukan eksplorasi praktik mandiri sesuai panduan materi.",
+                "interactive_exercise": "Execute the step-by-step practical simulation according to the given scenario.",
+                "code_block": "Perform hands-on exploration following the lesson guidance.",
                 "content_type": "markdown",
-                "checklist": ["Pahami langkah awal", "Terapkan panduan praktik", "Evaluasi hasil pengerjaan"]
-            },
-            "debugging": "Kendala umum: Ketidaktelitian takaran/parameter. Solusi: Lakukan verifikasi ulang sebelum mengeksekusi langkah berikutnya.",
-            "ethics": "Selalu terapkan prinsip kehati-hatian, higienitas, integritas, dan standar etika terbaik."
-        }
-    
-    prompt = f"""
-    [ROLE]
-    Anda adalah Lead Learning Experience Designer (LX Designer) & Tutor AI Interaktif yang ahli menyajikan materi pembelajaran yang menyenangkan, intuitif, dan *hands-on*.
- 
     [SUBJECT CONTEXT & DOMAIN METADATA]
     {subject_context}
 
     [TASK]
-    Berdasarkan materi induk dan daftar latihan Creator berikut, transformasikan materi Lesson: "{lesson_title}" menjadi modul belajar interaktif khusus untuk POV STUDENT.
-    Target Durasi Belajar: {lesson_duration} per lesson.
-    Materi Induk: {core_content_creator}
-    Daftar Latihan Creator: {json.dumps(creator_exercises)}
+    Based on the Creator curriculum material and exercises below, transform Lesson: "{lesson_title}" into an engaging, interactive module for the STUDENT POV.
+    Target Duration: {lesson_duration} per lesson.
+    Creator Core Content: {core_content_creator}
+    Creator Exercises: {json.dumps(creator_exercises)}
  
     [RULES]
-    - BAHASA: WAJIB MENGGUNAKAN 100% BAHASA INDONESIA yang natural, komunikatif, dan terstruktur rapi. DILARANG KERAS menggunakan bahasa Inggris.
-    - Rancang latihan interaktif yang secara logis membutuhkan waktu pengerjaan 40% dari total {lesson_duration} durasi pelajaran (hands-on practice).
+    - LANGUAGE: Write in natural, engaging, and clear English.
+    - Design interactive exercises that logically take ~40% of the {lesson_duration} for hands-on practice.
     - **CRITICAL DOMAIN ROUTING RULE**:
-      * Periksa [DOMAIN: ...] pada SUBJECT CONTEXT & DOMAIN METADATA di atas.
-      * Jika DOMAIN adalah Kuliner, Bisnis, Manajemen, Desain, Kesehatan, Seni, Pendidikan, atau bidang NON-KODING lainnya:
-        1. HARUS set `"content_type": "markdown"`.
-        2. DILARANG KERAS menghasilkan kode pemrograman Python, Pandas, JavaScript, atau compiler script dalam `code_block`.
-        3. Isi `code_block` dengan teks deskripsi skenario studi kasus, resep/panduan teknis memasak, atau simulasi nyata dalam Bahasa Indonesia.
-      * HANYA set `"content_type": "code"` jika DOMAIN secara eksplisit adalah Coding, Software Engineering, atau Computer Programming.
-    - DILARANG menggunakan placeholder kosong seperti '// TODO' atau 'pass'.
-    - Bagian 'debugging' harus menyajikan minimal 2 kesalahan umum (common mistakes / kegagalan resep / miskonsepsi) yang spesifik untuk bab ini, beserta solusinya.
+      * Check [DOMAIN: ...] in SUBJECT CONTEXT & DOMAIN METADATA above.
+      * If DOMAIN is Non-Coding (Culinary, Business, Design, Healthcare, Humanities, etc.):
+        1. MUST set `"content_type": "markdown"`.
+        2. NEVER generate programming code (Python/JS) in `code_block`.
+        3. Fill `code_block` with structured scenario text, technical recipe/procedure steps, or real-world simulations.
+      * ONLY set `"content_type": "code"` if DOMAIN is explicitly Coding or Software Engineering.
+    - NEVER use empty placeholders like '// TODO' or 'pass'.
+    - 'debugging' section must present at least 2 common mistakes / pitfalls specific to this topic with clear troubleshooting solutions.
  
     [FORMAT]
-    Kembalikan output murni dalam JSON terstruktur:
+    Return JSON:
     {{
-      "why_this_matters": "Penjelasan intuitif dalam Bahasa Indonesia mengapa materi lesson INI sangat penting di dunia nyata",
-      "learning_journey": "Langkah-langkah belajar berformat MARKDOWN dalam Bahasa Indonesia dengan list bernomor (1. 2. 3.), merujuk konsep konkret dari Materi Induk",
+      "why_this_matters": "Engaging explanation of why this lesson is vital in real-world practice",
+      "learning_journey": "Numbered roadmap (1. 2. 3.) guiding the student step-by-step through the concepts",
       "practice": {{
-        "interactive_exercise": "Panduan praktik langkah demi langkah dalam Bahasa Indonesia yang membimbing siswa menyelesaikan latihan ini",
-        "code_block": "Teks studi kasus / panduan resep teknis jika non-koding (ATAU kode starter teknis jika domain koding)",
-        "content_type": "markdown (jika non-koding) atau code (jika koding)",
-        "checklist": ["Checklist pemahaman spesifik 1", "Checklist pemahaman spesifik 2", "Checklist pemahaman spesifik 3"]
+        "interactive_exercise": "Step-by-step guidance for completing this exercise",
+        "code_block": "Structured scenario/recipe guide for non-coding OR starter code template for coding",
+        "content_type": "markdown (non-coding) or code (coding)",
+        "checklist": ["Actionable checklist item 1", "Actionable checklist item 2", "Actionable checklist item 3"]
       }},
-      "debugging": "Kesalahan umum / Potensi Kegagalan spesifik bab ini dengan penjelasan dan solusinya dalam Bahasa Indonesia format markdown",
-      "ethics": "Pertimbangan etika, standar kebersihan, atau best practice yang relevan dengan topik lesson ini secara spesifik dalam Bahasa Indonesia"
+      "debugging": "MARKDOWN: Common pitfalls and exact troubleshooting steps",
+      "ethics": "MARKDOWN: Ethical scope, quality standards, safety, or best practices"
     }}
  
     [CONSTRAINT]
-    - IMPORTANT: WAJIB gunakan 100% Bahasa Indonesia untuk seluruh teks yang dihasilkan. DILARANG menggunakan bahasa Inggris.
-    - JANGAN sertakan jawaban kuis, rubrik penilaian pengajar, atau panduan fasilitator.
-    - JANGAN gunakan kalimat generik yang bisa berlaku untuk topik apapun.
-    - Tanpa salam pengantar, berikan respons JSON valid murni.
+    - Write in English.
+    - Provide pure valid JSON without conversational filler.
     """
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
@@ -669,61 +656,71 @@ async def generate_educator_content(lesson_title: str, creator_content: dict, le
     if not client:
         await asyncio.sleep(0.5)
         return {
-            "facilitator_guide": f"Awali sesi dengan ulasan singkat mengenai konsep dasar, lalu lanjutkan dengan demonstrasi praktik untuk {lesson_title}.",
+            "facilitator_guide": f"Begin the session with a concise review of foundational concepts, followed by hands-on demonstrations for {lesson_title}.",
             "lesson_plan": {
-                "timing": f"Alokasi Waktu: {lesson_duration} (10m Pembuka, 35m Inti & Praktik, 15m Diskusi/Tanya Jawab)",
-                "ice_breaker": "Ajukan pertanyaan pemantik: 'Apa tantangan terbesar yang sering dihadapi saat menerapkan teknik ini?'"
+                "timing": f"Timing Allocation: {lesson_duration} (10m Intro, 35m Core Practice, 15m Discussion/Q&A)",
+                "ice_breaker": "Ask: 'What is the most common challenge encountered when implementing this technique?'"
             },
-            "rubric": [{"criteria": "Ketepatan Praktik", "excellent": "Langkah dieksekusi sempurna tanpa kesalahan", "good": "Langkah dieksekusi baik dengan evaluasi minor", "needs_improvement": "Perlu perbaikan mendasar pada eksekusi"}],
-            "teaching_tips": ["Bimbing peserta secara bertahap saat masuk ke tahap latihan praktis."],
-            "discussion_questions": ["Bagaimana teknik ini dapat diadaptasi untuk variasi kebutuhan lain?"],
-            "assessment": "Minta peserta mendemonstrasikan hasil akhir praktik dan memberikan penjelasan singkat."
+            "rubric": [{"criteria": "Execution Precision", "excellent": "Executed flawlessly with optimal methodology", "good": "Good execution with minor adjustments needed", "needs_improvement": "Requires foundational review"}],
+            "teaching_tips": ["Guide learners through hands-on practice incrementally."],
+            "discussion_questions": ["How can this method be adapted for different real-world constraints?"],
+            "assessment": "Have students present their completed practical output and explain their methodology."
         }
     
     prompt = f"""
     [ROLE]
-    Anda adalah Master Pedagogi & Instructional Coach Senior yang membimbing dosen, mentor, dan fasilitator kelas dalam membawakan materi pembelajaran.
+    You are a Master Pedagogical Coach & Instructional Facilitator guiding educators, instructors, and mentors in delivering course modules.
  
     [TASK]
-    Berdasarkan materi induk dan daftar latihan Creator berikut, buatlah Panduan Mengajar (Facilitator Guide) khusus untuk POV EDUCATOR/MENTOR pada Lesson: "{lesson_title}".
-    Durasi Target Pelajaran: {lesson_duration} per lesson.
-    Materi Induk: {core_content_creator}
-    Daftar Latihan Creator: {json.dumps(creator_exercises)}
+    Based on the Creator material and exercises, create a comprehensive Facilitator Guide for the EDUCATOR POV on Lesson: "{lesson_title}".
+    Target Duration: {lesson_duration} per lesson.
+    Creator Core Content: {core_content_creator}
+    Creator Exercises: {json.dumps(creator_exercises)}
  
     [RULES]
-    - BAHASA: WAJIB MENGGUNAKAN 100% BAHASA INDONESIA yang baku dan pedagogis. DILARANG KERAS menggunakan bahasa Inggris.
-    - Rancang rencana pembelajaran mengajar (lesson plan timing) secara mendetail agar total alokasi waktunya **persis sama dengan durasi target ({lesson_duration})**.
-    - Kriteria penilaian di bagian 'rubric' HARUS spesifik dan **berhubungan langsung untuk menilai pengerjaan siswa terhadap Latihan Creator ini**: {json.dumps(creator_exercises)}.
-    - Panduan evaluasi di bagian 'assessment' harus memberikan instruksi penilaian/homework nyata yang secara langsung mengevaluasi hasil pengerjaan Latihan Creator tersebut.
+    - LANGUAGE: Write in professional, pedagogically sound English.
+    - Lesson plan timing breakdown MUST sum up EXACTLY to the target duration ({lesson_duration}).
+    - Assessment rubric criteria MUST directly evaluate student work on the Creator Exercises: {json.dumps(creator_exercises)}.
+    - Assessment guide must offer concrete evaluation/homework instructions directly tied to the practical exercises.
  
     [FORMAT]
-    Kembalikan output murni dalam JSON terstruktur:
+    Return JSON:
     {{
-      "facilitator_guide": "Panduan spesifik cara membawakan sesi lesson INI dalam Bahasa Indonesia dengan durasi total {lesson_duration}, pembukaan kelas, dan poin krusial yang harus ditekankan",
+      "facilitator_guide": "Specific guide for facilitating this session within {lesson_duration}, including opening remarks and key emphasis points",
       "lesson_plan": {{
-        "timing": "Rincian alokasi waktu yang totalnya HARUS PERSIS SAMA DENGAN DURASI TARGET ({lesson_duration}) per lesson (contoh jika durasi 30m: 5m Pembukaan, 20m Praktik, 5m Refleksi)",
-        "ice_breaker": "Pertanyaan pemantik atau aktivitas singkat dalam Bahasa Indonesia yang relevan dengan topik lesson ini"
+        "timing": "Time breakdown totaling exactly {lesson_duration} (e.g. 5m Opening, 20m Lab, 5m Reflection)",
+        "ice_breaker": "Engaging ice-breaker question or warm-up activity"
       }},
       "rubric": [
         {{
-          "criteria": "Kriteria Penilaian spesifik dalam Bahasa Indonesia",
-          "excellent": "Indikator nilai Sangat Baik",
-          "good": "Indikator nilai Baik",
-          "needs_improvement": "Indikator Perlu Perbaikan"
+          "criteria": "Assessment Criteria Name",
+          "excellent": "Clear benchmark for Excellent performance",
+          "good": "Clear benchmark for Good performance",
+          "needs_improvement": "Clear benchmark for Needs Improvement"
         }}
       ],
-      "teaching_tips": ["Tips menangani miskonsepsi umum yang SPESIFIK untuk topik ini", "Tips membimbing peserta dalam Bahasa Indonesia"],
-      "discussion_questions": ["Pertanyaan diskusi kelas 1 yang spesifik", "Pertanyaan diskusi kelas 2 yang spesifik"],
-      "assessment": "Panduan evaluasi tugas akhir/homework dalam Bahasa Indonesia yang merujuk langsung ke Latihan"
+      "teaching_tips": ["Tip for addressing common misconceptions", "Tip for guiding students"],
+      "discussion_questions": ["Discussion question 1", "Discussion question 2"],
+      "assessment": "Actionable homework or evaluation guide referencing the exercises"
     }}
  
     [CONSTRAINT]
-    - IMPORTANT: WAJIB gunakan 100% Bahasa Indonesia untuk seluruh teks yang dihasilkan. DILARANG menggunakan bahasa Inggris.
-    - Minimal 2 kriteria di rubric.
-    - Fokus sepenuhnya pada strategi pedagogi, alokasi waktu kelas (*timing*), rubrik penilaian, dan tips mengajar di kelas.
-    - Hindari mengulang teks materi pelajaran panjang milik siswa; hindari kalimat generik yang bisa berlaku untuk topik apapun.
-    - Tanpa salam pengantar, berikan respons JSON valid murni.
+    - Write in English.
+    - Minimum 2 rubric criteria.
+    - Pure valid JSON without conversational wrapper.
     """
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(
+        None,
+        lambda: client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=2000,
+            temperature=0.7
+        )
+    )
+    return safe_load_json(response.choices[0].message.content)
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None,
@@ -909,25 +906,29 @@ async def generate_single_grounding_item(
 async def generate_custom_section_content(lesson_title: str, section_title: str, instruction: str, grounding_data: str) -> str:
     if not client:
         await asyncio.sleep(0.3)
-        return f"Konten modul untuk bagian '{section_title}' berdasarkan instruksi: {instruction}."
+        return f"Content for '{section_title}' based on instruction: {instruction}."
     try:
         prompt = f"""
         [ROLE]
-        Anda adalah Content Creator & Subject Matter Expert yang menyusun konten kursus berkualitas tinggi.
+        You are a Senior Content Specialist & Instructional Designer crafting a specialized course section.
 
         [CONTEXT]
-        Lesson: "{lesson_title}"
-        Judul Bagian: "{section_title}"
-        Instruksi Khusus: "{instruction}"
-        Parameter Grounding: {grounding_data}
+        Lesson Topic: "{lesson_title}"
+        Section Title: "{section_title}"
+        Specific Custom Instruction: "{instruction}"
+        Course Grounding Context: {grounding_data}
 
         [TASK]
-        Tulis konten untuk bagian ini dalam format MARKDOWN yang mendalam, terstruktur, dan aplikatif.
-        Panjang: 2-3 paragraf komprehensif.
+        Generate comprehensive, well-structured instructional content for this specific custom section.
+        Length: 2-3 detailed paragraphs in Markdown format (with bullet points, checklists, or steps where appropriate).
         
-        [RULES]
-        - WAJIB gunakan 100% Bahasa Indonesia yang formal dan profesional. DILARANG menggunakan bahasa Inggris.
-        - Jangan tambahkan judul utama, langsung mulai tulis isi materinya.
+        [DYNAMIC LANGUAGE & FORMATTING RULES]
+        - LANGUAGE ADAPTATION: Detect the language used in Section Title ('{section_title}') and Custom Instruction ('{instruction}').
+          * If written in Bahasa Indonesia, generate this section 100% in natural, professional Bahasa Indonesia.
+          * If written in English, generate this section in high-quality English.
+          * If written in any other language, match that language precisely.
+        - TONE & FORMAT: Match the pedagogical depth, phrasing, and formatting of the surrounding course seamlessly.
+        - Do not output the main section title as an H1 or H2 header at the start; start directly with the instructional content.
         """
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
@@ -935,14 +936,14 @@ async def generate_custom_section_content(lesson_title: str, section_title: str,
             lambda: client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=800,
+                max_tokens=1000,
                 temperature=0.7
             )
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Error generating custom section content: {e}")
-        return f"Konten untuk '{section_title}' berhasil dibuat sesuai instruksi: {instruction}."
+        return f"Content for '{section_title}' successfully generated per instruction: {instruction}."
 
 
 async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) -> dict:
