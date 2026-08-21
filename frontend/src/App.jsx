@@ -677,7 +677,7 @@ export default function App() {
   // ── Toast Notification System ──
   const [toasts, setToasts] = useState([]);
 
-  const addToast = (message, type = 'info', duration = 4000) => {
+  const addToast = (message, type = 'info', duration = 3000) => {
     const id = Date.now() + Math.random().toString(36).substring(2, 6);
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
@@ -1118,9 +1118,15 @@ export default function App() {
   };
 
   const handleSaveManualEdit = async (sectionType, newContent) => {
+    const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.find(l => l.id === activeLessonId) || courseData?.lessons?.[0];
+    const targetLessonId = curLesson?.id || activeLessonId;
+    if (!targetLessonId) {
+      toast.error('Target lesson tidak ditemukan.');
+      return;
+    }
     setSectionLoading(prev => ({ ...prev, [sectionType]: true }));
     try {
-      const res = await fetch(`${API_BASE}/lessons/${activeLessonId}/sections/save`, {
+      const res = await fetch(`${API_BASE}/lessons/${targetLessonId}/sections/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1131,22 +1137,32 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        const updatedVal = JSON.parse(data.content);
+        let updatedVal;
+        try {
+          updatedVal = JSON.parse(data.content);
+        } catch {
+          updatedVal = data.content;
+        }
         
         // Update courseData local state
         const updatedCourse = { ...courseData };
-        const lIdx = updatedCourse.lessons.findIndex(l => l.id === activeLessonId);
+        if (!updatedCourse.lessons) updatedCourse.lessons = [];
+        const lIdx = updatedCourse.lessons.findIndex(l => l.id === targetLessonId);
         if (lIdx !== -1) {
+          if (!updatedCourse.lessons[lIdx].sections) updatedCourse.lessons[lIdx].sections = {};
+          if (!updatedCourse.lessons[lIdx].sections[activeRole]) updatedCourse.lessons[lIdx].sections[activeRole] = {};
           updatedCourse.lessons[lIdx].sections[activeRole][sectionType] = updatedVal;
           setCourseData(updatedCourse);
         }
         setEditingSection(null);
+        setEditingText('');
+        toast.success(`Perubahan ${sectionType.replace(/_/g, ' ')} berhasil disimpan!`, 3000);
       } else {
-        toast.error('Failed to save manual edits.');
+        toast.error('Gagal menyimpan perubahan materi.');
       }
     } catch (err) {
       console.error(err);
-      toast.error('Error saving manual edits.');
+      toast.error('Error saat menyimpan perubahan materi.');
     } finally {
       setSectionLoading(prev => ({ ...prev, [sectionType]: false }));
     }
@@ -2536,27 +2552,15 @@ export default function App() {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app-container">
-      {currentStep === 'generating' && generationProgress < 100 && (
-        <div style={{
-          position: 'fixed',
-          top: '24px',
-          right: '24px',
-          zIndex: 9999,
-          background: 'var(--navy)',
-          color: '#fff',
-          padding: '16px 24px',
-          borderRadius: '12px',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          fontWeight: '600',
-          fontSize: '0.95rem'
-        }}>
-          <IconSpinner />
-          <span>Generating in progress... Editing disabled.</span>
-        </div>
-      )}
+      {/* Floating Toast Notification Container (Positioned safely below navbar) */}
+      <div className="toast-container" style={{ position: 'fixed', top: '85px', right: '24px', zIndex: 99999, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {toasts.map(t => (
+          <div key={t.id} className={`toast-item toast-${t.type}`} style={{ pointerEvents: 'auto', cursor: 'pointer' }} onClick={() => removeToast(t.id)}>
+            <span style={{ fontSize: '1.1rem' }}>{t.type === 'success' ? '✅' : t.type === 'error' ? '❌' : t.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
+            <span>{t.message}</span>
+          </div>
+        ))}
+      </div>
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -3703,33 +3707,38 @@ export default function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface-1)', padding: '12px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Avg. Duration per Lesson (Min)</span>
-                    <span style={{ fontSize: '0.75rem', color: '#888' }}>{configDuration} min</span>
+                    <span style={{ fontSize: '0.75rem', color: '#888' }}>
+                      {typeof configDuration === 'number' ? configDuration : (parseInt(String(configDuration).replace(/\D+/g, ''), 10) || 30)} min
+                    </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                    {[5, 10, 15, 30, 60, 90, 120].map(p => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setConfigDuration(p)}
-                        style={{
-                          padding: '4px 10px',
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          border: `1px solid ${configDuration === p ? 'var(--gold)' : 'var(--border-color)'}`,
-                          background: configDuration === p ? 'var(--gold)' : 'transparent',
-                          color: configDuration === p ? '#fff' : 'var(--navy)',
-                        }}
-                      >
-                        {p}
-                      </button>
-                    ))}
+                    {[5, 10, 15, 30, 60, 90, 120].map(p => {
+                      const curNum = typeof configDuration === 'number' ? configDuration : (parseInt(String(configDuration).replace(/\D+/g, ''), 10) || 30);
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setConfigDuration(p)}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            border: `1px solid ${curNum === p ? 'var(--gold)' : 'var(--border-color)'}`,
+                            background: curNum === p ? 'var(--gold)' : 'transparent',
+                            color: curNum === p ? '#fff' : 'var(--navy)',
+                          }}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
                     <input
                       type="number"
                       min="1"
                       max="480"
-                      value={configDuration}
+                      value={typeof configDuration === 'number' ? configDuration : (parseInt(String(configDuration).replace(/\D+/g, ''), 10) || 30)}
                       onChange={(e) => setConfigDuration(Math.max(1, Math.min(480, Number(e.target.value) || 0)))}
                       style={{ minHeight: 'auto', padding: '6px 8px', maxWidth: '70px', marginBottom: 0, textAlign: 'center' }}
                     />
@@ -5159,7 +5168,13 @@ export default function App() {
                 <button 
                   className="library-page-btn playful-card" 
                   style={{ width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
-                  onClick={() => setCurrentGeneratingLessonIdx(Math.max(0, currentGeneratingLessonIdx - 1))}
+                  onClick={() => {
+                    const targetIdx = Math.max(0, currentGeneratingLessonIdx - 1);
+                    setCurrentGeneratingLessonIdx(targetIdx);
+                    if (courseData?.lessons?.[targetIdx]) {
+                      setActiveLessonId(courseData.lessons[targetIdx].id);
+                    }
+                  }}
                   disabled={currentGeneratingLessonIdx === 0}
                   title="Previous Lesson"
                 >
@@ -5181,7 +5196,13 @@ export default function App() {
                 <button 
                   className="library-page-btn playful-card" 
                   style={{ width: '36px', height: '36px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
-                  onClick={() => setCurrentGeneratingLessonIdx(Math.min((structure.length || 1) - 1, currentGeneratingLessonIdx + 1))}
+                  onClick={() => {
+                    const targetIdx = Math.min((structure.length || 1) - 1, currentGeneratingLessonIdx + 1);
+                    setCurrentGeneratingLessonIdx(targetIdx);
+                    if (courseData?.lessons?.[targetIdx]) {
+                      setActiveLessonId(courseData.lessons[targetIdx].id);
+                    }
+                  }}
                   disabled={currentGeneratingLessonIdx >= (structure.length || 1) - 1}
                   title="Next Lesson"
                 >
@@ -5223,25 +5244,26 @@ export default function App() {
                   <span style={{ fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: '8px' }}>ON THIS PAGE</span>
                   {(() => {
                     const baseList = activeRole === 'creator' ? [
-                      { id: 'overview', title: 'Lesson Overview' },
-                      { id: 'learning_outcomes', title: 'Learning Outcomes' },
-                      { id: 'core_content', title: 'Core Technical Material' },
-                      { id: 'exercises', title: 'Hands-On Exercises' },
-                      { id: 'quizzes', title: 'Assessment Quiz' }
+                      { id: 'overview', title: 'Ringkasan Pelajaran' },
+                      { id: 'learning_outcomes', title: 'Capaian Pembelajaran' },
+                      { id: 'core_content', title: 'Materi Pokok' },
+                      { id: 'exercises', title: 'Latihan Praktik' },
+                      { id: 'quizzes', title: 'Kuis & Asesmen' }
                     ] : activeRole === 'student' ? [
-                      { id: 'why_this_matters', title: 'Why This Matters' },
-                      { id: 'practice', title: 'Interactive Coding Practice' },
-                      { id: 'debugging', title: 'Debugging Pitfalls' },
-                      { id: 'ethics', title: 'Ethics & Code Principles' }
+                      { id: 'why_this_matters', title: 'Urgensi Materi' },
+                      { id: 'learning_journey', title: 'Alur Belajar' },
+                      { id: 'practice', title: 'Studi Kasus & Praktik' },
+                      { id: 'debugging', title: 'Kendala Umum & Solusi' },
+                      { id: 'ethics', title: 'Etika & Standar' }
                     ] : [
-                      { id: 'facilitator_guide', title: 'Facilitator Guide' },
-                      { id: 'lesson_plan', title: 'Lesson Plan & Timing' },
-                      { id: 'rubric', title: 'Assessment Rubric' },
-                      { id: 'discussion_questions', title: 'Discussion Questions' }
+                      { id: 'facilitator_guide', title: 'Panduan Fasilitator' },
+                      { id: 'lesson_plan', title: 'Rencana Sesi & Waktu' },
+                      { id: 'rubric', title: 'Rubrik Penilaian' },
+                      { id: 'discussion_questions', title: 'Pertanyaan Diskusi' }
                     ];
 
                     const curTocLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
-                    const structTocLesson = structure.find(l => l.id === curTocLesson?.id || l.title === curTocLesson?.title) || structure[0];
+                    const structTocLesson = structure.find(l => l.id === curTocLesson?.id || l.title === curTocLesson?.title) || structure[currentGeneratingLessonIdx] || structure[0];
                     const customList = (structTocLesson?.sections?.[activeRole] || [])
                       .filter(s => !s.locked)
                       .map(s => ({ id: s.type, title: s.title }));
@@ -5276,7 +5298,7 @@ export default function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <svg width="18" height="18" fill="none" stroke="var(--navy)" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                       <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--navy)', margin: 0 }}>
-                        {activeRole === 'creator' ? 'Full Curriculum Specification (Creator View)' : activeRole === 'student' ? 'Student Learning Guide' : 'Educator Facilitator Guide'}
+                        {activeRole === 'creator' ? 'Dokumen Induk Kurikulum (Creator View)' : activeRole === 'student' ? 'Panduan & Modul Belajar Siswa (Student View)' : 'Panduan Fasilitator & Mentor (Educator View)'}
                       </h3>
                     </div>
 
@@ -5292,9 +5314,9 @@ export default function App() {
                             AI WAND ACTIONS
                           </div>
                           {[
-                            { action: 'rewrite', label: '✍️ Rewrite & Refine', desc: 'Improve text clarity & flow' },
-                            { action: 'expand', label: '📈 Expand Details', desc: 'Add technical examples' },
-                            { action: 'simplify', label: '💡 Simplify Concepts', desc: 'Make easier to understand' }
+                            { action: 'rewrite', label: '✍️ Rewrite & Refine', desc: 'Perbaiki kalimat & bahasa' },
+                            { action: 'expand', label: '📈 Expand Details', desc: 'Perdalam contoh & studi kasus' },
+                            { action: 'simplify', label: '💡 Simplify Concepts', desc: 'Permudah pemahaman konsep' }
                           ].map(item => (
                             <button
                               key={item.action}
@@ -5306,7 +5328,7 @@ export default function App() {
                                 setTimeout(() => {
                                   setIsWandProcessing(false);
                                   setIsAIWandOpen(false);
-                                  toast.success(`AI Action [${item.label}] completed successfully for this section!`);
+                                  toast.success(`Aksi AI [${item.label}] berhasil dijalankan!`);
                                 }, 1200);
                               }}
                             >
@@ -5328,53 +5350,62 @@ export default function App() {
                     {(() => {
                       const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.[0];
                       const curSecs = curLesson?.sections?.[activeRole] || {};
-                      const lessonTitle = curLesson?.title || courseData?.title || 'Machine Learning Essentials';
+                      const lessonTitle = curLesson?.title || structure[currentGeneratingLessonIdx]?.title || courseData?.title || 'Modul Pembelajaran';
 
                       const activeLessonContent = {
-                        overview: curSecs.overview || curSecs.project_brief || `This lesson provides a comprehensive overview and practical foundation for ${lessonTitle}. Students will explore core concepts, industry use-cases, and implementation patterns necessary for real-world projects.`,
+                        overview: curSecs.overview || curSecs.project_brief || `Modul ini memberikan pemahaman mendalam dan penerapan nyata untuk ${lessonTitle}. Peserta didik akan mempelajari konsep pokok, contoh studi kasus industri, dan panduan praktik mandiri.`,
                         learning_outcomes: curSecs.learning_outcomes?.length > 0 ? curSecs.learning_outcomes : [
-                          `Master core concepts and architectural components of ${lessonTitle}.`,
-                          `Implement hands-on code examples and workflows using modern industry standards.`,
-                          `Apply critical thinking to analyze, debug, and optimize real-world production scenarios.`
+                          `Menguasai konsep fundamental dan komponen utama dalam ${lessonTitle}.`,
+                          `Mempraktikkan alur kerja terstruktur sesuai standar mutu terbaik.`,
+                          `Mengevaluasi dan mengatasi kendala implementasi pada skenario nyata.`
                         ],
-                        core_content: curSecs.core_content || curSecs.tech_stack || `### 1. Conceptual Foundations\n${lessonTitle} serves as a key pillar in modern systems engineering. By leveraging structured workflows and robust error handling, developers can ensure high performance and maintainability.\n\n### 2. Practical Implementation\nTo implement ${lessonTitle} effectively, engineers must follow clean architecture patterns and best practices. Below is the step-by-step guidance for applying these techniques in production environments.`,
+                        core_content: curSecs.core_content || curSecs.tech_stack || `### 1. Landasan Konseptual\n${lessonTitle} menjadi pilar penting dalam penguasaan keahlian ini. Melalui penerapan alur kerja yang disiplin dan terstruktur, peserta dapat mencapai hasil yang optimal dan konsisten.\n\n### 2. Panduan Langkah Praktis\nUntuk mengimplementasikan ${lessonTitle} secara efektif, ikuti tahapan sistematis dan standar operasional yang telah disusun berikut ini.`,
                         exercises: curSecs.exercises?.length > 0 ? curSecs.exercises : [
-                          { title: `Building ${lessonTitle} Pipeline`, description: `Implement a basic working prototype for ${lessonTitle} using Python/JavaScript. Verify output correctness with unit tests.`, code_template: `// Exercise 1: ${lessonTitle}\nfunction executeTask() {\n  console.log("Running task for ${lessonTitle}...");\n}` }
+                          { title: `Latihan Praktik ${lessonTitle}`, description: `Lakukan eksplorasi mandiri langkah demi langkah untuk ${lessonTitle}. Catat hasil pengamatan dan evaluasi kesesuaian output.`, instruction: `Lakukan eksplorasi mandiri langkah demi langkah untuk ${lessonTitle}. Catat hasil pengamatan dan evaluasi kesesuaian output.` }
                         ],
                         quizzes: curSecs.quizzes || curSecs.quiz || [
-                          { question: `What is the primary objective of ${lessonTitle}?`, options: [`To establish a robust, scalable technical workflow`, `To bypass security and data validation`, `To reduce code readability`], answer: `To establish a robust, scalable technical workflow`, explanation: `${lessonTitle} focuses on building reliable, industry-standard systems.` }
+                          { question: `Apa tujuan esensial dari pembelajaran ${lessonTitle}?`, options: [`Membangun kompetensi praktis yang aplikatif`, `Menghindari proses evaluasi mutu`, `Mengurangi efisiensi pengerjaan`], answer: `Membangun kompetensi praktis yang aplikatif`, explanation: `${lessonTitle} berfokus pada penguasaan keterampilan nyata yang dapat diterapkan langsung.` }
                         ],
-                        why_this_matters: curSecs.why_this_matters || `Understanding ${lessonTitle} is crucial for career advancement. It bridges theoretical principles with industry-grade implementation strategies.`,
-                        practice: curSecs.practice?.code_block ? curSecs.practice : {
-                          code_block: `// Interactive Sandbox for ${lessonTitle}\nfunction main() {\n  console.log("Running ${lessonTitle} sandbox...");\n}\nmain();`,
-                          interactive_exercise: `Run the sandbox script and extend the function logic for ${lessonTitle}.`,
-                          checklist: [`Initialize environment`, `Execute main sandbox function`, `Verify console log output`]
+                        why_this_matters: curSecs.why_this_matters || `Memahami ${lessonTitle} sangat esensial karena menjadi fondasi utama dalam memecahkan permasalahan nyata dan meningkatkan kualitas hasil akhir.`,
+                        learning_journey: curSecs.learning_journey || `1. Pahami konsep dasar dan terminologi kunci dari ${lessonTitle}.\n2. Ikuti demonstrasi langkah demi langkah sesuai panduan materi pokok.\n3. Kerjakan latihan praktik mandiri dan evaluasi hasil pengerjaan.`,
+                        practice: curSecs.practice?.interactive_exercise || curSecs.practice?.code_block || curSecs.practice?.scenario ? curSecs.practice : {
+                          content_type: 'markdown',
+                          scenario: `Studi Kasus Pembelajaran: Terapkan metode ${lessonTitle} pada skenario simulasi nyata berikut ini.`,
+                          interactive_exercise: `Terapkan langkah-langkah kerja untuk menyelesaikan studi kasus ${lessonTitle} dengan teliti.`,
+                          checklist: [`Siapkan alat dan bahan pendukung`, `Eksekusi langkah demi langkah secara berurutan`, `Lakukan pengecekan mutu hasil akhir`]
                         },
-                        debugging: curSecs.debugging || `### Common Pitfalls & Solutions\n1. **Unhandled Edge Cases:** Validate inputs prior to execution.\n2. **Performance Bottlenecks:** Optimize data structure lookups.`,
-                        ethics: curSecs.ethics || `### Code Principles & Ethics\nEnsure user data protection, transparency, and compliance with industry security protocols throughout implementation.`,
-                        facilitator_guide: curSecs.facilitator_guide || `### Educator Instructions\nFacilitate an interactive discussion on ${lessonTitle}. Encourage students to participate in pair-programming exercises.`,
-                        lesson_plan: curSecs.lesson_plan?.ice_breaker ? curSecs.lesson_plan : {
-                          ice_breaker: `Ask students: "What real-world applications of ${lessonTitle} have you encountered?"`,
-                          timing: `Lecture & Demo: 20 mins | Pair Lab: 30 mins | Wrap-up & Q&A: 10 mins`
+                        debugging: curSecs.debugging || `### Kendala Umum & Solusi\n1. **Ketidaktelitian Takaran / Parameter:** Selalu lakukan verifikasi ulang pada setiap tahapan awal.\n2. **Penyimpangan Alur Kerja:** Ikuti panduan terstandar untuk menjaga konsistensi mutu.`,
+                        ethics: curSecs.ethics || `### Standar Mutu, Etika & Kebersihan\nTerapkan prinsip integritas, kehati-hatian, keselamatan kerja, dan standar higienitas tertinggi sepanjang proses pengerjaan.`,
+                        facilitator_guide: curSecs.facilitator_guide || `### Panduan Fasilitasi\nAwali kelas dengan memicu diskusi aktif mengenai tantangan seputar ${lessonTitle}. Berikan ruang bagi peserta untuk mempraktikkan materi secara langsung.`,
+                        lesson_plan: curSecs.lesson_plan?.timing ? curSecs.lesson_plan : {
+                          ice_breaker: `Ajukan pertanyaan pemantik: "Pernahkah Anda menemui kendala saat menerapkan ${lessonTitle} sebelumnya?"`,
+                          timing: `Pengantar & Konsep: 10 menit | Praktik & Simulasi: 35 menit | Tanya Jawab & Refleksi: 15 menit`
                         },
                         rubric: curSecs.rubric?.length > 0 ? curSecs.rubric : [
-                          { criteria: "Implementation", excellent: "Code runs error-free with optimal logic", good: "Code runs with minor style issues", needs_improvement: "Code contains execution errors" },
-                          { criteria: "Understanding", excellent: "Demonstrates deep mastery of concepts", good: "Demonstrates basic understanding", needs_improvement: "Lacks core understanding" }
+                          { criteria: "Ketepatan Eksekusi", excellent: "Langkah pengerjaan sempurna dan teliti", good: "Pengerjaan baik dengan evaluasi kecil", needs_improvement: "Perlu bimbingan ulang pada langkah dasar" },
+                          { criteria: "Pemahaman Konsep", excellent: "Mampu menjelaskan alasan di balik setiap langkah", good: "Memahami alur secara umum", needs_improvement: "Belum memahami tujuan langkah kerja" }
                         ],
                         discussion_questions: curSecs.discussion_questions?.length > 0 ? curSecs.discussion_questions : [
-                          `How does ${lessonTitle} improve overall system efficiency?`,
-                          `What key trade-offs should be considered when deploying this solution to production?`
+                          `Bagaimana teknik dalam ${lessonTitle} ini dapat disesuaikan untuk kebutuhan skala yang lebih besar?`,
+                          `Faktor apa yang paling krusial untuk menjaga konsistensi mutu hasil?`
                         ]
                       };
 
                       return (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
                           
-                          {/* Creator POV Workspace (Full Document View) */}
+                          {/* 🎨 CREATOR POV WORKSPACE */}
                           {activeRole === 'creator' && (
                             <>
                               <div id="step7-sec-overview" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <h3 style={{ marginBottom: '10px' }}>Lesson Overview</h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Ringkasan Pelajaran (Lesson Overview)</h3>
+                                  {editingSection === 'overview' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('overview', editingText)}>Simpan</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Overview')) return; setEditingSection('overview'); setEditingText(activeLessonContent.overview); }}>Edit</button>
+                                  )}
+                                </div>
                                 {editingSection === 'overview' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
@@ -5385,18 +5416,18 @@ export default function App() {
 
                               <div id="step7-sec-learning_outcomes" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Learning Outcomes</h3>
+                                  <h3 style={{ margin: 0 }}>Capaian Pembelajaran (Learning Outcomes)</h3>
                                   {editingSection === 'learning_outcomes' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('learning_outcomes', editingText.split('\n').filter(Boolean))}>Save</button>
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('learning_outcomes', editingText.split('\n').filter(Boolean))}>Simpan</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Learning Outcomes')) return; setEditingSection('learning_outcomes'); setEditingText(activeLessonContent.learning_outcomes.join('\n')); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Learning Outcomes')) return; setEditingSection('learning_outcomes'); setEditingText((activeLessonContent.learning_outcomes || []).join('\n')); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'learning_outcomes' ? (
-                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} placeholder="One outcome per line..." />
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} placeholder="Satu capaian per baris..." />
                                 ) : (
                                   <ul className="outcome-list">
-                                    {activeLessonContent.learning_outcomes.map((item, idx) => (
+                                    {(activeLessonContent.learning_outcomes || []).map((item, idx) => (
                                       <li key={idx}><span className="outcome-dot" />{item}</li>
                                     ))}
                                   </ul>
@@ -5404,7 +5435,14 @@ export default function App() {
                               </div>
 
                               <div id="step7-sec-core_content" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <h3 style={{ marginBottom: '10px' }}>Core Technical Material</h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Materi Pokok (Core Technical Material)</h3>
+                                  {editingSection === 'core_content' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('core_content', editingText)}>Simpan</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Core Content')) return; setEditingSection('core_content'); setEditingText(activeLessonContent.core_content); }}>Edit</button>
+                                  )}
+                                </div>
                                 {editingSection === 'core_content' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '240px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
@@ -5415,30 +5453,30 @@ export default function App() {
 
                               <div id="step7-sec-exercises" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Hands-On Exercises</h3>
+                                  <h3 style={{ margin: 0 }}>Latihan Praktik (Hands-On Exercises)</h3>
                                   {editingSection === 'exercises' ? (
                                     <button className="ai-pill-btn edit" onClick={() => {
                                       try {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('exercises', parsed);
                                       } catch (err) {
-                                        toast.error("Invalid JSON format. Expected array of objects.");
+                                        toast.error("Format JSON tidak valid.");
                                       }
-                                    }}>Save</button>
+                                    }}>Simpan</button>
                                   ) : (
-                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Hands-On Exercises')) return; setEditingSection('exercises'); setEditingText(JSON.stringify(activeLessonContent.exercises, null, 2)); }}>Edit</button>
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Latihan')) return; setEditingSection('exercises'); setEditingText(JSON.stringify(activeLessonContent.exercises, null, 2)); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'exercises' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    {activeLessonContent.exercises.map((ex, idx) => {
+                                    {(activeLessonContent.exercises || []).map((ex, idx) => {
                                       const textDesc = ex.instruction || ex.description || (typeof ex === 'string' ? ex : '');
                                       return (
                                         <div key={idx} style={{ padding: '16px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
                                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                            <strong style={{ fontSize: '0.98rem', color: 'var(--navy)' }}>Exercise {idx + 1}: {ex.title || 'Practice Exercise'}</strong>
+                                            <strong style={{ fontSize: '0.98rem', color: 'var(--navy)' }}>Latihan {idx + 1}: {ex.title || 'Latihan Mandiri'}</strong>
                                             {ex.difficulty && (
                                               <span style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: '12px', background: '#dcfce7', color: '#15803d', fontWeight: 700, border: '1px solid #bbf7d0' }}>
                                                 {ex.difficulty}
@@ -5446,7 +5484,6 @@ export default function App() {
                                             )}
                                           </div>
                                           {textDesc && <p style={{ margin: '6px 0', fontSize: '0.9rem', color: 'var(--text-main)', lineHeight: '1.6' }}>{textDesc}</p>}
-                                          {(ex.code_template || ex.code) && <pre className="code-block" style={{ marginTop: '10px' }}>{ex.code_template || ex.code}</pre>}
                                         </div>
                                       );
                                     })}
@@ -5456,16 +5493,16 @@ export default function App() {
 
                               <div id="step7-sec-quizzes" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Assessment Quiz</h3>
+                                  <h3 style={{ margin: 0 }}>Kuis &amp; Asesmen (Assessment Quiz)</h3>
                                   {editingSection === 'quizzes' ? (
                                     <button className="ai-pill-btn edit" onClick={() => {
                                       try {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('quizzes', parsed);
                                       } catch (err) {
-                                        toast.error("Invalid JSON format. Expected array of objects.");
+                                        toast.error("Format JSON tidak valid.");
                                       }
-                                    }}>Save</button>
+                                    }}>Simpan</button>
                                   ) : (
                                     <button className="ai-pill-btn edit" onClick={() => { setEditingSection('quizzes'); setEditingText(JSON.stringify(activeLessonContent.quizzes, null, 2)); }}>Edit</button>
                                   )}
@@ -5476,7 +5513,7 @@ export default function App() {
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                                     {(Array.isArray(activeLessonContent.quizzes) ? activeLessonContent.quizzes : []).map((q, idx) => (
                                       <div key={idx} style={{ padding: '14px', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                                        <strong>Q{idx + 1}: {q.question || 'Quiz Question'}</strong>
+                                        <strong>Soal {idx + 1}: {q.question || 'Pertanyaan Kuis'}</strong>
                                         <ul style={{ listStyle: 'none', paddingLeft: 0, marginTop: '8px' }}>
                                           {(Array.isArray(q.options) ? q.options : (q.choices || [])).map((opt, oIdx) => (
                                             <li key={oIdx} style={{ padding: '4px 0', fontSize: '0.88rem', color: opt === q.answer ? '#059669' : 'var(--text-main)', fontWeight: opt === q.answer ? 700 : 400 }}>
@@ -5489,13 +5526,53 @@ export default function App() {
                                   </div>
                                 )}
                               </div>
+                              {renderCustomSections()}
+                            </>
+                          )}
+
+                          {/* 🎓 STUDENT POV WORKSPACE */}
+                          {activeRole === 'student' && (
+                            <>
+                              <div id="step7-sec-why_this_matters" className="content-block" style={{ scrollMarginTop: '110px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Urgensi Materi (Why This Matters)</h3>
+                                  {editingSection === 'why_this_matters' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('why_this_matters', editingText)}>Simpan</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Bagian Ini')) return; setEditingSection('why_this_matters'); setEditingText(activeLessonContent.why_this_matters); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'why_this_matters' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <div className="why-matters-card" style={{ background: 'var(--surface-2)', borderLeft: '4px solid var(--gold)', padding: '16px' }}>
+                                    <ContentRenderer text={activeLessonContent.why_this_matters} />
+                                  </div>
+                                )}
+                                {renderAIActionBar('why_this_matters', activeLessonContent.why_this_matters)}
+                              </div>
+
+                              <div id="step7-sec-learning_journey" className="content-block" style={{ scrollMarginTop: '110px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Alur Belajar Siswa (Learning Journey)</h3>
+                                  {editingSection === 'learning_journey' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('learning_journey', editingText)}>Simpan</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Alur Belajar')) return; setEditingSection('learning_journey'); setEditingText(activeLessonContent.learning_journey); }}>Edit</button>
+                                  )}
+                                </div>
+                                {editingSection === 'learning_journey' ? (
+                                  <textarea className="prompt-textarea" style={{ minHeight: '140px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
+                                ) : (
+                                  <ContentRenderer text={activeLessonContent.learning_journey} />
+                                )}
+                                {renderAIActionBar('learning_journey', activeLessonContent.learning_journey)}
+                              </div>
 
                               <div id="step7-sec-practice" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                   <h3 style={{ margin: 0 }}>
-                                    {activeLessonContent.practice?.content_type === 'markdown' || !activeLessonContent.practice?.code_block
-                                      ? '📋 Interactive Scenario & Case Study'
-                                      : '💻 Interactive Coding Sandbox'}
+                                    {activeLessonContent.practice?.content_type === 'code' ? '💻 Simulasi Praktik & Sandbox' : '📋 Studi Kasus & Skenario Praktik'}
                                   </h3>
                                   {editingSection === 'practice' ? (
                                     <button className="ai-pill-btn edit" onClick={() => {
@@ -5503,9 +5580,9 @@ export default function App() {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('practice', parsed);
                                       } catch (err) {
-                                        toast.error("Invalid JSON format. Expected: { code_block: string, interactive_exercise: string, checklist: string[] }");
+                                        toast.error("Format JSON tidak valid.");
                                       }
-                                    }}>Save</button>
+                                    }}>Simpan</button>
                                   ) : (
                                     <button className="ai-pill-btn edit" onClick={() => { setEditingSection('practice'); setEditingText(JSON.stringify(activeLessonContent.practice || {}, null, 2)); }}>Edit</button>
                                   )}
@@ -5514,17 +5591,13 @@ export default function App() {
                                   <textarea className="prompt-textarea" style={{ minHeight: '200px', fontFamily: 'monospace' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
                                   <>
-                                    {activeLessonContent.practice?.content_type === 'markdown' || !activeLessonContent.practice?.code_block ? (
-                                      <div className="why-matters-card" style={{ background: 'var(--surface-2)', marginBottom: '16px', borderLeft: '4px solid var(--gold)' }}>
-                                        <ContentRenderer text={activeLessonContent.practice?.scenario || activeLessonContent.practice?.interactive_exercise || activeLessonContent.practice?.description || (typeof activeLessonContent.practice === 'string' ? activeLessonContent.practice : 'Read the scenario below and complete the checklist items.')} />
-                                      </div>
-                                    ) : (
-                                      <pre className="code-block">{activeLessonContent.practice?.code_block || activeLessonContent.practice?.starter_code || '// No starter code template provided'}</pre>
-                                    )}
-                                    <div className="exercise-task" style={{ marginTop: '10px' }}>
-                                      <strong>Task / Objective:</strong> {activeLessonContent.practice?.interactive_exercise || activeLessonContent.practice?.task || 'Complete the interactive exercise below.'}
+                                    <div style={{ background: 'var(--surface-2)', padding: '18px', borderRadius: 'var(--radius-md)', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
+                                      <ContentRenderer text={activeLessonContent.practice?.scenario || activeLessonContent.practice?.interactive_exercise || activeLessonContent.practice?.code_block || (typeof activeLessonContent.practice === 'string' ? activeLessonContent.practice : 'Ikuti skenario studi kasus berikut ini.')} />
                                     </div>
-                                    <h4 style={{ fontSize: '0.95rem', fontWeight: 750, marginTop: '16px' }}>Practice Checklist</h4>
+                                    <div className="exercise-task" style={{ marginTop: '10px' }}>
+                                      <strong>Tugas &amp; Instruksi Utama:</strong> {activeLessonContent.practice?.interactive_exercise || activeLessonContent.practice?.task || 'Selesaikan panduan praktik mandiri berikut.'}
+                                    </div>
+                                    <h4 style={{ fontSize: '0.95rem', fontWeight: 750, marginTop: '16px' }}>Checklist Capaian Belajar</h4>
                                     <ul className="checklist">
                                       {(activeLessonContent.practice?.checklist || []).map((item, idx) => (
                                         <li key={idx}><span className="check-icon">✓</span>{item}</li>
@@ -5535,7 +5608,14 @@ export default function App() {
                               </div>
 
                               <div id="step7-sec-debugging" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <h3 style={{ marginBottom: '10px' }}>Debugging Pitfalls</h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Kendala Umum &amp; Solusi (Debugging Pitfalls)</h3>
+                                  {editingSection === 'debugging' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('debugging', editingText)}>Simpan</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Debugging')) return; setEditingSection('debugging'); setEditingText(activeLessonContent.debugging); }}>Edit</button>
+                                  )}
+                                </div>
                                 {editingSection === 'debugging' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
@@ -5545,7 +5625,14 @@ export default function App() {
                               </div>
 
                               <div id="step7-sec-ethics" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <h3 style={{ marginBottom: '10px' }}>Ethics &amp; Code Principles</h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Etika &amp; Standar Kualitas (Ethics &amp; Principles)</h3>
+                                  {editingSection === 'ethics' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('ethics', editingText)}>Simpan</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Ethics')) return; setEditingSection('ethics'); setEditingText(activeLessonContent.ethics); }}>Edit</button>
+                                  )}
+                                </div>
                                 {editingSection === 'ethics' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
@@ -5557,11 +5644,18 @@ export default function App() {
                             </>
                           )}
 
-                          {/* Educator POV Workspace (Full Document View) */}
+                          {/* 🏫 EDUCATOR POV WORKSPACE */}
                           {activeRole === 'educator' && (
                             <>
                               <div id="step7-sec-facilitator_guide" className="content-block" style={{ scrollMarginTop: '110px' }}>
-                                <h3 style={{ marginBottom: '10px' }}>Facilitator Guide</h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h3 style={{ margin: 0 }}>Panduan Fasilitator (Facilitator Guide)</h3>
+                                  {editingSection === 'facilitator_guide' ? (
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('facilitator_guide', editingText)}>Simpan</button>
+                                  ) : (
+                                    <button className="ai-pill-btn edit" onClick={() => { if (!checkCanEdit('mengedit Facilitator Guide')) return; setEditingSection('facilitator_guide'); setEditingText(activeLessonContent.facilitator_guide); }}>Edit</button>
+                                  )}
+                                </div>
                                 {editingSection === 'facilitator_guide' ? (
                                   <textarea className="prompt-textarea" style={{ minHeight: '150px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                                 ) : (
@@ -5572,16 +5666,16 @@ export default function App() {
 
                               <div id="step7-sec-lesson_plan" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Lesson Plan &amp; Timing</h3>
+                                  <h3 style={{ margin: 0 }}>Rencana Sesi &amp; Alokasi Waktu (Lesson Plan &amp; Timing)</h3>
                                   {editingSection === 'lesson_plan' ? (
                                     <button className="ai-pill-btn edit" onClick={() => {
                                       try {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('lesson_plan', parsed);
                                       } catch (err) {
-                                        toast.error("Invalid JSON format. Expected: { ice_breaker: string, timing: string }");
+                                        toast.error("Format JSON tidak valid. Contoh: { ice_breaker: string, timing: string }");
                                       }
-                                    }}>Save</button>
+                                    }}>Simpan</button>
                                   ) : (
                                     <button className="ai-pill-btn edit" onClick={() => { setEditingSection('lesson_plan'); setEditingText(JSON.stringify(activeLessonContent.lesson_plan || {}, null, 2)); }}>Edit</button>
                                   )}
@@ -5591,12 +5685,12 @@ export default function App() {
                                 ) : (
                                   <div className="lesson-plan-grid">
                                     <div className="lesson-plan-card">
-                                      <h4>🧊 Ice Breaker</h4>
-                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.ice_breaker || 'No ice breaker prompt defined.'}</p>
+                                      <h4>🧊 Ice Breaker &amp; Pembuka</h4>
+                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.ice_breaker || 'Tidak ada pertanyaan pemantik.'}</p>
                                     </div>
                                     <div className="lesson-plan-card">
-                                      <h4>⏱ Timing Allocation</h4>
-                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.timing || '60 mins total duration'}</p>
+                                      <h4>⏱ Alokasi Waktu</h4>
+                                      <p style={{ marginTop: '10px' }}>{activeLessonContent.lesson_plan?.timing || '30 menit total durasi'}</p>
                                     </div>
                                   </div>
                                 )}
@@ -5604,16 +5698,16 @@ export default function App() {
 
                               <div id="step7-sec-rubric" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Grading Rubric</h3>
+                                  <h3 style={{ margin: 0 }}>Rubrik Penilaian (Grading Rubric)</h3>
                                   {editingSection === 'rubric' ? (
                                     <button className="ai-pill-btn edit" onClick={() => {
                                       try {
                                         const parsed = JSON.parse(editingText);
                                         handleSaveManualEdit('rubric', parsed);
                                       } catch (err) {
-                                        toast.error("Invalid JSON format. Expected array of objects.");
+                                        toast.error("Format JSON tidak valid.");
                                       }
-                                    }}>Save</button>
+                                    }}>Simpan</button>
                                   ) : (
                                     <button className="ai-pill-btn edit" onClick={() => { setEditingSection('rubric'); setEditingText(JSON.stringify(activeLessonContent.rubric || [], null, 2)); }}>Edit</button>
                                   )}
@@ -5624,10 +5718,10 @@ export default function App() {
                                   <table className="rubric-table">
                                     <thead>
                                       <tr>
-                                        <th>Criteria</th>
-                                        <th>Excellent</th>
-                                        <th>Good</th>
-                                        <th>Needs Improvement</th>
+                                        <th>Kriteria</th>
+                                        <th>Sangat Baik</th>
+                                        <th>Baik</th>
+                                        <th>Perlu Perbaikan</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -5646,15 +5740,15 @@ export default function App() {
 
                               <div id="step7-sec-discussion_questions" className="content-block" style={{ scrollMarginTop: '110px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                  <h3 style={{ margin: 0 }}>Discussion Questions</h3>
+                                  <h3 style={{ margin: 0 }}>Pertanyaan Diskusi Kelas</h3>
                                   {editingSection === 'discussion_questions' ? (
-                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('discussion_questions', editingText.split('\n').filter(Boolean))}>Save</button>
+                                    <button className="ai-pill-btn edit" onClick={() => handleSaveManualEdit('discussion_questions', editingText.split('\n').filter(Boolean))}>Simpan</button>
                                   ) : (
                                     <button className="ai-pill-btn edit" onClick={() => { setEditingSection('discussion_questions'); setEditingText(Array.isArray(activeLessonContent.discussion_questions) ? activeLessonContent.discussion_questions.join('\n') : String(activeLessonContent.discussion_questions || '')); }}>Edit</button>
                                   )}
                                 </div>
                                 {editingSection === 'discussion_questions' ? (
-                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} placeholder="One question per line..." />
+                                  <textarea className="prompt-textarea" style={{ minHeight: '120px' }} value={editingText} onChange={(e) => setEditingText(e.target.value)} placeholder="Satu pertanyaan per baris..." />
                                 ) : (
                                   <ol className="discussion-list">
                                     {(Array.isArray(activeLessonContent.discussion_questions) ? activeLessonContent.discussion_questions : (typeof activeLessonContent.discussion_questions === 'string' ? [activeLessonContent.discussion_questions] : [])).map((item, idx) => (

@@ -658,29 +658,33 @@ async def generate_course_content_task_async(session_id: str):
                 "target_audience": db_session.config_audience or "Student"
             })
             lesson_structure = db_session.structure or ""
-            lesson_duration = db_session.config_duration or "60 mins"
+            dur_raw = str(db_session.config_duration or "30")
+            dur_num = "".join([c for c in dur_raw.split()[0] if c.isdigit()]) or "30"
+            lesson_duration = f"{dur_num} menit"
             
             try:
                 creator_json = await asyncio.wait_for(
                     pipeline.generate_creator_content(lesson.title, grounding_data, lesson_structure, lesson_duration=lesson_duration),
-                    timeout=30.0
+                    timeout=45.0
                 )
                 if not isinstance(creator_json, dict):
                     creator_json = {}
             except Exception as e_creator:
                 print(f"Error/Timeout generating creator content for {lesson.title}: {e_creator}")
                 creator_json = {
-                    "overview": f"A comprehensive guide detailing {lesson.title}.",
-                    "learning_outcomes": [f"Master the principles of {lesson.title}"],
-                    "core_content": f"### Introduction to {lesson.title}\nContent generation complete.",
-                    "exercises": [{"title": f"Practice: {lesson.title}", "instruction": "Write a basic script", "difficulty": "Easy"}],
-                    "quizzes": [{"question": f"What is the primary concept of {lesson.title}?", "options": ["Concept A", "Concept B"], "answer": "Concept A", "explanation": "Explanation for concept A"}],
-                    "prompt_templates": []
+                    "overview": f"Modul pembelajaran komprehensif untuk mendalami materi {lesson.title}.",
+                    "learning_outcomes": [f"Menguasai prinsip utama dalam {lesson.title}", f"Mempraktikkan langkah teknis {lesson.title} secara mandiri"],
+                    "core_content": f"### Pengantar {lesson.title}\nPembahasan materi mendalam untuk {lesson.title} mencakup konsep fundamental dan panduan praktik nyata di lapangan.",
+                    "exercises": [{"title": f"Latihan Praktik: {lesson.title}", "instruction": "Lakukan simulasi dan eksplorasi langkah demi langkah sesuai materi.", "difficulty": "Menengah"}],
+                    "quiz": [{"question": f"Apa konsep utama yang ditekankan dalam {lesson.title}?", "options": ["Penerapan metode yang tepat", "Pengabaian standar proses", "Mengurangi ketelitian"], "answer": "Penerapan metode yang tepat", "explanation": "Penerapan metode yang tepat memastikan keberhasilan pembelajaran."}],
+                    "prompt_templates": [f"Berikan panduan studi kasus untuk {lesson.title}."]
                 }
 
             for k, v in creator_json.items():
-                db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "creator", Section.section_type == k).delete()
-                sec = Section(lesson_id=lesson.id, role="creator", section_type=k, content_text=json.dumps(v))
+                # Normalize quiz key if needed
+                sec_k = "quizzes" if k == "quiz" else k
+                db.query(Section).filter(Section.lesson_id == lesson.id, Section.role == "creator", Section.section_type == sec_k).delete()
+                sec = Section(lesson_id=lesson.id, role="creator", section_type=sec_k, content_text=json.dumps(v))
                 db.add(sec)
                 
             # Update sub-progress step before running Student & Educator generation
@@ -704,47 +708,53 @@ async def generate_course_content_task_async(session_id: str):
                 educator_task = pipeline.generate_educator_content(lesson.title, creator_json, lesson_duration=lesson_duration)
                 student_json, educator_json = await asyncio.wait_for(
                     asyncio.gather(student_task, educator_task, return_exceptions=True),
-                    timeout=25.0
+                    timeout=40.0
                 )
                 
                 if isinstance(student_json, Exception) or not isinstance(student_json, dict):
                     student_json = {
-                        "why_this_matters": f"Understanding {lesson.title} is crucial for modern applications.",
-                        "learning_journey": "Follow the custom practice template.",
+                        "why_this_matters": f"Memahami {lesson.title} sangat krusial untuk membangun pemahaman praktis yang aplikatif di dunia nyata.",
+                        "learning_journey": "Ikuti panduan materi dan terapkan setiap instruksi secara terstruktur.",
                         "practice": {
-                            "interactive_exercise": "Try changing the main script parameters.",
-                            "code_block": "pass",
-                            "checklist": ["Verify basic installation"]
+                            "interactive_exercise": "Selesaikan latihan praktik mandiri sesuai panduan di atas.",
+                            "code_block": "Lakukan eksplorasi studi kasus dan evaluasi hasil akhirnya.",
+                            "content_type": "markdown",
+                            "checklist": ["Pahami konsep dasar", "Eksekusi latihan", "Evaluasi hasil pengerjaan"]
                         },
-                        "debugging": "Double check indentation rules and environment settings.",
-                        "ethics": "Always verify usage terms and data protection laws."
+                        "debugging": "Kendala umum: Kurang teliti dalam takaran/parameter. Solusi: Lakukan pengecekan berkala sebelum melanjutkan.",
+                        "ethics": "Terapkan prinsip kehati-hatian, higienitas, dan standar kualitas tertinggi."
                     }
 
                 if isinstance(educator_json, Exception) or not isinstance(educator_json, dict):
                     educator_json = {
-                        "facilitator_guide": f"Guide learners through the basic hands-on demo for {lesson.title}.",
-                        "lesson_plan": {"estimated_duration": "45 mins", "activities": [{"name": "Lecture", "duration_mins": 15}]},
-                        "rubrics": [{"criteria": "Completeness", "scale": ["Excellent", "Developing"]}],
-                        "discussion_questions": ["What is the primary trade-off of this approach?"]
+                        "facilitator_guide": f"Panduan fasilitasi untuk membawakan sesi {lesson.title} secara interaktif dan aplikatif.",
+                        "lesson_plan": {"timing": f"Alokasi Waktu: {lesson_duration}", "ice_breaker": "Ajukan pertanyaan pemantik mengenai tantangan dalam topik ini."},
+                        "rubric": [{"criteria": "Kualitas Pengerjaan", "excellent": "Hasil sempurna dan tepat", "good": "Hasil baik dengan catatan minor", "needs_improvement": "Perlu perbaikan"}],
+                        "teaching_tips": ["Bimbing peserta pada bagian yang memerlukan ketelitian ekstra."],
+                        "discussion_questions": ["Bagaimana strategi terbaik untuk mengoptimalkan hasil praktik ini?"],
+                        "assessment": "Evaluasi hasil pengerjaan tugas peserta berdasarkan rubrik penilaian."
                     }
             except Exception as e_pair:
                 print(f"Error/Timeout in parallel generation for {lesson.title}: {e_pair}")
                 student_json = {
-                    "why_this_matters": f"Understanding {lesson.title} is crucial for modern applications.",
-                    "learning_journey": "Follow the custom practice template.",
+                    "why_this_matters": f"Memahami {lesson.title} sangat krusial untuk membangun pemahaman praktis yang aplikatif di dunia nyata.",
+                    "learning_journey": "Ikuti panduan materi dan terapkan setiap instruksi secara terstruktur.",
                     "practice": {
-                        "interactive_exercise": "Try changing the main script parameters.",
-                        "code_block": "pass",
-                        "checklist": ["Verify basic installation"]
+                        "interactive_exercise": "Selesaikan latihan praktik mandiri sesuai panduan di atas.",
+                        "code_block": "Lakukan eksplorasi studi kasus dan evaluasi hasil akhirnya.",
+                        "content_type": "markdown",
+                        "checklist": ["Pahami konsep dasar", "Eksekusi latihan", "Evaluasi hasil pengerjaan"]
                     },
-                    "debugging": "Double check indentation rules and environment settings.",
-                    "ethics": "Always verify usage terms and data protection laws."
+                    "debugging": "Kendala umum: Kurang teliti dalam takaran/parameter. Solusi: Lakukan pengecekan berkala sebelum melanjutkan.",
+                    "ethics": "Terapkan prinsip kehati-hatian, higienitas, dan standar kualitas tertinggi."
                 }
                 educator_json = {
-                    "facilitator_guide": f"Guide learners through the basic hands-on demo for {lesson.title}.",
-                    "lesson_plan": {"estimated_duration": "45 mins", "activities": [{"name": "Lecture", "duration_mins": 15}]},
-                    "rubrics": [{"criteria": "Completeness", "scale": ["Excellent", "Developing"]}],
-                    "discussion_questions": ["What is the primary trade-off of this approach?"]
+                    "facilitator_guide": f"Panduan fasilitasi untuk membawakan sesi {lesson.title} secara interaktif dan aplikatif.",
+                    "lesson_plan": {"timing": f"Alokasi Waktu: {lesson_duration}", "ice_breaker": "Ajukan pertanyaan pemantik mengenai tantangan dalam topik ini."},
+                    "rubric": [{"criteria": "Kualitas Pengerjaan", "excellent": "Hasil sempurna dan tepat", "good": "Hasil baik dengan catatan minor", "needs_improvement": "Perlu perbaikan"}],
+                    "teaching_tips": ["Bimbing peserta pada bagian yang memerlukan ketelitian ekstra."],
+                    "discussion_questions": ["Bagaimana strategi terbaik untuk mengoptimalkan hasil praktik ini?"],
+                    "assessment": "Evaluasi hasil pengerjaan tugas peserta berdasarkan rubrik penilaian."
                 }
 
             for k, v in student_json.items():
