@@ -242,15 +242,15 @@ export default function App() {
             toast={toast}
           />
         )}
-
-        {/* Global Delete Confirmation Modal Popup */}
-        <DeleteCourseModal
-          deleteTargetSession={wizard.deleteTargetSession}
-          setDeleteTargetSession={wizard.setDeleteTargetSession}
-          API_BASE={API_BASE}
-          fetchSessions={wizard.fetchSessions}
-        />
       </div>
+
+      {/* Global Delete Confirmation Modal Popup */}
+      <DeleteCourseModal
+        deleteTargetSession={wizard.deleteTargetSession}
+        setDeleteTargetSession={wizard.setDeleteTargetSession}
+        API_BASE={API_BASE}
+        fetchSessions={wizard.fetchSessions}
+      />
     </div>
   );
 }
