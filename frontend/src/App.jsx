@@ -2464,7 +2464,6 @@ export default function App() {
   // ── Resume a session ──
   const handleResumeSession = async (sess) => {
     setIsLoading(true);
-    setCurrentView('wizard');
     try {
       const res = await fetch(`${API_BASE}/courses/sessions/${sess.session_id}`);
       if (res.ok) {
@@ -2505,6 +2504,7 @@ export default function App() {
           subjectContext: data.subject_context || '',
         }));
 
+        setCurrentView('wizard');
         if (data.status === 'completed' && data.lessons?.length > 0) {
           setCourseData(data);
           setActiveLessonId(data.lessons[0].id);
@@ -2513,10 +2513,14 @@ export default function App() {
           setGenerationProgress(data.progress || 5);
           setGenerationStatusText(data.status_text || 'Resuming generation...');
           setCurrentStep('generating');
+        } else if (data.structure && Array.isArray(data.structure) && data.structure.length > 0) {
+          setCurrentStep(data.step === 'review' ? 'review' : 'structure');
+        } else if (data.proposals && Array.isArray(data.proposals) && data.proposals.length > 0) {
+          setCurrentStep('proposal');
+        } else if (data.learning_outcomes && Array.isArray(data.learning_outcomes) && data.learning_outcomes.length > 0) {
+          setCurrentStep('grounding');
         } else {
-          // Resume at appropriate step
-          const stepMap = { context: 'context', grounding: 'grounding', proposal: 'proposal', structure: 'structure', review: 'review', generated: 'review' };
-          setCurrentStep(stepMap[data.step] || 'context');
+          setCurrentStep('context');
         }
         setShowMyCourses(false);
       }

@@ -897,9 +897,14 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
           setGenerationProgress(data.progress || 5);
           setGenerationStatusText(data.status_text || 'Resuming generation...');
           setCurrentStep('generating');
+        } else if (data.structure && Array.isArray(data.structure) && data.structure.length > 0) {
+          setCurrentStep(data.step === 'review' ? 'review' : 'structure');
+        } else if (data.proposals && Array.isArray(data.proposals) && data.proposals.length > 0) {
+          setCurrentStep('proposal');
+        } else if (data.learning_outcomes && Array.isArray(data.learning_outcomes) && data.learning_outcomes.length > 0) {
+          setCurrentStep('grounding');
         } else {
-          const stepMap = { context: 'context', grounding: 'grounding', proposal: 'proposal', structure: 'structure', review: 'review', generated: 'review' };
-          setCurrentStep(stepMap[data.step] || 'context');
+          setCurrentStep('context');
         }
         setShowMyCourses(false);
       }
