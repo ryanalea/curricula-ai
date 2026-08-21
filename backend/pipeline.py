@@ -207,7 +207,7 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
         1. Determine if this input is a simple topic (1-5 words) or a complex instructional prompt.
            If it is a simple topic or lacks specific instructions, set 'is_complex': false, and leave explicit parameters empty/null.
         2. Extract a 'display_title' (catchy, max 4-6 words) representing the core topic.
-        3. Determine the 'course_domain' (e.g., "Coding", "Business & Management", "Pedagogy & Design", "Humanities", etc.).
+        3. Determine the 'course_domain' (e.g., "Coding", "Business & Management", "Pedagogy & Design", "Humanities", "Culinary Arts", etc.).
         4. Determine the best 'interactivity_type' (e.g., "Coding Sandbox", "Case Study Simulator", "Roleplay Simulator", "Step-by-Step Worksheet").
         5. Extract any explicit user instructions if present (if 'is_complex' is true):
            - 'lesson_count' (integer, e.g., 4)
@@ -217,10 +217,15 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
            - 'explicit_outline' (array of strings, module/lesson titles provided by user)
         6. Generate standard grounding data:
            - A rich text content overview/context for this topic (2-3 paragraphs).
-           - 20 relevant tags/topics (mix of technical skills, tools, concepts).
+           - Exactly 20 relevant tags/topics in 'all_suggested_tags' (mix of domain skills, tools, techniques, concepts).
            - 3 Prerequisites.
            - 3 Learning boundaries (out of scope topics).
            - 3 Expected learning outcomes.
+
+        [CRITICAL LANGUAGE RULE]
+        - Match the language of the user input ('{keyword}') 100%.
+        - If '{keyword}' is in Bahasa Indonesia (or asks for an Indonesian topic like culinary, masak, etc.), ALL 20 tags in 'all_suggested_tags', 'display_title', 'course_domain', 'subject_context', 'prerequisites', 'out_of_scope', and 'learning_outcomes' MUST BE 100% IN BAHASA INDONESIA.
+        - NEVER output mixed English tags like 'Budget Cooking', 'Food Preparation', 'Cooking Tips', 'Culinary Education'. Instead, translate and generate them naturally in Bahasa Indonesia: 'Manajemen Biaya Dapur', 'Persiapan Bahan & Alat', 'Tips Memasak Praktis', 'Edukasi Kuliner', dll.
 
         [FORMAT]
         Return a JSON object exactly like this:
@@ -326,6 +331,7 @@ def generate_proposals(keyword: str, grounding_data: dict):
         - Each proposal's 'description' and 'differentiators' must be concrete and specific to '{keyword}' (no generic filler like "hands-on learning" without naming what is actually built or covered).
         - 'estimated_hours' must increase from Practical -> Recommended -> Advanced.
         - 'difficulty' must be one of: Beginner, Intermediate, Advanced (matching the proposal's positioning).
+        - LANGUAGE REQUIREMENT: Match the language of '{keyword}' 100%. If '{keyword}' is in Bahasa Indonesia, write all proposal titles, descriptions, differentiators, and target_user in 100% pure Bahasa Indonesia.
 
         [FORMAT]
         Return a pure JSON object, no preamble, exactly:
@@ -414,6 +420,7 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         - The custom sections must focus on specific, concrete technical topics related directly to the course concept.
         - Write a detailed instruction (1-2 sentences) for each custom section detailing what the AI should write in that section.
         - Exactly 3 custom sections per role. Do not add more.
+        - LANGUAGE REQUIREMENT: Match the language of '{proposal_title}' 100%. If '{proposal_title}' is in Bahasa Indonesia, write all lesson titles, section titles, and instructions in 100% pure Bahasa Indonesia.
 
         [FORMAT]
         Return a pure JSON object, no preamble, exactly:
@@ -878,6 +885,7 @@ async def generate_single_grounding_item(
     - Match the requested difficulty level ({difficulty}) and target audience ({audience}).
     - Leverage the tech stack ({tags_str}) where appropriate.
     - Make the suggestion short (1 concise sentence), highly actionable, and do NOT repeat or overlap with existing items.
+    - LANGUAGE: Match the language of existing items or topic '{keyword}'. If in Bahasa Indonesia, write the suggestion 100% in Bahasa Indonesia.
     
     Return output as JSON only with format:
     {{
