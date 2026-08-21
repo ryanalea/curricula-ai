@@ -206,26 +206,26 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
         
         1. Determine if this input is a simple topic (1-5 words) or a complex instructional prompt.
            If it is a simple topic or lacks specific instructions, set 'is_complex': false, and leave explicit parameters empty/null.
-        2. Extract a 'display_title' (catchy, max 4-6 words) representing the core topic.
-        3. Determine the 'course_domain' (e.g., "Coding", "Business & Management", "Pedagogy & Design", "Humanities", "Culinary Arts", etc.).
+        2. Extract a 'display_title' (catchy, max 4-6 words) representing the core topic in standard English.
+        3. Determine the 'course_domain' (e.g., "Coding", "Business & Management", "Pedagogy & Design", "Humanities", "Culinary Arts", etc.) in English.
         4. Determine the best 'interactivity_type' (e.g., "Coding Sandbox", "Case Study Simulator", "Roleplay Simulator", "Step-by-Step Worksheet").
         5. Extract any explicit user instructions if present (if 'is_complex' is true):
            - 'lesson_count' (integer, e.g., 4)
            - 'duration' (string, e.g., "2 weeks" or "1 hour")
            - 'tools' (array of strings, e.g., ["ChatGPT", "EdApp"])
-           - 'final_project' (string)
-           - 'explicit_outline' (array of strings, module/lesson titles provided by user)
-        6. Generate standard grounding data:
-           - A rich text content overview/context for this topic (2-3 paragraphs).
-           - Exactly 20 relevant tags/topics in 'all_suggested_tags' (mix of domain skills, tools, techniques, concepts).
-           - 3 Prerequisites.
-           - 3 Learning boundaries (out of scope topics).
-           - 3 Expected learning outcomes.
+           - 'final_project' (string in English)
+           - 'explicit_outline' (array of strings translated into English)
+        6. Generate standard grounding data in 100% English:
+           - A rich text content overview/context for this topic in English (2-3 paragraphs).
+           - Exactly 20 relevant tags/topics in 'all_suggested_tags' written exclusively in English.
+           - 3 Prerequisites in English.
+           - 3 Learning boundaries (out of scope topics) in English.
+           - 3 Expected learning outcomes in English.
 
-        [CRITICAL LANGUAGE RULE]
-        - Match the language of the user input ('{keyword}') 100%.
-        - If '{keyword}' is in Bahasa Indonesia (or asks for an Indonesian topic like culinary, masak, etc.), ALL 20 tags in 'all_suggested_tags', 'display_title', 'course_domain', 'subject_context', 'prerequisites', 'out_of_scope', and 'learning_outcomes' MUST BE 100% IN BAHASA INDONESIA.
-        - NEVER output mixed English tags like 'Budget Cooking', 'Food Preparation', 'Cooking Tips', 'Culinary Education'. Instead, translate and generate them naturally in Bahasa Indonesia: 'Manajemen Biaya Dapur', 'Persiapan Bahan & Alat', 'Tips Memasak Praktis', 'Edukasi Kuliner', dll.
+        [STRICT 100% ENGLISH ENFORCEMENT]
+        - ABSOLUTE RULE: Output MUST be 100% in English. Every single field—including display_title, course_domain, subject_context, all 20 tags, prerequisites, out_of_scope, and learning_outcomes—MUST be written exclusively in standard professional English.
+        - If the user input or source topic is in Indonesian or any other language, TRANSLATE and ADAPT all concepts, titles, and terms completely into natural English (e.g., convert Indonesian culinary terms, spices, or colloquialisms into standard English equivalents).
+        - ZERO TOLERANCE: NEVER output Indonesian or any non-English words anywhere in the response.
 
         [FORMAT]
         Return a JSON object exactly like this:
@@ -241,7 +241,7 @@ def generate_concept_and_grounding(keyword: str, tags: list = None, difficulty: 
             "final_project": "string or null",
             "explicit_outline": ["...", "..."]
           }},
-          "subject_context": "string", 
+          "subject_context": "string in English", 
           "all_suggested_tags": ["..."],
           "prerequisites": ["..."], 
           "out_of_scope": ["..."], 
@@ -331,7 +331,7 @@ def generate_proposals(keyword: str, grounding_data: dict):
         - Each proposal's 'description' and 'differentiators' must be concrete and specific to '{keyword}' (no generic filler like "hands-on learning" without naming what is actually built or covered).
         - 'estimated_hours' must increase from Practical -> Recommended -> Advanced.
         - 'difficulty' must be one of: Beginner, Intermediate, Advanced (matching the proposal's positioning).
-        - LANGUAGE REQUIREMENT: Match the language of '{keyword}' 100%. If '{keyword}' is in Bahasa Indonesia, write all proposal titles, descriptions, differentiators, and target_user in 100% pure Bahasa Indonesia.
+        - ABSOLUTE ENGLISH ENFORCEMENT: Write all proposal titles, descriptions, differentiators, and target_user 100% in English. If '{keyword}' is in Indonesian or any other language, translate and adapt everything into standard English. NEVER use Indonesian words.
 
         [FORMAT]
         Return a pure JSON object, no preamble, exactly:
@@ -374,19 +374,19 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
     
     fallback_sections = {
         "creator": [
-            {"type": "custom_creator_1", "id": "custom-creator-1", "title": "Technical Deep Dive", "instruction": "Explain the underlying architecture and theoretical details of this lesson's concepts.", "locked": False},
-            {"type": "custom_creator_2", "id": "custom-creator-2", "title": "Industry Implementation Patterns", "instruction": "Discuss real-world production setups and architectural patterns used in the industry.", "locked": False},
-            {"type": "custom_creator_3", "id": "custom-creator-3", "title": "Performance Optimization Tips", "instruction": "Provide advice on profiling, optimizing, and scaling this topic's implementations.", "locked": False}
+            {"type": "custom_creator_1", "id": "custom-creator-1", "title": "Technical Deep Dive", "instruction": "Explain the underlying architecture and theoretical details of this lesson's concepts in English.", "locked": False},
+            {"type": "custom_creator_2", "id": "custom-creator-2", "title": "Industry Implementation Patterns", "instruction": "Discuss real-world production setups and architectural patterns used in the industry in English.", "locked": False},
+            {"type": "custom_creator_3", "id": "custom-creator-3", "title": "Performance Optimization Tips", "instruction": "Provide advice on profiling, optimizing, and scaling this topic's implementations in English.", "locked": False}
         ],
         "student": [
-            {"type": "custom_student_1", "id": "custom-student-1", "title": "Hands-on Guided Lab", "instruction": "Provide a step-by-step programming exercise or setup guide for students.", "locked": False},
-            {"type": "custom_student_2", "id": "custom-student-2", "title": "Self-Assessment Challenge", "instruction": "Formulate a challenge scenario to test the student's understanding.", "locked": False},
-            {"type": "custom_student_3", "id": "custom-student-3", "title": "Real-World Case Study", "instruction": "Explain how this specific concept was applied in a real-world tech industry situation.", "locked": False}
+            {"type": "custom_student_1", "id": "custom-student-1", "title": "Hands-on Guided Lab", "instruction": "Provide a step-by-step programming exercise or setup guide for students in English.", "locked": False},
+            {"type": "custom_student_2", "id": "custom-student-2", "title": "Self-Assessment Challenge", "instruction": "Formulate a challenge scenario to test the student's understanding in English.", "locked": False},
+            {"type": "custom_student_3", "id": "custom-student-3", "title": "Real-World Case Study", "instruction": "Explain how this specific concept was applied in a real-world industry situation in English.", "locked": False}
         ],
         "educator": [
-            {"type": "custom_educator_1", "id": "custom-educator-1", "title": "Active Learning Strategy", "instruction": "Describe an interactive class activity or roleplay scenario.", "locked": False},
-            {"type": "custom_educator_2", "id": "custom-educator-2", "title": "Common Misconceptions", "instruction": "Detail top 3 misconceptions students have about this topic and how to correct them.", "locked": False},
-            {"type": "custom_educator_3", "id": "custom-educator-3", "title": "Peer Review Activity", "instruction": "Outline a 10-minute peer-review discussion template for the class.", "locked": False}
+            {"type": "custom_educator_1", "id": "custom-educator-1", "title": "Active Learning Strategy", "instruction": "Describe an interactive class activity or roleplay scenario in English.", "locked": False},
+            {"type": "custom_educator_2", "id": "custom-educator-2", "title": "Common Misconceptions", "instruction": "Detail top 3 misconceptions students have about this topic and how to correct them in English.", "locked": False},
+            {"type": "custom_educator_3", "id": "custom-educator-3", "title": "Peer Review Activity", "instruction": "Outline a 10-minute peer-review discussion template for the class in English.", "locked": False}
         ]
     }
     
@@ -411,16 +411,16 @@ def generate_structure(proposal_title: str, config: dict, grounding_data: dict):
         [TASK]
         1. Design exactly {lessons_count} DISTINCT lessons for the course '{proposal_title}'.
         Grounding parameters (prerequisites, learning outcomes, tech tags, out-of-scope topics): {json.dumps(grounding_data)}.
-        CRITICAL: If the Grounding parameters or subject_context contains an `[EXPLICIT OUTLINE: ...]`, you MUST strictly use those explicit module/lesson titles as your lesson list in the exact order requested, adapting only the metadata.
-        2. Design exactly 3 custom-tailored, highly relevant additional sections for EACH of the 3 roles (creator, student, educator). These 3 sections per role apply to the WHOLE course and will be used in EVERY lesson, so they must be topic-appropriate for the course as a whole, not for a single lesson.
+        CRITICAL: If the Grounding parameters or subject_context contains an `[EXPLICIT OUTLINE: ...]`, you MUST strictly use those explicit module/lesson titles as your lesson list in the exact order requested, adapting and translating them into standard English.
+        2. Design exactly 3 custom-tailored, highly relevant additional sections for EACH of the 3 roles (creator, student, educator) in English. These 3 sections per role apply to the WHOLE course and will be used in EVERY lesson, so they must be topic-appropriate for the course as a whole, not for a single lesson.
 
         [RULES]
-        - Each lesson title MUST be completely unique and specific (CRITICAL: NEVER repeat generic prefixes like 'Introduction to...' or repeat the exact same title across lessons).
+        - Each lesson title MUST be completely unique, specific, and written in English (CRITICAL: NEVER repeat generic prefixes like 'Introduction to...' or repeat the exact same title across lessons).
         - Do NOT repeat the full course title verbatim inside every lesson name.
         - The custom sections must focus on specific, concrete technical topics related directly to the course concept.
-        - Write a detailed instruction (1-2 sentences) for each custom section detailing what the AI should write in that section.
+        - Write a detailed instruction (1-2 sentences) for each custom section in English detailing what the AI should write.
         - Exactly 3 custom sections per role. Do not add more.
-        - LANGUAGE REQUIREMENT: Match the language of '{proposal_title}' 100%. If '{proposal_title}' is in Bahasa Indonesia, write all lesson titles, section titles, and instructions in 100% pure Bahasa Indonesia.
+        - ABSOLUTE ENGLISH ENFORCEMENT: Write all lesson titles, section titles, and instructions 100% in English. If '{proposal_title}' or grounding context is in Indonesian or any other language, translate and adapt everything into English. NEVER use Indonesian words.
 
         [FORMAT]
         Return a pure JSON object, no preamble, exactly:
@@ -532,11 +532,10 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     Grounding Parameters: {grounding_data}
     Lesson Structure Context: {lesson_structure}
  
-    [DYNAMIC LANGUAGE RULE]
-    - Detect the language of Lesson Title ("{lesson_title}") and Grounding Parameters.
-    - If the course prompt/topic is in Bahasa Indonesia (e.g. topic is in Indonesian or requests Indonesian), write ALL content (overview, learning_outcomes, core_content, exercises, quiz, prompt_templates) 100% in natural, professional Bahasa Indonesia.
-    - Otherwise, write in professional, clear, and high-quality English (default).
-    - NEVER mix languages in the same section.
+    [STRICT 100% ENGLISH ENFORCEMENT]
+    - ABSOLUTE RULE: Output MUST be 100% in English. Every single field—including overview, learning_outcomes, core_content, exercises, quiz, and prompt_templates—MUST be written exclusively in standard professional English.
+    - If the source material, prompt, or lesson title contains Indonesian or any non-English terms, TRANSLATE and ADAPT all concepts, ingredients, procedures, and explanations completely into natural English.
+    - ZERO TOLERANCE: NEVER use Indonesian or any non-English words anywhere in the response.
     - NO FORCED CODING: Check the [DOMAIN: ...] in Grounding parameters. If the domain is NOT "Coding", you MUST NOT generate programming code snippets. Use structured frameworks, procedural steps, recipes, tables, or templates for non-coding topics.
     - Ensure the depth of core_content corresponds to reading/self-study material taking up 40% of the total {lesson_duration} lesson duration.
     - Provide in-depth, precise, and comprehensive content. Do not write brief summaries or bullet-point outlines only.
@@ -546,28 +545,29 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     [FORMAT]
     Return a pure JSON object:
     {{
-      "overview": "2-3 sentences of comprehensive description specific to lesson '{lesson_title}'",
+      "overview": "2-3 sentences of comprehensive description specific to lesson '{lesson_title}' in English",
       "learning_outcomes": ["Specific Learning Outcome 1", "Specific Learning Outcome 2", "Specific Learning Outcome 3"],
-      "core_content": "Full detailed material in MARKDOWN format using '### ' headings for each sub-topic (minimum 2 sub-topics). In-depth and aligned with {lesson_duration}.",
+      "core_content": "Full detailed material in MARKDOWN format in English using '### ' headings for each sub-topic (minimum 2 sub-topics). In-depth and aligned with {lesson_duration}.",
       "exercises": [
         {{
-          "title": "Specific exercise name for this lesson topic",
-          "instruction": "Detailed, step-by-step, actionable practice instructions",
+          "title": "Specific exercise name for this lesson topic in English",
+          "instruction": "Detailed, step-by-step, actionable practice instructions in English",
           "difficulty": "Beginner/Intermediate/Advanced"
         }}
       ],
       "quiz": [
         {{
-          "question": "Clear question testing conceptual understanding of this lesson",
+          "question": "Clear question testing conceptual understanding of this lesson in English",
           "options": ["A", "B", "C", "D"],
           "answer": "One exact matching string from options",
-          "explanation": "Clear explanation of the correct answer"
+          "explanation": "Clear explanation of the correct answer in English"
         }}
       ],
-      "prompt_templates": ["Sample AI prompt for deeper exploration"]
+      "prompt_templates": ["Sample AI prompt in English for deeper exploration"]
     }}
  
     [CONSTRAINT]
+    - Write 100% exclusively in standard professional English.
     - Minimum 2 exercises and minimum 3 quiz questions.
     - Provide pure valid JSON with no introductory conversational text.
     """
@@ -616,37 +616,38 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
     Creator Core Content: {core_content_creator}
     Creator Exercises: {json.dumps(creator_exercises)}
  
-    [DYNAMIC LANGUAGE RULE]
-    - Match the language of the Creator Core Content and Lesson Title ("{lesson_title}").
-    - If the Creator content is in Bahasa Indonesia, write ALL student content (why_this_matters, learning_journey, practice, debugging, ethics) 100% in natural, engaging Bahasa Indonesia.
-    - Otherwise, write in engaging, high-quality English (default).
+    [STRICT 100% ENGLISH ENFORCEMENT]
+    - ABSOLUTE RULE: Output MUST be 100% in English. Every single field—including why_this_matters, learning_journey, practice exercises, checklists, debugging pitfalls, and ethics—MUST be written exclusively in standard professional English.
+    - If the Creator content or lesson title contains any Indonesian or non-English words, TRANSLATE and ADAPT them completely into natural English.
+    - ZERO TOLERANCE: NEVER use Indonesian or any non-English words.
     - Design interactive exercises that logically take ~40% of the {lesson_duration} for hands-on practice.
     - **CRITICAL DOMAIN ROUTING RULE**:
       * Check [DOMAIN: ...] in SUBJECT CONTEXT & DOMAIN METADATA above.
       * If DOMAIN is Non-Coding (Culinary, Business, Design, Healthcare, Humanities, etc.):
         1. MUST set `"content_type": "markdown"`.
         2. NEVER generate programming code (Python/JS) in `code_block`.
-        3. Fill `code_block` with structured scenario text, technical recipe/procedure steps, or real-world simulations.
+        3. Fill `code_block` with structured scenario text, technical recipe/procedure steps, or real-world simulations in English.
       * ONLY set `"content_type": "code"` if DOMAIN is explicitly Coding or Software Engineering.
     - NEVER use empty placeholders like '// TODO' or 'pass'.
-    - 'debugging' section must present at least 2 common mistakes / pitfalls specific to this topic with clear troubleshooting solutions.
+    - 'debugging' section must present at least 2 common mistakes / pitfalls specific to this topic with clear troubleshooting solutions in English.
  
     [FORMAT]
     Return JSON:
     {{
-      "why_this_matters": "Engaging explanation of why this lesson is vital in real-world practice",
-      "learning_journey": "Numbered roadmap (1. 2. 3.) guiding the student step-by-step through the concepts",
+      "why_this_matters": "Engaging explanation in English of why this lesson is vital in real-world practice",
+      "learning_journey": "Numbered roadmap (1. 2. 3.) in English guiding the student step-by-step through the concepts",
       "practice": {{
-        "interactive_exercise": "Step-by-step guidance for completing this exercise",
-        "code_block": "Structured scenario/recipe guide for non-coding OR starter code template for coding",
+        "interactive_exercise": "Step-by-step guidance in English for completing this exercise",
+        "code_block": "Structured scenario/recipe guide in English for non-coding OR starter code template for coding",
         "content_type": "markdown (non-coding) or code (coding)",
-        "checklist": ["Actionable checklist item 1", "Actionable checklist item 2", "Actionable checklist item 3"]
+        "checklist": ["Actionable checklist item 1 in English", "Actionable checklist item 2 in English", "Actionable checklist item 3 in English"]
       }},
-      "debugging": "MARKDOWN: Common pitfalls and exact troubleshooting steps",
-      "ethics": "MARKDOWN: Ethical scope, quality standards, safety, or best practices"
+      "debugging": "MARKDOWN in English: Common pitfalls and exact troubleshooting steps",
+      "ethics": "MARKDOWN in English: Ethical scope, quality standards, safety, or best practices"
     }}
  
     [CONSTRAINT]
+    - Output must be 100% in English.
     - Provide pure valid JSON without conversational filler.
     """
     loop = asyncio.get_running_loop()
@@ -690,36 +691,37 @@ async def generate_educator_content(lesson_title: str, creator_content: dict, le
     Creator Core Content: {core_content_creator}
     Creator Exercises: {json.dumps(creator_exercises)}
  
-    [DYNAMIC LANGUAGE RULE]
-    - Match the language of the Creator Core Content and Lesson Title ("{lesson_title}").
-    - If the Creator content is in Bahasa Indonesia, write ALL educator content (facilitator_guide, lesson_plan, rubric, teaching_tips, discussion_questions, assessment) 100% in professional Bahasa Indonesia.
-    - Otherwise, write in professional, pedagogically sound English (default).
+    [STRICT 100% ENGLISH ENFORCEMENT]
+    - ABSOLUTE RULE: Output MUST be 100% in English. Every single field—including facilitator_guide, lesson_plan, rubric, teaching_tips, discussion_questions, and assessment—MUST be written exclusively in standard professional English.
+    - If the Creator content or lesson title contains any Indonesian or non-English words, TRANSLATE and ADAPT them completely into natural English.
+    - ZERO TOLERANCE: NEVER use Indonesian or any non-English words.
     - Lesson plan timing breakdown MUST sum up EXACTLY to the target duration ({lesson_duration}).
     - Assessment rubric criteria MUST directly evaluate student work on the Creator Exercises: {json.dumps(creator_exercises)}.
-    - Assessment guide must offer concrete evaluation/homework instructions directly tied to the practical exercises.
+    - Assessment guide must offer concrete evaluation/homework instructions directly tied to the practical exercises in English.
  
     [FORMAT]
     Return JSON:
     {{
-      "facilitator_guide": "Specific guide for facilitating this session within {lesson_duration}, including opening remarks and key emphasis points",
+      "facilitator_guide": "Specific guide in English for facilitating this session within {lesson_duration}, including opening remarks and key emphasis points",
       "lesson_plan": {{
         "timing": "Time breakdown totaling exactly {lesson_duration} (e.g. 5m Opening, 20m Lab, 5m Reflection)",
-        "ice_breaker": "Engaging ice-breaker question or warm-up activity"
+        "ice_breaker": "Engaging ice-breaker question or warm-up activity in English"
       }},
       "rubric": [
         {{
-          "criteria": "Assessment Criteria Name",
-          "excellent": "Clear benchmark for Excellent performance",
-          "good": "Clear benchmark for Good performance",
-          "needs_improvement": "Clear benchmark for Needs Improvement"
+          "criteria": "Assessment Criteria Name in English",
+          "excellent": "Clear benchmark for Excellent performance in English",
+          "good": "Clear benchmark for Good performance in English",
+          "needs_improvement": "Clear benchmark for Needs Improvement in English"
         }}
       ],
-      "teaching_tips": ["Tip for addressing common misconceptions", "Tip for guiding students"],
-      "discussion_questions": ["Discussion question 1", "Discussion question 2"],
-      "assessment": "Actionable homework or evaluation guide referencing the exercises"
+      "teaching_tips": ["Tip for addressing common misconceptions in English", "Tip for guiding students in English"],
+      "discussion_questions": ["Discussion question 1 in English", "Discussion question 2 in English"],
+      "assessment": "Actionable homework or evaluation guide in English referencing the exercises"
     }}
  
     [CONSTRAINT]
+    - Output must be 100% in English.
     - Minimum 2 rubric criteria.
     - Pure valid JSON without conversational wrapper.
     """
@@ -764,7 +766,10 @@ async def run_section_action(section_type: str, content: str, action: str, param
     [ADDITIONAL_PARAMETERS]
     {json.dumps(params or {})}
     
-    [CONSTRAINTS]
+    [STRICT 100% ENGLISH ENFORCEMENT]
+    - ABSOLUTE RULE: Output MUST be 100% in English.
+    - If the input content contains any Indonesian or non-English text, translate and adapt everything into standard professional English during this action.
+    - ZERO TOLERANCE: NEVER output any non-English words.
     - Keep formatting intact. If it is markdown, keep it as markdown.
     - Respond only with the updated content text. Do not add intro or outro.
     """
@@ -793,20 +798,23 @@ async def generate_more_quiz(lesson_title: str, core_content: str, count: int = 
         ] * count
     
     prompt = f"""
-    Based on the following content for lesson '{lesson_title}', generate exactly {count} multiple choice quiz questions.
+    Based on the following content for lesson '{lesson_title}', generate exactly {count} multiple choice quiz questions in 100% standard English.
     
     [CONTENT]
     {core_content}
+    
+    [STRICT 100% ENGLISH ENFORCEMENT]
+    - All questions, options, and explanations MUST be written 100% in English. Zero non-English words.
     
     [FORMAT]
     Return JSON only with format:
     {{
       "quizzes": [
         {{
-          "question": "Question text?",
+          "question": "Question text in English?",
           "options": ["A", "B", "C", "D"],
           "answer": "Exact matching string of correct option",
-          "explanation": "Why correct"
+          "explanation": "Why correct in English"
         }}
       ]
     }}
@@ -830,23 +838,26 @@ async def generate_more_exercises(lesson_title: str, core_content: str, count: i
         return [
             {
                 "title": f"Hands-on Exercise for {lesson_title}",
-                "instruction": "Extend the code template to support parsing multiple records sequentially."
+                "instruction": "Extend the workflow template to support executing multiple tasks sequentially."
             }
         ] * count
     
     prompt = f"""
-    Based on the following content for lesson '{lesson_title}', generate exactly {count} student exercises/tasks.
+    Based on the following content for lesson '{lesson_title}', generate exactly {count} student exercises/tasks in 100% standard English.
     
     [CONTENT]
     {core_content}
+    
+    [STRICT 100% ENGLISH ENFORCEMENT]
+    - All exercise titles and instructions MUST be written 100% in English. Zero non-English words.
     
     [FORMAT]
     Return JSON only with format:
     {{
       "exercises": [
         {{
-          "title": "Exercise Name",
-          "instruction": "Detailed task instructions..."
+          "title": "Exercise Name in English",
+          "instruction": "Detailed task instructions in English..."
         }}
       ]
     }}
@@ -889,18 +900,18 @@ async def generate_single_grounding_item(
     Difficulty Level: {difficulty}
     Tech Stack / Focus: {tags_str}
 
-    Task: Suggest one new, distinct, and highly relevant item for the grounding field '{field_type}'.
+    Task: Suggest one new, distinct, and highly relevant item for the grounding field '{field_type}' in standard English.
     Existing items in this field are: {json.dumps(existing_items)}
     
     Guidelines:
     - Match the requested difficulty level ({difficulty}) and target audience ({audience}).
     - Leverage the tech stack ({tags_str}) where appropriate.
     - Make the suggestion short (1 concise sentence), highly actionable, and do NOT repeat or overlap with existing items.
-    - LANGUAGE: Match the language of existing items or topic '{keyword}'. If in Bahasa Indonesia, write the suggestion 100% in Bahasa Indonesia.
+    - STRICT ENGLISH ENFORCEMENT: The suggestion MUST be written 100% in English. If '{keyword}' or existing items are in Indonesian or any other language, translate and generate the suggestion in pure English. NEVER use Indonesian words.
     
     Return output as JSON only with format:
     {{
-      "suggestion": "One sentence suggestion text"
+      "suggestion": "One sentence suggestion text in English"
     }}
     """
     loop = asyncio.get_event_loop()
@@ -917,32 +928,108 @@ async def generate_single_grounding_item(
     data = safe_load_json(response.choices[0].message.content)
     return data.get("suggestion", f"Understanding of {keyword} concepts")
 
+def to_title_case(text: str) -> str:
+    """Helper to convert string into standard English Title Case."""
+    if not text:
+        return ""
+    minor_words = {"a", "an", "the", "and", "but", "or", "for", "nor", "on", "at", "to", "from", "by", "with", "in", "of", "vs", "via"}
+    words = text.strip().split()
+    if not words:
+        return ""
+    result = []
+    for i, w in enumerate(words):
+        lw = w.lower()
+        if i == 0 or i == len(words) - 1 or lw not in minor_words:
+            result.append(w.capitalize())
+        else:
+            result.append(lw)
+    return " ".join(result)
+
+async def polish_custom_element(raw_title: str, raw_description: str = "", context_type: str = "section", domain: str = "General") -> dict:
+    """
+    Intermediate AI Preprocessing & Sanitizer:
+    Translates raw informal/non-English custom title to professional Title Case English,
+    AND generates a concise 2-sentence domain-relevant educational description/summary.
+    """
+    if not raw_title or not raw_title.strip():
+        return {"title": raw_title, "description": raw_description}
+        
+    if not client:
+        return {
+            "title": to_title_case(raw_title),
+            "description": raw_description or f"Comprehensive instructional guidelines and practical applications for {to_title_case(raw_title)}."
+        }
+        
+    prompt = f"""
+    [ROLE]
+    You are an Instructional Curriculum Architect & Language Specialist.
+
+    [INPUT]
+    Raw Input Title: "{raw_title}"
+    Raw Input Description/Instruction: "{raw_description}"
+    Context Type: {context_type} (custom_section, custom_lesson, or outcome)
+    Course Domain: {domain}
+
+    [TASK]
+    Transform this raw input into a polished curriculum element in standard professional English:
+    1. "title": Translate into formal educational English and format with Title Case (e.g., "cara bersihin kadal" -> "Hygienic Cleaning & Deodorizing Techniques", "tips bumbu murah" -> "Cost-Effective Seasoning & Flavor Balancing Strategies").
+    2. "description": Write a concise, 2-sentence domain-specific educational overview for this element in standard English.
+
+    [OUTPUT FORMAT]
+    Return pure JSON with keys "title" and "description".
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                max_tokens=250,
+                temperature=0.3
+            )
+        )
+        data = safe_load_json(response.choices[0].message.content)
+        return {
+            "title": data.get("title", to_title_case(raw_title)),
+            "description": data.get("description", raw_description)
+        }
+    except Exception as e:
+        print(f"Error polishing custom element: {e}")
+        return {
+            "title": to_title_case(raw_title),
+            "description": raw_description or f"Practical instructional procedures for {to_title_case(raw_title)}."
+        }
+
 async def generate_custom_section_content(lesson_title: str, section_title: str, instruction: str, grounding_data: str) -> str:
     if not client:
         await asyncio.sleep(0.3)
-        return f"Content for '{section_title}' based on instruction: {instruction}."
+        return f"### 1. Overview & Core Methodology\nPractical implementation procedures for {section_title}.\n\n### 2. Step-by-Step Practical Execution\n1. Prepare required materials and workspace.\n2. Execute the primary workflow systematically.\n3. Validate output against safety and quality standards."
     try:
         prompt = f"""
         [ROLE]
-        You are a Senior Content Specialist & Instructional Designer crafting a specialized course section.
+        You are a Master Subject Specialist & Senior Curriculum Designer authoring a comprehensive, actionable module section.
 
         [CONTEXT]
         Lesson Topic: "{lesson_title}"
-        Section Title: "{section_title}"
-        Specific Custom Instruction: "{instruction}"
-        Course Grounding Context: {grounding_data}
+        Specialized Section: "{section_title}"
+        Custom Instruction: "{instruction}"
+        Course Grounding & Domain: {grounding_data}
 
         [TASK]
-        Generate comprehensive, well-structured instructional content for this specific custom section.
-        Length: 2-3 detailed paragraphs in Markdown format (with bullet points, checklists, or steps where appropriate).
+        Generate in-depth, authentic, practical step-by-step instructional content for this specialized section.
+        Length: 3 detailed, high-value sections in Markdown with '### ' sub-headings, numbered procedural steps, checklists, and safety/sanitation controls where relevant.
         
-        [DYNAMIC LANGUAGE & FORMATTING RULES]
-        - LANGUAGE ADAPTATION: Detect the language used in Section Title ('{section_title}') and Custom Instruction ('{instruction}').
-          * If written in Bahasa Indonesia, generate this section 100% in natural, professional Bahasa Indonesia.
-          * If written in English, generate this section in high-quality English.
-          * If written in any other language, match that language precisely.
-        - TONE & FORMAT: Match the pedagogical depth, phrasing, and formatting of the surrounding course seamlessly.
-        - Do not output the main section title as an H1 or H2 header at the start; start directly with the instructional content.
+        [STRICT ZERO-BOILERPLATE & 100% ENGLISH ENFORCEMENT]
+        - STRICT ENGLISH ONLY: Every word, procedure, tip, and heading MUST be in 100% standard English.
+        - ZERO BOILERPLATE: BANNED PHRASES: NEVER write 'This section provides comprehensive guidelines...', 'In this module, learners will explore...', or similar meta filler. Start DIRECTLY with substantive, actionable instructional content.
+        - DOMAIN AUTHENTICITY: If the topic is Culinary (e.g. food prep, cleaning meat, cooking, seasoning), write REAL culinary instructions (brine ratios, knife angles, heat control, odor neutralization, food safety temps). If Engineering, write real technical steps.
+        - Include:
+          1. Required tools, ingredients/materials, and prep checks.
+          2. Step-by-step execution procedures (1., 2., 3.).
+          3. Critical quality, safety, and troubleshooting tips.
+        - Do not output the main section title as an H1 header at the start; begin immediately with the first '### ' sub-heading.
         """
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
@@ -950,14 +1037,14 @@ async def generate_custom_section_content(lesson_title: str, section_title: str,
             lambda: client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
+                max_tokens=1400,
                 temperature=0.7
             )
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Error generating custom section content: {e}")
-        return f"Content for '{section_title}' successfully generated per instruction: {instruction}."
+        return f"### 1. Preparation & Core Procedures\nComprehensive practical workflows for {section_title}.\n\n### 2. Step-by-Step Execution\n1. Prepare tools and materials.\n2. Execute procedures methodically.\n3. Perform quality validation."
 
 
 async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) -> dict:

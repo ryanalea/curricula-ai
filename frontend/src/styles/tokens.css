@@ -1,0 +1,84 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+
+button svg, a svg, .icon-btn svg, .icon-btn-tool svg, .review-card-edit-btn svg {
+  pointer-events: none;
+}
+
+/* ══════════════════════════════════════════════════════════
+   CURRICULA AI — Maxy Brand Design System Tokens
+   Palette: Gold #E9B259 | Navy #2D3561 | Light #E8EAF0
+   ══════════════════════════════════════════════════════════ */
+
+:root {
+  --font-title: 'Outfit', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
+
+  /* ── Core Maxy Palette ── */
+  --navy:           #2D3561;
+  --navy-deep:      #1A2040;
+  --navy-80:        rgba(45, 53, 97, 0.8);
+  --navy-50:        rgba(45, 53, 97, 0.5);
+  --navy-12:        rgba(45, 53, 97, 0.12);
+  --navy-06:        rgba(45, 53, 97, 0.06);
+
+  --gold:           #E9B259;
+  --gold-hover:     #D9A046;
+  --gold-deep:      #C8913A;
+  --gold-light:     rgba(233, 178, 89, 0.14);
+  --gold-glow:      rgba(233, 178, 89, 0.3);
+  --gold-alt:       #EFC568;
+
+  --light-bg:       #FFFFFF;
+  --light-mid:      #F0F2F7;
+
+  --white:          #FFFFFF;
+  --surface:        #FFFFFF;
+  --surface-1:      #FAFBFE;
+  --surface-2:      #F3F5FB;
+  --surface-3:      #E8EAF0;
+
+  /* ── Semantic Aliases ── */
+  --bg-base:        var(--light-bg);
+  --bg-surface:     var(--surface);
+  --bg-card:        var(--surface);
+  --border-color:   rgba(45, 53, 97, 0.1);
+  --border-hover:   rgba(45, 53, 97, 0.22);
+
+  --primary:        var(--navy);
+  --primary-hover:  var(--navy-deep);
+
+  --secondary:      var(--gold);
+  --secondary-hover: var(--gold-hover);
+  --secondary-light: var(--gold-light);
+
+  --blue:           #486BF5;
+  --blue-hover:     #3558e8;
+  --blue-light:     rgba(72, 107, 245, 0.09);
+  --blue-glow:      rgba(72, 107, 245, 0.2);
+
+  --text-primary:   var(--navy);
+  --text-secondary: rgba(45, 53, 97, 0.58);
+  --text-muted:     rgba(45, 53, 97, 0.38);
+
+  /* Status colors */
+  --accent-green:   #22C55E;
+  --accent-orange:  #F59E0B;
+  --accent-red:     #EF4444;
+  --accent-purple:  #E9B259;
+
+  --radius-sm:      8px;
+  --radius-md:      12px;
+  --radius-lg:      20px;
+  --radius-xl:      28px;
+
+  --shadow-sm:  0 1px 4px rgba(45, 53, 97, 0.07), 0 1px 2px rgba(45, 53, 97, 0.05);
+  --shadow-md:  0 4px 18px rgba(45, 53, 97, 0.1), 0 2px 8px rgba(45, 53, 97, 0.06);
+  --shadow-lg:  0 12px 40px rgba(45, 53, 97, 0.13), 0 4px 16px rgba(45, 53, 97, 0.08);
+  --shadow-xl:  0 24px 64px rgba(45, 53, 97, 0.17);
+  --shadow-gold: 0 4px 18px rgba(233, 178, 89, 0.35);
+  --shadow-gold-lg: 0 8px 30px rgba(233, 178, 89, 0.45);
+
+  --transition-smooth: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast:   all 0.16s ease;
+  --transition-bounce: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}

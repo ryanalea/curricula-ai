@@ -521,23 +521,67 @@ def select_proposal(session_id: str, payload: schemas.ProposalSelect, db: Sessio
     return {"message": "Proposal selected and structure generated", "structure": structure}
 
 @app.post("/api/v1/courses/sessions/{session_id}/structure/save")
-def save_structure(session_id: str, payload: schemas.StructureUpdate, db: Session = Depends(get_db)):
+async def save_structure(session_id: str, payload: schemas.StructureUpdate, db: Session = Depends(get_db)):
     db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
         
+    domain_ctx = db_session.subject_context or "General"
+    
+    # Collect all tasks to polish concurrently in parallel
+    tasks_to_run = []
+    custom_refs = []
+
     structure_list = []
     for l in payload.lessons:
         lesson_dict = {"id": l.id, "title": l.title, "order": l.order}
         if l.sections is not None:
-            lesson_dict["sections"] = l.sections
+            clean_sections = {}
+            for role_name, sects in l.sections.items():
+                clean_role_sects = []
+                for s in sects:
+                    s_copy = dict(s)
+                    if not s_copy.get("locked"):
+                        raw_t = s_copy.get("title", "")
+                        raw_i = s_copy.get("instruction", "")
+                        if raw_t:
+                            tasks_to_run.append(pipeline.polish_custom_element(raw_t, raw_i, "section", domain=domain_ctx))
+                            custom_refs.append(s_copy)
+                    clean_role_sects.append(s_copy)
+                clean_sections[role_name] = clean_role_sects
+            lesson_dict["sections"] = clean_sections
         structure_list.append(lesson_dict)
-        
+
+    # Run all normalizations & description generations in parallel (< 2-3 seconds max timeout)
+    if tasks_to_run:
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks_to_run, return_exceptions=True),
+                timeout=4.0
+            )
+            for target_dict, res in zip(custom_refs, results):
+                if isinstance(res, dict):
+                    if res.get("title"):
+                        target_dict["title"] = res["title"]
+                    if res.get("description"):
+                        target_dict["instruction"] = res["description"]
+        except Exception as e_norm:
+            print(f"[save_structure] Polish timeout/fallback: {e_norm}")
+
     db_session.structure = json.dumps(structure_list)
     db_session.step = "review"
     db.commit()
     
-    return {"message": "Structure saved successfully", "step": db_session.step}
+    return {"message": "Structure saved successfully", "step": db_session.step, "structure": structure_list}
+
+@app.post("/api/v1/courses/sanitize_and_polish_structure")
+async def sanitize_and_polish_structure_api(payload: dict):
+    """Standalone helper endpoint to polish raw titles & generate descriptions for preview."""
+    raw_title = payload.get("title", "")
+    raw_desc = payload.get("description", "")
+    domain = payload.get("domain", "General")
+    result = await pipeline.polish_custom_element(raw_title, raw_desc, "custom_element", domain=domain)
+    return result
 CANCELED_SESSIONS = set()
 ACTIVE_TASKS = {}
 
@@ -677,12 +721,12 @@ async def generate_course_content_task_async(session_id: str):
             except Exception as e_creator:
                 print(f"Error/Timeout generating creator content for {lesson.title}: {e_creator}")
                 creator_json = {
-                    "overview": f"Modul pembelajaran komprehensif untuk mendalami materi {lesson.title}.",
-                    "learning_outcomes": [f"Menguasai prinsip utama dalam {lesson.title}", f"Mempraktikkan langkah teknis {lesson.title} secara mandiri"],
-                    "core_content": f"### Pengantar {lesson.title}\nPembahasan materi mendalam untuk {lesson.title} mencakup konsep fundamental dan panduan praktik nyata di lapangan.",
-                    "exercises": [{"title": f"Latihan Praktik: {lesson.title}", "instruction": "Lakukan simulasi dan eksplorasi langkah demi langkah sesuai materi.", "difficulty": "Menengah"}],
-                    "quiz": [{"question": f"Apa konsep utama yang ditekankan dalam {lesson.title}?", "options": ["Penerapan metode yang tepat", "Pengabaian standar proses", "Mengurangi ketelitian"], "answer": "Penerapan metode yang tepat", "explanation": "Penerapan metode yang tepat memastikan keberhasilan pembelajaran."}],
-                    "prompt_templates": [f"Berikan panduan studi kasus untuk {lesson.title}."]
+                    "overview": f"A comprehensive instructional guide for mastering {lesson.title}.",
+                    "learning_outcomes": [f"Understand the core principles of {lesson.title}", f"Apply practical workflows for {lesson.title} independently"],
+                    "core_content": f"### Introduction to {lesson.title}\nThis section provides the essential knowledge base for {lesson.title}, covering fundamental concepts, technical workflows, and real-world industry applications.",
+                    "exercises": [{"title": f"Hands-on Lab: {lesson.title}", "instruction": "Execute the step-by-step practical simulation according to the curriculum guidelines.", "difficulty": "Intermediate"}],
+                    "quiz": [{"question": f"What is the primary objective emphasized in {lesson.title}?", "options": ["Application of standard best practices", "Bypassing quality and validation procedures", "Reducing system accuracy"], "answer": "Application of standard best practices", "explanation": "Following established standards ensures reliable and consistent execution."}],
+                    "prompt_templates": [f"Provide a real-world case study analysis for {lesson.title}."]
                 }
 
             for k, v in creator_json.items():
@@ -718,48 +762,48 @@ async def generate_course_content_task_async(session_id: str):
                 
                 if isinstance(student_json, Exception) or not isinstance(student_json, dict):
                     student_json = {
-                        "why_this_matters": f"Memahami {lesson.title} sangat krusial untuk membangun pemahaman praktis yang aplikatif di dunia nyata.",
-                        "learning_journey": "Ikuti panduan materi dan terapkan setiap instruksi secara terstruktur.",
+                        "why_this_matters": f"Understanding {lesson.title} is essential for building practical and applicable competencies in real-world environments.",
+                        "learning_journey": "Follow the structured module material and execute each procedural guideline carefully.",
                         "practice": {
-                            "interactive_exercise": "Selesaikan latihan praktik mandiri sesuai panduan di atas.",
-                            "code_block": "Lakukan eksplorasi studi kasus dan evaluasi hasil akhirnya.",
+                            "interactive_exercise": "Complete the practical simulation according to the guidance above.",
+                            "code_block": "Perform hands-on exploration and evaluate your final output against established standards.",
                             "content_type": "markdown",
-                            "checklist": ["Pahami konsep dasar", "Eksekusi latihan", "Evaluasi hasil pengerjaan"]
+                            "checklist": ["Understand core principles", "Execute practice tasks", "Evaluate output quality"]
                         },
-                        "debugging": "Kendala umum: Kurang teliti dalam takaran/parameter. Solusi: Lakukan pengecekan berkala sebelum melanjutkan.",
-                        "ethics": "Terapkan prinsip kehati-hatian, higienitas, dan standar kualitas tertinggi."
+                        "debugging": "Common Pitfall: Inaccurate parameters or setup. Solution: Perform sequential validation before proceeding.",
+                        "ethics": "Adhere to quality standards, safety protocols, and rigorous execution integrity."
                     }
 
                 if isinstance(educator_json, Exception) or not isinstance(educator_json, dict):
                     educator_json = {
-                        "facilitator_guide": f"Panduan fasilitasi untuk membawakan sesi {lesson.title} secara interaktif dan aplikatif.",
-                        "lesson_plan": {"timing": f"Alokasi Waktu: {lesson_duration}", "ice_breaker": "Ajukan pertanyaan pemantik mengenai tantangan dalam topik ini."},
-                        "rubric": [{"criteria": "Kualitas Pengerjaan", "excellent": "Hasil sempurna dan tepat", "good": "Hasil baik dengan catatan minor", "needs_improvement": "Perlu perbaikan"}],
-                        "teaching_tips": ["Bimbing peserta pada bagian yang memerlukan ketelitian ekstra."],
-                        "discussion_questions": ["Bagaimana strategi terbaik untuk mengoptimalkan hasil praktik ini?"],
-                        "assessment": "Evaluasi hasil pengerjaan tugas peserta berdasarkan rubrik penilaian."
+                        "facilitator_guide": f"Facilitation guidelines for delivering an interactive, hands-on session for {lesson.title}.",
+                        "lesson_plan": {"timing": f"Timing Breakdown: {lesson_duration} total", "ice_breaker": "Ask learners: 'What is the primary challenge you face when approaching this topic?'"},
+                        "rubric": [{"criteria": "Execution Quality", "excellent": "Flawless execution with optimal technique", "good": "Good execution with minor adjustments needed", "needs_improvement": "Requires foundational review"}],
+                        "teaching_tips": ["Guide learners through hands-on exercises incrementally."],
+                        "discussion_questions": ["What is the best strategy to optimize outcomes for this practical workflow?"],
+                        "assessment": "Evaluate learner submissions against the criteria in the assessment rubric."
                     }
             except Exception as e_pair:
                 print(f"Error/Timeout in parallel generation for {lesson.title}: {e_pair}")
                 student_json = {
-                    "why_this_matters": f"Memahami {lesson.title} sangat krusial untuk membangun pemahaman praktis yang aplikatif di dunia nyata.",
-                    "learning_journey": "Ikuti panduan materi dan terapkan setiap instruksi secara terstruktur.",
+                    "why_this_matters": f"Understanding {lesson.title} is essential for building practical and applicable competencies in real-world environments.",
+                    "learning_journey": "Follow the structured module material and execute each procedural guideline carefully.",
                     "practice": {
-                        "interactive_exercise": "Selesaikan latihan praktik mandiri sesuai panduan di atas.",
-                        "code_block": "Lakukan eksplorasi studi kasus dan evaluasi hasil akhirnya.",
+                        "interactive_exercise": "Complete the practical simulation according to the guidance above.",
+                        "code_block": "Perform hands-on exploration and evaluate your final output against established standards.",
                         "content_type": "markdown",
-                        "checklist": ["Pahami konsep dasar", "Eksekusi latihan", "Evaluasi hasil pengerjaan"]
+                        "checklist": ["Understand core principles", "Execute practice tasks", "Evaluate output quality"]
                     },
-                    "debugging": "Kendala umum: Kurang teliti dalam takaran/parameter. Solusi: Lakukan pengecekan berkala sebelum melanjutkan.",
-                    "ethics": "Terapkan prinsip kehati-hatian, higienitas, dan standar kualitas tertinggi."
+                    "debugging": "Common Pitfall: Inaccurate parameters or setup. Solution: Perform sequential validation before proceeding.",
+                    "ethics": "Adhere to quality standards, safety protocols, and rigorous execution integrity."
                 }
                 educator_json = {
-                    "facilitator_guide": f"Panduan fasilitasi untuk membawakan sesi {lesson.title} secara interaktif dan aplikatif.",
-                    "lesson_plan": {"timing": f"Alokasi Waktu: {lesson_duration}", "ice_breaker": "Ajukan pertanyaan pemantik mengenai tantangan dalam topik ini."},
-                    "rubric": [{"criteria": "Kualitas Pengerjaan", "excellent": "Hasil sempurna dan tepat", "good": "Hasil baik dengan catatan minor", "needs_improvement": "Perlu perbaikan"}],
-                    "teaching_tips": ["Bimbing peserta pada bagian yang memerlukan ketelitian ekstra."],
-                    "discussion_questions": ["Bagaimana strategi terbaik untuk mengoptimalkan hasil praktik ini?"],
-                    "assessment": "Evaluasi hasil pengerjaan tugas peserta berdasarkan rubrik penilaian."
+                    "facilitator_guide": f"Facilitation guidelines for delivering an interactive, hands-on session for {lesson.title}.",
+                    "lesson_plan": {"timing": f"Timing Breakdown: {lesson_duration} total", "ice_breaker": "Ask learners: 'What is the primary challenge you face when approaching this topic?'"},
+                    "rubric": [{"criteria": "Execution Quality", "excellent": "Flawless execution with optimal technique", "good": "Good execution with minor adjustments needed", "needs_improvement": "Requires foundational review"}],
+                    "teaching_tips": ["Guide learners through hands-on exercises incrementally."],
+                    "discussion_questions": ["What is the best strategy to optimize outcomes for this practical workflow?"],
+                    "assessment": "Evaluate learner submissions against the criteria in the assessment rubric."
                 }
 
             for k, v in student_json.items():
@@ -779,12 +823,24 @@ async def generate_course_content_task_async(session_id: str):
                 for s in role_sects:
                     if not s.get("locked", False) and s.get("type"):
                         try:
+                            # Polish title and generate instructional summary via LLM
+                            raw_title = s.get("title", "")
+                            raw_instr = s.get("instruction", "")
+                            norm_res = await pipeline.polish_custom_element(raw_title, raw_instr, "section", domain=user_ctx)
+                            norm_title = norm_res.get("title") or raw_title
+                            norm_instr = norm_res.get("description") or raw_instr
+                            s["title"] = norm_title
+                            s["instruction"] = norm_instr
+
                             cs_content = await pipeline.generate_custom_section_content(
                                 lesson.title, 
-                                s.get("title"), 
-                                s.get("instruction", "Write curriculum content."), 
+                                norm_title, 
+                                norm_instr, 
                                 grounding_data
                             )
+                            if not cs_content or len(cs_content.strip()) < 30:
+                                cs_content = f"### 1. Core Principles & Practical Overview\nDetailed instructional guidance and domain methodologies for {norm_title}.\n\n### 2. Step-by-Step Execution Workflow\n1. Review initial specifications and prepare required tools.\n2. Execute procedures methodically according to best practice standards.\n3. Conduct quality verification and documentation."
+
                             db.query(Section).filter(
                                 Section.lesson_id == lesson.id, 
                                 Section.role == role_name, 
@@ -801,6 +857,10 @@ async def generate_course_content_task_async(session_id: str):
                             print(f"Error generating custom section '{s.get('title')}': {e_cs}")
                 
             db.commit()
+            
+        # Update db_session.structure with all polished titles and descriptions
+        db_session.structure = json.dumps(lessons_outline)
+        db.commit()
             
         db_session.status = "completed"
         db_session.progress = 100
@@ -878,15 +938,45 @@ async def run_section_action_endpoint(lesson_id: int, req: schemas.AIActionReque
         Section.section_type == req.section_type
     ).first()
     if not section:
-        raise HTTPException(status_code=404, detail="Section not found")
+        lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+        # On-the-fly real LLM generation for custom section
+        clean_name = req.section_type.replace("custom_", "").replace("_", " ").title()
+        fresh_content = await pipeline.generate_custom_section_content(
+            lesson.title,
+            clean_name,
+            f"Comprehensive instructional guide, essential concepts, and practical workflows for {clean_name}.",
+            lesson.course.title if lesson.course else "Curriculum Course"
+        )
+        section = Section(
+            lesson_id=lesson_id,
+            role=req.role,
+            section_type=req.section_type,
+            content_text=json.dumps(fresh_content)
+        )
+        db.add(section)
+        db.commit()
+        db.refresh(section)
+        return {"status": "success", "content": fresh_content}
     
     # Process modifications
     original_text = section.content_text
-    # Parse json if it's stored as JSON string
     try:
         content_to_process = json.loads(original_text)
     except:
         content_to_process = original_text
+
+    if not content_to_process or (isinstance(content_to_process, str) and len(content_to_process.strip()) < 10):
+        # Regenerate from scratch if content was empty
+        lesson = section.lesson
+        clean_name = req.section_type.replace("custom_", "").replace("_", " ").title()
+        content_to_process = await pipeline.generate_custom_section_content(
+            lesson.title if lesson else "Lesson",
+            clean_name,
+            f"Comprehensive instructional guide and practical workflows for {clean_name}.",
+            lesson.course.title if lesson and lesson.course else "Curriculum Course"
+        )
 
     if isinstance(content_to_process, str):
         processed = await pipeline.run_section_action(section.section_type, content_to_process, req.action, req.params)
