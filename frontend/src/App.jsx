@@ -939,6 +939,11 @@ export default function App() {
   // ── Modals & Popups ──
   const [deleteTargetSession, setDeleteTargetSession] = useState(null);
 
+  // ── Prompt Dropdown States ──
+  const [isPromptExpandedStep5, setIsPromptExpandedStep5] = useState(false);
+  const [isPromptExpandedStep6, setIsPromptExpandedStep6] = useState(false);
+  const [isPromptExpandedStep7, setIsPromptExpandedStep7] = useState(false);
+
   // ── Generation ──
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generationStatusText, setGenerationStatusText] = useState('');
@@ -4261,10 +4266,46 @@ export default function App() {
               {/* Left Column: Lesson Modules List */}
               <div className="lesson-list-panel" style={{ background: 'var(--white)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: '24px', boxShadow: 'var(--shadow-sm)' }}>
                 <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '1.1rem', color: 'var(--navy)', marginBottom: '6px' }}>Course Curriculum Overview</h3>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    Approach: <strong style={{ color: 'var(--blue)' }}>{promptText || 'Practical AI and Regulatory Foundations'}</strong>
-                  </span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.1rem', color: 'var(--navy)', marginBottom: '4px' }}>Course Curriculum Overview</h3>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        Focus: <strong style={{ color: 'var(--blue)' }}>{proposals.find(p => p.id === selectedProposalId)?.title || 'Practical AI and Regulatory Foundations'}</strong>
+                      </div>
+                    </div>
+                    {promptText && (
+                      <button
+                        type="button"
+                        onClick={() => setIsPromptExpandedStep5(!isPromptExpandedStep5)}
+                        style={{
+                          background: isPromptExpandedStep5 ? 'var(--blue-light)' : 'var(--surface-2)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '16px',
+                          padding: '3px 10px',
+                          fontSize: '0.75rem',
+                          color: 'var(--blue)',
+                          cursor: 'pointer',
+                          fontWeight: 700,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0
+                        }}
+                        title={isPromptExpandedStep5 ? 'Collapse prompt details' : 'Expand full prompt'}
+                      >
+                        <span>📝 Prompt</span>
+                        <span style={{ fontSize: '0.65rem', transform: isPromptExpandedStep5 ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }}>▼</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {isPromptExpandedStep5 && promptText && (
+                    <div style={{ marginTop: '10px', padding: '10px 14px', background: 'var(--surface-2)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, maxHeight: '180px', overflowY: 'auto' }}>
+                      <strong style={{ color: 'var(--navy)', display: 'block', marginBottom: '2px', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Initial User Prompt:</strong>
+                      {promptText}
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -4717,9 +4758,43 @@ export default function App() {
 
                   <div className="review-card-v2-body">
                     <div className="concept-hero-box">
-                      <h3 className="concept-hero-title">{promptText || 'Rapid Prototyping for Real-World Impact'}</h3>
-                      <p className="concept-hero-subtitle">"{promptText ? `Course focus: ${promptText}` : 'Comprehensive Course Concept'}"</p>
+                      <h3 className="concept-hero-title">{proposals.find(p => p.id === selectedProposalId)?.title || 'Rapid Prototyping for Real-World Impact'}</h3>
+                      <p className="concept-hero-subtitle">"{proposals.find(p => p.id === selectedProposalId)?.description || (promptText ? (promptText.length > 120 ? promptText.slice(0, 120) + '...' : promptText) : 'Comprehensive Course Concept')}"</p>
                     </div>
+
+                    {/* Collapsible Prompt Dropdown */}
+                    {promptText && (
+                      <div style={{ marginTop: '12px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--surface-2)', overflow: 'hidden' }}>
+                        <button
+                          type="button"
+                          onClick={() => setIsPromptExpandedStep6(!isPromptExpandedStep6)}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '10px 14px',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--navy)',
+                            fontWeight: 700,
+                            fontSize: '0.84rem'
+                          }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>✨</span>
+                            <span>View Original Input Prompt</span>
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', transform: isPromptExpandedStep6 ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }}>▼</span>
+                        </button>
+                        {isPromptExpandedStep6 && (
+                          <div style={{ padding: '0 14px 14px 14px', borderTop: '1px solid var(--border-color)', fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.6, maxHeight: '200px', overflowY: 'auto' }}>
+                            <p style={{ margin: '8px 0 0 0' }}>{promptText}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Attached File Badge if present */}
                     {activeFileName && (
@@ -4940,8 +5015,39 @@ export default function App() {
           <div>
             <div className="header" style={{ alignItems: 'flex-start', marginBottom: '24px' }}>
               <div>
-                <h2 style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--navy)' }}>{promptText || 'Rapid Prototyping for Real-World Impact'}</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '4px', fontSize: '0.9rem' }}>Created on {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                <h2 style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--navy)', lineHeight: 1.3 }}>{proposals.find(p => p.id === selectedProposalId)?.title || (promptText ? (promptText.length > 70 ? promptText.slice(0, 70) + '...' : promptText) : 'Rapid Prototyping for Real-World Impact')}</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px', flexWrap: 'wrap' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0 }}>Created on {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                  {promptText && (
+                    <button
+                      type="button"
+                      onClick={() => setIsPromptExpandedStep7(!isPromptExpandedStep7)}
+                      style={{
+                        background: isPromptExpandedStep7 ? 'var(--blue-light)' : 'var(--surface-2)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '16px',
+                        padding: '2px 10px',
+                        fontSize: '0.76rem',
+                        color: 'var(--blue)',
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}
+                      title={isPromptExpandedStep7 ? 'Hide prompt details' : 'Show full prompt details'}
+                    >
+                      <span>📝 Prompt Details</span>
+                      <span style={{ fontSize: '0.65rem', transform: isPromptExpandedStep7 ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }}>▼</span>
+                    </button>
+                  )}
+                </div>
+                {isPromptExpandedStep7 && promptText && (
+                  <div style={{ marginTop: '12px', padding: '12px 16px', background: 'var(--white)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '750px', boxShadow: 'var(--shadow-sm)' }}>
+                    <strong style={{ color: 'var(--navy)', display: 'block', marginBottom: '4px', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Original Course Prompt:</strong>
+                    {promptText}
+                  </div>
+                )}
               </div>
 
               <button 
