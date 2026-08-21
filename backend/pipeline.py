@@ -995,7 +995,7 @@ async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) 
     Each layout must have the SAME slide content but COMPLETELY DIFFERENT visual themes and decorative elements.
 
     [SLIDE STRUCTURE]
-    Generate as many slides as needed for comprehensive coverage. Do NOT limit slides — quality and completeness matter more than brevity.
+    Generate as many slides as needed for comprehensive coverage. Do NOT limit slides - quality and completeness matter more than brevity.
 
     1. TITLE SLIDE (first slide):
        - title: Course title only
