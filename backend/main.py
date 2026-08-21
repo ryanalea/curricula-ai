@@ -833,6 +833,7 @@ async def generate_course_content_task_async(session_id: str):
 
 @app.post("/api/v1/courses/sessions/{session_id}/content/generate")
 async def trigger_generation(session_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    CANCELED_SESSIONS.discard(session_id)
     db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -841,6 +842,13 @@ async def trigger_generation(session_id: str, background_tasks: BackgroundTasks,
     db_session.progress = 5
     db_session.status_text = "Generation queued..."
     db.commit()
+    
+    await progress_publisher.publish(session_id, {
+        "progress": 5,
+        "status": "queued",
+        "status_text": "Generation queued...",
+        "step": db_session.step
+    })
     
     background_tasks.add_task(generate_course_content_task_async, session_id)
     return {"message": "Generation started", "status": "queued"}
