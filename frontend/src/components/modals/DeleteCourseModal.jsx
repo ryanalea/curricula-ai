@@ -4,9 +4,13 @@ export function DeleteCourseModal({
   deleteTargetSession,
   setDeleteTargetSession,
   API_BASE,
-  fetchSessions
+  fetchSessions,
+  toast
 }) {
   if (!deleteTargetSession) return null;
+
+  const displayTitle = deleteTargetSession.title || deleteTargetSession.prompt || 'Untitled Course';
+  const truncatedTitle = displayTitle.length > 120 ? displayTitle.substring(0, 120) + '...' : displayTitle;
 
   return (
     <div 
@@ -44,10 +48,19 @@ export function DeleteCourseModal({
           Are you sure you want to delete this course from your library?
         </p>
 
-        {/* Clean Highlighted Title Card */}
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '12px 16px', borderRadius: '12px', marginBottom: '28px', textAlign: 'center' }}>
+        {/* Clean Highlighted Title Card with scroll fallback */}
+        <div style={{ 
+          background: '#f8fafc', 
+          border: '1px solid #e2e8f0', 
+          padding: '12px 16px', 
+          borderRadius: '12px', 
+          marginBottom: '28px', 
+          textAlign: 'center',
+          maxHeight: '100px',
+          overflowY: 'auto'
+        }}>
           <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', wordBreak: 'break-word' }}>
-            "{deleteTargetSession.title || deleteTargetSession.prompt}"
+            "{truncatedTitle}"
           </span>
         </div>
 
@@ -87,8 +100,20 @@ export function DeleteCourseModal({
             }}
             onClick={async () => {
               const id = deleteTargetSession.session_id;
+              const courseTitle = deleteTargetSession.title || deleteTargetSession.prompt || 'Course';
+              const truncatedName = courseTitle.length > 30 ? courseTitle.substring(0, 30) + '...' : courseTitle;
               setDeleteTargetSession(null);
-              await fetch(`${API_BASE}/courses/sessions/${id}`, { method: 'DELETE' });
+              try {
+                const res = await fetch(`${API_BASE}/courses/sessions/${id}`, { method: 'DELETE' });
+                if (res.ok) {
+                  if (toast) toast.success(`"${truncatedName}" has been deleted.`);
+                } else {
+                  if (toast) toast.error("Failed to delete the course.");
+                }
+              } catch (err) {
+                console.error("Delete course error:", err);
+                if (toast) toast.error("An error occurred while deleting the course.");
+              }
               fetchSessions();
             }}
           >

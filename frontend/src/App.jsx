@@ -148,16 +148,6 @@ export default function App() {
         key={currentView}
         className={`main-content page-transition ${currentView === 'landing' ? 'landing-mode' : ''}`}
       >
-        {/* ── Toast Notifications ── */}
-        {toasts && toasts.length > 0 && (
-          <div className="toast-container" style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {toasts.map(t => (
-              <div key={t.id} className={`toast-item toast-${t.type}`} style={{ padding: '12px 18px', borderRadius: '8px', background: t.type === 'error' ? '#ef4444' : t.type === 'warning' ? '#f59e0b' : t.type === 'success' ? '#10b981' : '#3b82f6', color: '#fff', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', fontSize: '0.9rem', fontWeight: 500 }}>
-                {t.message}
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* ── Cinematic Landing Page ── */}
         {currentView === 'landing' && (
@@ -250,7 +240,19 @@ export default function App() {
         setDeleteTargetSession={wizard.setDeleteTargetSession}
         API_BASE={API_BASE}
         fetchSessions={wizard.fetchSessions}
+        toast={toast}
       />
+
+      {/* Global Toast Notifications Container */}
+      {toasts && toasts.length > 0 && (
+        <div className="toast-container" style={{ position: 'fixed', top: '24px', right: '24px', zIndex: 9999, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {toasts.map(t => (
+            <div key={t.id} className={`toast-item toast-${t.type}`} style={{ padding: '12px 18px', borderRadius: '8px', background: t.type === 'error' ? '#ef4444' : t.type === 'warning' ? '#f59e0b' : t.type === 'success' ? '#10b981' : '#3b82f6', color: '#fff', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', fontSize: '0.9rem', fontWeight: 500 }}>
+              {t.message}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
