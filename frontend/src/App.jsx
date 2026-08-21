@@ -1000,6 +1000,91 @@ export default function App() {
     return () => { isMounted = false; };
   }, [currentStep, sessionId, activeRole, activeLessonId]);
 
+  // ── Generation Progress SSE / Polling Listener ──
+  useEffect(() => {
+    if (currentStep !== 'generating' || !sessionId) return;
+    
+    let eventSource = null;
+    let pollInterval = null;
+
+    try {
+      eventSource = new EventSource(`${API_BASE}/courses/sessions/${sessionId}/stream-progress`);
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.status === 'canceled') {
+            eventSource?.close();
+            setCurrentStep('review');
+            setGenerationProgress(0);
+            return;
+          }
+          if (data.progress !== undefined) {
+            setGenerationProgress(data.progress);
+          }
+          if (data.status_text) {
+            setGenerationStatusText(data.status_text);
+          }
+          if (data.current_lesson !== undefined) {
+            setCurrentGeneratingLessonIdx(Math.max(0, data.current_lesson - 1));
+          }
+          if (data.status === 'completed' || data.progress >= 100) {
+            eventSource?.close();
+            setGenerationProgress(100);
+            fetch(`${API_BASE}/courses/sessions/${sessionId}`)
+              .then(res => res.json())
+              .then(fullData => {
+                setCourseData(fullData);
+                if (fullData.lessons?.length > 0) {
+                  setActiveLessonId(fullData.lessons[0].id);
+                }
+              })
+              .catch(err => console.error("Error fetching completed course:", err));
+          }
+        } catch (e) {
+          console.error("SSE parse error:", e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        // Fallback to polling if SSE encounters error
+        eventSource?.close();
+        if (!pollInterval) {
+          pollInterval = setInterval(async () => {
+            try {
+              const res = await fetch(`${API_BASE}/courses/sessions/${sessionId}`);
+              if (res.ok) {
+                const data = await res.json();
+                if (data.status === 'canceled') {
+                  clearInterval(pollInterval);
+                  setCurrentStep('review');
+                  setGenerationProgress(0);
+                  return;
+                }
+                if (data.progress !== undefined) setGenerationProgress(data.progress);
+                if (data.status_text) setGenerationStatusText(data.status_text);
+                if (data.status === 'completed' || (data.progress && data.progress >= 100)) {
+                  clearInterval(pollInterval);
+                  setGenerationProgress(100);
+                  setCourseData(data);
+                  if (data.lessons?.length > 0) setActiveLessonId(data.lessons[0].id);
+                }
+              }
+            } catch (err) {
+              console.error("Poll error:", err);
+            }
+          }, 2000);
+        }
+      };
+    } catch (err) {
+      console.error("Failed to connect SSE:", err);
+    }
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [currentStep, sessionId]);
+
   // ── Phase 3: Interactive Course & AI Toolbar ──
   const [sectionLoading, setSectionLoading] = useState({});
   const [editingSection, setEditingSection] = useState(null);
@@ -5160,21 +5245,20 @@ export default function App() {
                 {generationProgress < 100 && (
                   <button 
                     className="cancel-gen-btn"
-                    style={{ background: 'transparent', border: '1.5px solid #F87171', color: '#EF4444', fontWeight: 700, padding: '4px 14px', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                    style={{ background: 'transparent', border: '1.5px solid #F87171', color: '#EF4444', fontWeight: 700, padding: '6px 16px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     onClick={async () => {
-                      if (confirm('Are you sure you want to cancel the generation?')) {
-                        try {
-                          await fetch(`${API_BASE}/courses/sessions/${sessionId}/cancel`, { method: 'POST' });
-                        } catch (e) {
-                          console.error("Cancel API call error:", e);
-                        }
-                        setGenerationProgress(0);
-                        setCurrentStep('review');
-                        toast.info("Generation canceled. Returned to Step 6 Review.");
+                      try {
+                        await fetch(`${API_BASE}/courses/sessions/${sessionId}/cancel`, { method: 'POST' });
+                      } catch (e) {
+                        console.error("Cancel API call error:", e);
                       }
+                      setGenerationProgress(0);
+                      setGenerationStatusText('');
+                      setCurrentStep('review');
+                      toast.info("Generasi materi dibatalkan. Kembali ke Step 6 Review.");
                     }}
                   >
-                    Cancel
+                    <span>✕</span> Batal (Cancel)
                   </button>
                 )}
               </div>
