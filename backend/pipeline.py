@@ -756,11 +756,54 @@ async def run_section_action(section_type: str, content: str, action: str, param
         await asyncio.sleep(0.5)
         return f"[Action: {action.upper()}] {content}"
     
+    if action == "shorten":
+        action_directive = """
+        [GOAL: COMPREHENSIVE OVERALL SHORTENING & CONDENSATION]
+        - Do NOT perform minor sentence-level trimming per paragraph.
+        - You MUST aggressively synthesize and condense the ENTIRE document into an overall executive summary format that is roughly 40% to 50% of the original volume.
+        - Combine and merge repetitive concepts, convert lengthy narrative blocks into crisp high-impact bullet points or short punchy paragraphs.
+        - Retain ALL essential technical takeaways, core concepts, and key steps, but remove verbose elaborations and filler words.
+        - The resulting text must feel concise, sharp, and directly to the point.
+        """
+        target_tokens = 900
+    elif action == "expand":
+        action_directive = """
+        [GOAL: HOLISTIC EXPANSION & DEEP ELABORATION]
+        - Deepen the entire section holistically by adding rich context, real-world industry examples, practical step-by-step guidance, and architectural considerations (1.5x - 2x depth).
+        - Ensure every subtopic is thoroughly articulated with clear technical rationale.
+        """
+        target_tokens = 2500
+    elif action == "simplify":
+        action_directive = """
+        [GOAL: SIMPLIFICATION & COGNITIVE ACCESSIBILITY]
+        - Restructure the content to be crystal-clear, intuitive, and easy to understand for beginners.
+        - Replace heavy academic/technical jargon with clear analogies, concise explanations, and structured lists.
+        """
+        target_tokens = 1500
+    elif action == "rewrite":
+        action_directive = """
+        [GOAL: COMPLETE NARRATIVE REWRITE & STRUCTURAL POLISH]
+        - Completely rewrite the section with a fresh, highly engaging, professional pedagogical voice.
+        - Restructure the headings and flow for optimal readability and impact.
+        """
+        target_tokens = 2000
+    elif action == "regenerate":
+        action_directive = """
+        [GOAL: FULL FRESH REGENERATION]
+        - Generate a completely fresh, comprehensive, and up-to-date version of this section from scratch tailored to the topic.
+        """
+        target_tokens = 2000
+    else:
+        action_directive = f"Perform the action '{action}' thoroughly across the entire content."
+        target_tokens = 1800
+    
     prompt = f"""
     [TASK]
     Perform the action '{action}' on the following section content of type '{section_type}'.
     
-    [CONTENT]
+    {action_directive}
+    
+    [CONTENT TO TRANSFORM]
     {content}
     
     [ADDITIONAL_PARAMETERS]
@@ -770,8 +813,8 @@ async def run_section_action(section_type: str, content: str, action: str, param
     - ABSOLUTE RULE: Output MUST be 100% in English.
     - If the input content contains any Indonesian or non-English text, translate and adapt everything into standard professional English during this action.
     - ZERO TOLERANCE: NEVER output any non-English words.
-    - Keep formatting intact. If it is markdown, keep it as markdown.
-    - Respond only with the updated content text. Do not add intro or outro.
+    - Keep formatting intact. If it is markdown, keep it as clean markdown.
+    - Respond ONLY with the transformed content text. Do not add intro greetings, explanations, or outro comments.
     """
     loop = asyncio.get_event_loop()
     response = await loop.run_in_executor(
@@ -779,7 +822,7 @@ async def run_section_action(section_type: str, content: str, action: str, param
         lambda: client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=1800,
+            max_tokens=target_tokens,
             temperature=0.7
         )
     )
