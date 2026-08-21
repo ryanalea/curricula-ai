@@ -595,6 +595,16 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
                 "interactive_exercise": "Execute the step-by-step practical simulation according to the given scenario.",
                 "code_block": "Perform hands-on exploration following the lesson guidance.",
                 "content_type": "markdown",
+                "checklist": ["Review initial requirements", "Execute the practical workflow", "Evaluate output quality"]
+            },
+            "debugging": "### Common Pitfalls & Solutions\n1. Inaccurate Parameters: Verify all inputs.\n2. Workflow Divergence: Adhere to guidelines.",
+            "ethics": "### Standards & Ethics\nApply integrity and quality standards throughout execution."
+        }
+    
+    prompt = f"""
+    [ROLE]
+    You are an Expert Learning Experience Designer crafting engaging, student-facing modules.
+ 
     [SUBJECT CONTEXT & DOMAIN METADATA]
     {subject_context}
 
@@ -980,15 +990,22 @@ async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) 
     if brand_colors:
         colors_hint = f"\nBrand colors: primary={brand_colors.get('primary', '#1a202c')}, accent={brand_colors.get('accent', '#d69e2e')}"
 
-    prompt = f"""
+    lessons_summary_str = json.dumps(lessons_summary, ensure_ascii=False)[:12000]
+    course_title = course_data.get('title', 'Untitled Course')
+    difficulty = course_data.get('config', {}).get('difficulty', 'Beginner')
+    audience = course_data.get('config', {}).get('target_audience', 'Student')
+    num_lessons = len(lessons_summary)
+
+    prompt = (
+        """
     [ROLE]
     You are a Senior Instructional Designer and Presentation Expert creating a professional, comprehensive course slide deck.
 
     [TASK]
-    Create a complete, high-quality slide deck for the course "{course_data.get('title', 'Untitled Course')}".
-    Difficulty: {course_data.get('config', {}).get('difficulty', 'Beginner')}
-    Audience: {course_data.get('config', {}).get('target_audience', 'Student')}
-    Number of Lessons: {len(lessons_summary)}
+    Create a complete, high-quality slide deck for the course "{course_title}".
+    Difficulty: {difficulty}
+    Audience: {audience}
+    Number of Lessons: {num_lessons}
     {colors_hint}
 
     Generate 3 different layout versions simultaneously: "layout_1", "layout_2", and "layout_3".
@@ -1037,33 +1054,33 @@ async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) 
     - If exercises exist, create practice slides from them
 
     [LESSON DATA]
-    {json.dumps(lessons_summary, ensure_ascii=False)[:12000]}
+    {lessons_summary_str}
 
     [FORMAT]
     Return a pure JSON object with exactly this structure:
-    {{
-      "layouts": {{
-        "layout_1": {{
-          "theme": {{"primary": "#1a202c", "secondary": "#ffffff", "accent": "#d69e2e", "text": "#ffffff"}},
+    {
+      "layouts": {
+        "layout_1": {
+          "theme": {"primary": "#1a202c", "secondary": "#ffffff", "accent": "#d69e2e", "text": "#ffffff"},
           "slides": [
-            {{"type": "title", "title": "Course Title", "subtitle": "", "notes": "..."}},
-            {{"type": "toc", "title": "Table of Contents", "items": ["1. Lesson Title", "2. Lesson Title"], "notes": "..."}},
-            {{"type": "lesson_title", "title": "Lesson 1: ...", "subtitle": "", "notes": "..."}},
-            {{"type": "content", "title": "...", "bullets": ["Clear explanation of concept...", "..."], "notes": "..."}},
-            {{"type": "code", "title": "...", "code": "# Actual code here", "language": "python", "notes": "..."}},
-            {{"type": "end", "title": "Thank You", "subtitle": "...", "notes": "..."}}
+            {"type": "title", "title": "Course Title", "subtitle": "", "notes": "..."},
+            {"type": "toc", "title": "Table of Contents", "items": ["1. Lesson Title", "2. Lesson Title"], "notes": "..."},
+            {"type": "lesson_title", "title": "Lesson 1: ...", "subtitle": "", "notes": "..."},
+            {"type": "content", "title": "...", "bullets": ["Clear explanation of concept...", "..."], "notes": "..."},
+            {"type": "code", "title": "...", "code": "# Actual code here", "language": "python", "notes": "..."},
+            {"type": "end", "title": "Thank You", "subtitle": "...", "notes": "..."}
           ]
-        }},
-        "layout_2": {{
-          "theme": {{"primary": "#1a202c", "secondary": "#ffffff", "accent": "#3182ce", "text": "#ffffff"}},
+        },
+        "layout_2": {
+          "theme": {"primary": "#1a202c", "secondary": "#ffffff", "accent": "#3182ce", "text": "#ffffff"},
           "slides": [...same structure, same content, different visual theme...]
-        }},
-        "layout_3": {{
-          "theme": {{"primary": "#ffffff", "secondary": "#1a202c", "accent": "#319795", "text": "#1a202c"}},
+        },
+        "layout_3": {
+          "theme": {"primary": "#ffffff", "secondary": "#1a202c", "accent": "#319795", "text": "#1a202c"},
           "slides": [...same structure, same content, different visual theme...]
-        }}
-      }}
-    }}
+        }
+      }
+    }
 
     [CONSTRAINTS]
     - IMPORTANT: Write all slide content and speaker notes in English.
@@ -1075,6 +1092,13 @@ async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) 
     - Return pure JSON only, no preamble.
     - Do NOT truncate or abbreviate - provide complete, comprehensive content.
     """
+        .replace("{course_title}", str(course_title))
+        .replace("{difficulty}", str(difficulty))
+        .replace("{audience}", str(audience))
+        .replace("{num_lessons}", str(num_lessons))
+        .replace("{colors_hint}", str(colors_hint))
+        .replace("{lessons_summary_str}", lessons_summary_str)
+    )
 
     try:
         loop = asyncio.get_running_loop()
