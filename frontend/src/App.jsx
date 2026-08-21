@@ -5050,24 +5050,26 @@ export default function App() {
                 )}
               </div>
 
-              <button 
-                className="header-create-btn" 
-                style={{ background: 'var(--navy)', color: '#fff', padding: '10px 24px', fontSize: '0.9rem', boxShadow: '0 4px 14px rgba(26, 32, 64, 0.25)' }}
-                onClick={() => {
-                  if (courseData) {
-                    setCurrentStep('generated');
-                  } else {
-                    // Fetch fresh session data and move to Step 8
-                    fetch(`${API_BASE}/courses/sessions/${sessionId}`).then(res => res.json()).then(data => {
-                      setCourseData(data);
-                      if (data.lessons?.length > 0) setActiveLessonId(data.lessons[0].id);
+              {generationProgress >= 100 && (
+                <button 
+                  className="header-create-btn" 
+                  style={{ background: 'var(--navy)', color: '#fff', padding: '10px 24px', fontSize: '0.9rem', boxShadow: '0 4px 14px rgba(26, 32, 64, 0.25)' }}
+                  onClick={() => {
+                    if (courseData) {
                       setCurrentStep('generated');
-                    });
-                  }
-                }}
-              >
-                Proceed to Assets &rarr;
-              </button>
+                    } else {
+                      // Fetch fresh session data and move to Step 8
+                      fetch(`${API_BASE}/courses/sessions/${sessionId}`).then(res => res.json()).then(data => {
+                        setCourseData(data);
+                        if (data.lessons?.length > 0) setActiveLessonId(data.lessons[0].id);
+                        setCurrentStep('generated');
+                      });
+                    }
+                  }}
+                >
+                  Proceed to Assets &rarr;
+                </button>
+              )}
             </div>
 
             {/* Live Progress Banner with Animated Progress Bar */}

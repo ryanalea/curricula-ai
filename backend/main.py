@@ -538,6 +538,14 @@ def save_structure(session_id: str, payload: schemas.StructureUpdate, db: Sessio
     db.commit()
     
     return {"message": "Structure saved successfully", "step": db_session.step}
+CANCELED_SESSIONS = set()
+ACTIVE_TASKS = {}
+
+def cancel_session(session_id: str):
+    CANCELED_SESSIONS.add(session_id)
+
+def is_session_canceled(session_id: str) -> bool:
+    return session_id in CANCELED_SESSIONS
 
 def generate_course_content_task(session_id: str):
     import asyncio
@@ -553,6 +561,10 @@ def generate_course_content_task(session_id: str):
         loop.run_until_complete(generate_course_content_task_async(session_id))
 
 async def generate_course_content_task_async(session_id: str):
+    CANCELED_SESSIONS.discard(session_id)
+    task_id = str(uuid.uuid4())
+    ACTIVE_TASKS[session_id] = task_id
+    
     db = SessionLocal()
     try:
         db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
@@ -591,6 +603,19 @@ async def generate_course_content_task_async(session_id: str):
         total_lessons = len(lessons_outline)
         
         for idx, item in enumerate(lessons_outline):
+            if is_session_canceled(session_id) or db_session.status == "canceled" or ACTIVE_TASKS.get(session_id) != task_id:
+                print(f"[Generator] Session {session_id} canceled or replaced. Halting immediately.")
+                return
+
+            try:
+                db.refresh(db_session)
+            except Exception:
+                pass
+
+            if is_session_canceled(session_id) or db_session.status == "canceled" or ACTIVE_TASKS.get(session_id) != task_id:
+                print(f"[Generator] Session {session_id} canceled or replaced. Halting immediately.")
+                return
+
             status_msg = f"Generating content for Lesson {idx+1}/{total_lessons}: {item['title']}"
             prog_val = int(10 + (idx / total_lessons) * 80)
             db_session.status_text = status_msg
@@ -807,6 +832,7 @@ async def trigger_generation(session_id: str, background_tasks: BackgroundTasks,
 
 @app.post("/api/v1/courses/sessions/{session_id}/cancel")
 async def cancel_generation(session_id: str, db: Session = Depends(get_db)):
+    cancel_session(session_id)
     db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
     if db_session:
         db_session.status = "canceled"
