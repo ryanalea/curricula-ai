@@ -61,23 +61,24 @@ const WORKFLOW_STEPS = STEPS.map(s => s.key);
 
 function StepProgressBar({ currentStep, onStepClick }) {
   const currentIdx = WORKFLOW_STEPS.indexOf(currentStep);
+  const isGenerating = currentStep === 'generating';
   return (
     <div className="step-progress-bar">
       {STEPS.map((step, i) => {
         const isDone = currentIdx > i;
         const isActive = currentIdx === i;
-        const canClick = isDone || i <= currentIdx;
+        const canClick = !isGenerating && (isDone || i <= currentIdx);
         return (
           <React.Fragment key={step.key}>
             <div 
               className={`step-node ${isDone ? 'done' : ''} ${isActive ? 'active' : ''}`}
-              style={{ cursor: canClick ? 'pointer' : 'default' }}
+              style={{ cursor: canClick ? 'pointer' : 'default', opacity: isGenerating && !isActive ? 0.5 : 1 }}
               onClick={() => {
                 if (canClick && onStepClick && step.key !== 'generating' && step.key !== 'generated') {
                   onStepClick(step.key);
                 }
               }}
-              title={canClick ? `Go to ${step.label}` : ''}
+              title={canClick ? `Go to ${step.label}` : (isGenerating ? 'Editing disabled during generation' : '')}
             >
               <div className="step-node-circle">
                 {isDone ? <IconCheck /> : <span>{i + 1}</span>}
@@ -2535,6 +2536,27 @@ export default function App() {
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app-container">
+      {currentStep === 'generating' && generationProgress < 100 && (
+        <div style={{
+          position: 'fixed',
+          top: '24px',
+          right: '24px',
+          zIndex: 9999,
+          background: 'var(--navy)',
+          color: '#fff',
+          padding: '16px 24px',
+          borderRadius: '12px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          fontWeight: '600',
+          fontSize: '0.95rem'
+        }}>
+          <IconSpinner />
+          <span>Generating in progress... Editing disabled.</span>
+        </div>
+      )}
       <input 
         type="file" 
         ref={fileInputRef} 
