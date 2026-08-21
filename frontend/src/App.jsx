@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { CreatorView } from './components/views/CreatorView';
 import { StudentView } from './components/views/StudentView';
 import { EducatorView } from './components/views/EducatorView';
@@ -6234,7 +6235,7 @@ export default function App() {
 
 
             {/* Export Hub Modal */}
-            {isExportModalOpen && (
+            {isExportModalOpen && createPortal(
               <div className="modal-overlay" onClick={() => setIsExportModalOpen(false)}>
                 <div className="add-section-modal" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
                   <h3 style={{ color: 'var(--navy)', marginBottom: '12px' }}>Export Course Content</h3>
@@ -6277,11 +6278,12 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
 
             {/* Version History Modal */}
-            {isHistoryOpen && (
+            {isHistoryOpen && createPortal(
               <div className="modal-overlay" onClick={() => setIsHistoryOpen(false)}>
                 <div className="add-section-modal" style={{ maxWidth: '480px', width: '100%', maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -6322,7 +6324,8 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
           </div>
         )}
@@ -6333,7 +6336,7 @@ export default function App() {
 
 
       {/* Global Delete Confirmation Modal Popup */}
-      {deleteTargetSession && (
+      {deleteTargetSession && createPortal(
         <div 
           className="modal-overlay" 
           style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999 }}
@@ -6421,7 +6424,8 @@ export default function App() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
       </div>
     </div>

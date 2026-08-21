@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 export function DeleteCourseModal({
   deleteTargetSession,
@@ -8,7 +9,7 @@ export function DeleteCourseModal({
 }) {
   if (!deleteTargetSession) return null;
 
-  return (
+  return createPortal(
     <div 
       className="modal-overlay" 
       style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999 }}
@@ -96,6 +97,7 @@ export function DeleteCourseModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

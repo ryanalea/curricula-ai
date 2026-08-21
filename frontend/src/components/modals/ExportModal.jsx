@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { IconSpinner } from '../icons/Icons';
 
 export function ExportModal({
@@ -13,7 +14,7 @@ export function ExportModal({
 }) {
   if (!isExportModalOpen) return null;
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={() => setIsExportModalOpen(false)}>
       <div className="add-section-modal" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
         <h3 style={{ color: 'var(--navy)', marginBottom: '12px' }}>Export Course Content</h3>
@@ -56,6 +57,7 @@ export function ExportModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

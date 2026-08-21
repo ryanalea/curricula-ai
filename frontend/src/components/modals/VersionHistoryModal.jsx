@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { IconSpinner } from '../icons/Icons';
 
 export function VersionHistoryModal({
@@ -10,7 +11,7 @@ export function VersionHistoryModal({
 }) {
   if (!isHistoryOpen) return null;
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={() => setIsHistoryOpen(false)}>
       <div className="add-section-modal" style={{ maxWidth: '480px', width: '100%', maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -51,6 +52,7 @@ export function VersionHistoryModal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
