@@ -1172,9 +1172,15 @@ export default function App() {
 
   // ── Phase 3: Interactive Course Content Handlers ──
   const handleAIAction = async (sectionType, action, params = {}) => {
+    const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.find(l => l.id === activeLessonId) || courseData?.lessons?.[0];
+    const targetLessonId = curLesson?.id || activeLessonId;
+    if (!targetLessonId) {
+      toast.error('Target lesson not found.');
+      return;
+    }
     setSectionLoading(prev => ({ ...prev, [sectionType]: true }));
     try {
-      const res = await fetch(`${API_BASE}/lessons/${activeLessonId}/sections/ai-action`, {
+      const res = await fetch(`${API_BASE}/lessons/${targetLessonId}/sections/ai-action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1186,15 +1192,24 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        const updatedVal = JSON.parse(data.content);
+        let updatedVal;
+        try {
+          updatedVal = JSON.parse(data.content);
+        } catch {
+          updatedVal = data.content;
+        }
         
         // Update courseData local state
         const updatedCourse = { ...courseData };
-        const lIdx = updatedCourse.lessons.findIndex(l => l.id === activeLessonId);
+        if (!updatedCourse.lessons) updatedCourse.lessons = [];
+        const lIdx = updatedCourse.lessons.findIndex(l => l.id === targetLessonId);
         if (lIdx !== -1) {
+          if (!updatedCourse.lessons[lIdx].sections) updatedCourse.lessons[lIdx].sections = {};
+          if (!updatedCourse.lessons[lIdx].sections[activeRole]) updatedCourse.lessons[lIdx].sections[activeRole] = {};
           updatedCourse.lessons[lIdx].sections[activeRole][sectionType] = updatedVal;
           setCourseData(updatedCourse);
         }
+        toast.success(`AI ${action.charAt(0).toUpperCase() + action.slice(1)} completed!`);
       } else {
         toast.error('AI Action failed.');
       }

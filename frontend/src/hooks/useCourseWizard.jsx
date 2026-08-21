@@ -996,6 +996,106 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
     setCurrentStep('dashboard');
   };
 
+  // ── Phase 3: Interactive Course Content Handlers ──
+  const handleAIAction = async (sectionType, action, params = {}) => {
+    const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.find(l => l.id === activeLessonId) || courseData?.lessons?.[0];
+    const targetLessonId = curLesson?.id || activeLessonId;
+    if (!targetLessonId) {
+      toast.error('Target lesson not found.');
+      return;
+    }
+    setSectionLoading(prev => ({ ...prev, [sectionType]: true }));
+    try {
+      const res = await fetch(`${API_BASE}/lessons/${targetLessonId}/sections/ai-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: activeRole,
+          section_type: sectionType,
+          action,
+          params
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        let updatedVal;
+        try {
+          updatedVal = JSON.parse(data.content);
+        } catch {
+          updatedVal = data.content;
+        }
+        
+        const updatedCourse = { ...courseData };
+        if (!updatedCourse.lessons) updatedCourse.lessons = [];
+        const lIdx = updatedCourse.lessons.findIndex(l => l.id === targetLessonId);
+        if (lIdx !== -1) {
+          if (!updatedCourse.lessons[lIdx].sections) updatedCourse.lessons[lIdx].sections = {};
+          if (!updatedCourse.lessons[lIdx].sections[activeRole]) updatedCourse.lessons[lIdx].sections[activeRole] = {};
+          updatedCourse.lessons[lIdx].sections[activeRole][sectionType] = updatedVal;
+          setCourseData(updatedCourse);
+        }
+        toast.success(`AI ${action.charAt(0).toUpperCase() + action.slice(1)} completed!`);
+      } else {
+        toast.error('AI Action failed.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Error running AI Action.');
+    } finally {
+      setSectionLoading(prev => ({ ...prev, [sectionType]: false }));
+    }
+  };
+
+  const handleSaveManualEdit = async (sectionType, newContent) => {
+    const curLesson = courseData?.lessons?.[currentGeneratingLessonIdx] || courseData?.lessons?.find(l => l.id === activeLessonId) || courseData?.lessons?.[0];
+    const targetLessonId = curLesson?.id || activeLessonId;
+    if (!targetLessonId) {
+      toast.error('Target lesson not found.');
+      return;
+    }
+    setSectionLoading(prev => ({ ...prev, [sectionType]: true }));
+    try {
+      const res = await fetch(`${API_BASE}/lessons/${targetLessonId}/sections/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: activeRole,
+          section_type: sectionType,
+          content: newContent
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        let updatedVal;
+        try {
+          updatedVal = JSON.parse(data.content);
+        } catch {
+          updatedVal = data.content;
+        }
+        
+        const updatedCourse = { ...courseData };
+        if (!updatedCourse.lessons) updatedCourse.lessons = [];
+        const lIdx = updatedCourse.lessons.findIndex(l => l.id === targetLessonId);
+        if (lIdx !== -1) {
+          if (!updatedCourse.lessons[lIdx].sections) updatedCourse.lessons[lIdx].sections = {};
+          if (!updatedCourse.lessons[lIdx].sections[activeRole]) updatedCourse.lessons[lIdx].sections[activeRole] = {};
+          updatedCourse.lessons[lIdx].sections[activeRole][sectionType] = updatedVal;
+          setCourseData(updatedCourse);
+        }
+        setEditingSection(null);
+        setEditingText('');
+        toast.success(`Changes to ${sectionType.replace(/_/g, ' ')} saved successfully!`);
+      } else {
+        toast.error('Failed to save section changes.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Error saving section changes.');
+    } finally {
+      setSectionLoading(prev => ({ ...prev, [sectionType]: false }));
+    }
+  };
+
   // ── Render Helpers ──
   const renderAIActionBar = (sectionType, currentVal, customSaveHandler = null) => {
     return (
