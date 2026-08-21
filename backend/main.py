@@ -766,7 +766,7 @@ async def generate_course_content_task_async(session_id: str):
 
             # 2 & 3. Student and Educator Content concurrently (grounded in Creator content)
             try:
-                student_task = pipeline.generate_student_content(lesson.title, creator_json, lesson_duration=lesson_duration, subject_context=subj_ctx)
+                student_task = pipeline.generate_student_content(lesson.title, creator_json, lesson_duration=lesson_duration, subject_context=user_ctx)
                 educator_task = pipeline.generate_educator_content(lesson.title, creator_json, lesson_duration=lesson_duration)
                 student_json, educator_json = await asyncio.wait_for(
                     asyncio.gather(student_task, educator_task, return_exceptions=True),
