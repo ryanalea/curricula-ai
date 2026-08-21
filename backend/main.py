@@ -310,6 +310,19 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
                 "sections": sections_data
             })
 
+    # Auto-complete or auto-resume if session is in 'generating' status without active background task
+    if db_session.status == "generating" and session_id not in ACTIVE_TASKS:
+        expected_count = len(json.loads(db_session.structure)) if db_session.structure else 1
+        if len(lessons_data) >= expected_count and all(len(l.get("sections", {})) >= 3 for l in lessons_data):
+            db_session.status = "completed"
+            db_session.progress = 100
+            db_session.status_text = "Course Generation Completed!"
+            db_session.step = "generated"
+            db.commit()
+        else:
+            # Automatically resume background generation task
+            generate_course_content_task(session_id)
+
     # Fetch PPTX data for all lessons in this course
     pptx_by_lesson = {}
     if course:
