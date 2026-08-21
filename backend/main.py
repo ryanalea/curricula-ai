@@ -641,6 +641,11 @@ async def generate_course_content_task_async(session_id: str):
                 db.add(lesson)
                 db.commit()
                 db.refresh(lesson)
+            else:
+                if lesson.title != item["title"]:
+                    lesson.title = item["title"]
+                    db.commit()
+                    db.refresh(lesson)
                 
             # Run RTFC master prompting calls in parallel for faster speed
             user_ctx = db_session.subject_context or ""
