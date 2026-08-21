@@ -1,8 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 const API_BASE = '/api/v1';
 
-export function useCourseExport({ sessionId, currentStep, activeRole, activeLessonId, courseData, setCourseData, toast, checkCanEdit }) {
+export function useCourseExport({ sessionId: initialSessionId, currentStep, activeRole: initialActiveRole, activeLessonId: initialActiveLessonId, courseData: initialCourseData, setCourseData: initialSetCourseData, toast, checkCanEdit: initialCheckCanEdit, setPptxDataByLessonRef }) {
+  // Internal values synced from wizard via setWizardState (useRef, NOT useState — avoids infinite loop)
+  const internalSessionIdRef = useRef(initialSessionId);
+  const internalActiveRoleRef = useRef(initialActiveRole);
+  const internalActiveLessonIdRef = useRef(initialActiveLessonId);
+  const internalCourseDataRef = useRef(initialCourseData);
+  const internalSetCourseDataRef = useRef(initialSetCourseData);
+  const internalCheckCanEditRef = useRef(initialCheckCanEdit);
+
+  // Trigger for PDF blob fetch — incremented by setWizardState to force useEffect re-run
+  const [pdfFetchTrigger, setPdfFetchTrigger] = useState(0);
+
+  // Keep refs in sync with incoming props
+  useEffect(() => { internalCourseDataRef.current = initialCourseData; }, [initialCourseData]);
+  useEffect(() => { internalSetCourseDataRef.current = initialSetCourseData; }, [initialSetCourseData]);
+  useEffect(() => { internalCheckCanEditRef.current = initialCheckCanEdit; }, [initialCheckCanEdit]);
+
+  // Effective values: prefer internal ref (set by setWizardState), fallback to props
+  const sessionId = internalSessionIdRef.current || initialSessionId;
+  const activeRole = internalActiveRoleRef.current || initialActiveRole;
+  const activeLessonId = internalActiveLessonIdRef.current || initialActiveLessonId;
+  const courseData = internalCourseDataRef.current;
+  const setCourseData = internalSetCourseDataRef.current;
+  const checkCanEdit = internalCheckCanEditRef.current;
   // ── PDF Preview ──
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
   const [pdfZoom, setPdfZoom] = useState(100);
@@ -11,10 +34,13 @@ export function useCourseExport({ sessionId, currentStep, activeRole, activeLess
 
   useEffect(() => {
     let isMounted = true;
-    if (currentStep === 'generated' && sessionId) {
-      let fetchUrl = `${API_BASE}/courses/${sessionId}/export?format=pdf&role=${(activeRole || 'creator').toLowerCase()}`;
-      if (activeLessonId) {
-        fetchUrl += `&lesson_id=${activeLessonId}`;
+    const sid = internalSessionIdRef.current || initialSessionId;
+    const role = internalActiveRoleRef.current || initialActiveRole;
+    const lid = internalActiveLessonIdRef.current || initialActiveLessonId;
+    if (currentStep === 'generated' && sid) {
+      let fetchUrl = `${API_BASE}/courses/${sid}/export?format=pdf&role=${(role || 'creator').toLowerCase()}`;
+      if (lid) {
+        fetchUrl += `&lesson_id=${lid}`;
       }
       fetch(fetchUrl)
         .then(res => {
@@ -32,7 +58,7 @@ export function useCourseExport({ sessionId, currentStep, activeRole, activeLess
         .catch(err => console.error("PDF Blob error:", err));
     }
     return () => { isMounted = false; };
-  }, [currentStep, sessionId, activeRole, activeLessonId]);
+  }, [currentStep, pdfFetchTrigger]);
 
   // ── Export Modal ──
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -167,7 +193,17 @@ export function useCourseExport({ sessionId, currentStep, activeRole, activeLess
   // ── PPT Generation ──
   const [isPptxPage, setIsPptxPage] = useState(false);
   const [pptxDataByLesson, setPptxDataByLesson] = useState({});
+  const internalSetPptxDataByLessonRef = useRef(null);
   const [activePptxLessonId, setActivePptxLessonId] = useState(null);
+
+  // Sync local setter with external ref (useCourseWizard calls setPptxDataByLessonRef.current to set PPT data)
+  const setPptxDataByLessonWithRef = (updater) => {
+    setPptxDataByLesson(prev => typeof updater === 'function' ? updater(prev) : updater);
+  };
+  // Expose setter via ref so useCourseWizard can call it
+  if (setPptxDataByLessonRef) {
+    setPptxDataByLessonRef.current = setPptxDataByLessonWithRef;
+  }
   const [pptxLayout, setPptxLayout] = useState('layout_1');
   const [pptxSlideIndex, setPptxSlideIndex] = useState(0);
   const [pptxLoading, setPptxLoading] = useState(false);
@@ -189,7 +225,7 @@ export function useCourseExport({ sessionId, currentStep, activeRole, activeLess
       });
       if (res.ok) {
         const data = await res.json();
-        setPptxDataByLesson(prev => ({ ...prev, [lessonId]: data }));
+        setPptxDataByLessonWithRef(prev => ({ ...prev, [lessonId]: data }));
         setPptxSlideIndex(0);
       } else {
         alert('Failed to generate PPT structure.');
@@ -243,7 +279,7 @@ export function useCourseExport({ sessionId, currentStep, activeRole, activeLess
       });
       if (res.ok) {
         const data = await res.json();
-        setPptxDataByLesson(prev => {
+        setPptxDataByLessonWithRef(prev => {
           const next = { ...prev };
           courseData.lessons?.forEach(l => { next[l.id] = data; });
           return next;
@@ -292,9 +328,19 @@ export function useCourseExport({ sessionId, currentStep, activeRole, activeLess
     pdfBlobUrl, pdfZoom, setPdfZoom, pdfSearchQuery, setPdfSearchQuery, isPdfSearchOpen, setIsPdfSearchOpen,
     isExportModalOpen, setIsExportModalOpen, exportFormat, setExportFormat, exportRole, setExportRole, isExporting, handleExport,
     isHistoryOpen, setIsHistoryOpen, historyList, historyLoading, fetchHistory, handleRestoreHistory,
-    isPptxPage, setIsPptxPage, pptxDataByLesson, setPptxDataByLesson, activePptxLessonId, setActivePptxLessonId,
+    isPptxPage, setIsPptxPage, pptxDataByLesson, setPptxDataByLesson: setPptxDataByLessonWithRef, activePptxLessonId, setActivePptxLessonId,
     pptxLayout, setPptxLayout, pptxSlideIndex, setPptxSlideIndex, pptxLoading, pptxBrandColors, setPptxBrandColors,
     pptxData, currentPptxSlides, currentPptxSlide,
-    handleGenerateLessonPptx, handleDownloadLessonPptx, handleGeneratePptx, handleDownloadPptx
+    handleGenerateLessonPptx, handleDownloadLessonPptx, handleGeneratePptx, handleDownloadPptx,
+    setWizardState: (state) => {
+      let changed = false;
+      if (state.sessionId !== undefined && state.sessionId !== internalSessionIdRef.current) { internalSessionIdRef.current = state.sessionId; changed = true; }
+      if (state.activeRole !== undefined && state.activeRole !== internalActiveRoleRef.current) { internalActiveRoleRef.current = state.activeRole; changed = true; }
+      if (state.activeLessonId !== undefined && state.activeLessonId !== internalActiveLessonIdRef.current) { internalActiveLessonIdRef.current = state.activeLessonId; changed = true; }
+      if (state.courseData !== undefined) internalCourseDataRef.current = state.courseData;
+      if (state.setCourseData !== undefined) internalSetCourseDataRef.current = state.setCourseData;
+      if (state.checkCanEdit !== undefined) internalCheckCanEditRef.current = state.checkCanEdit;
+      if (changed) setPdfFetchTrigger(prev => prev + 1);
+    },
   };
 }

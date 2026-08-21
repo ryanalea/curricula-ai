@@ -18,6 +18,7 @@ export function Step8Generated({
   setActivePptxLessonId,
   pptxSlideIndex,
   setPptxSlideIndex,
+  pdfBlobUrl,
   handleGenerateLessonPptx,
   pptxLoading,
   handleDownloadLessonPptx,
@@ -356,6 +357,7 @@ export function Step8Generated({
           const dbSections = curLesson?.sections?.[activeRole] || {};
 
           const activeLessonContent = {
+            ...dbSections,
             overview: dbSections.overview || dbSections.project_brief || `This lesson provides a comprehensive overview and practical foundation for ${lessonTitle}. Students will explore core concepts, industry use-cases, and implementation patterns necessary for real-world projects.`,
             learning_outcomes: dbSections.learning_outcomes?.length > 0 ? dbSections.learning_outcomes : [
               `Master core concepts and architectural components of ${lessonTitle}.`,
@@ -420,7 +422,7 @@ export function Step8Generated({
                   {(() => {
                     const cleanTitle = (courseData?.title || 'Course').replace(/[^\w\s-]/gi, '').replace(/\s+/g, '_');
                     const embedFilename = `${cleanTitle}_${activeRole.toLowerCase()}.pdf`;
-                    const embedSrc = `${API_BASE}/courses/${sessionId}/export/${embedFilename}?format=pdf&role=${activeRole.toLowerCase()}${activeLessonId ? `&lesson_id=${activeLessonId}` : ''}&disposition=inline#toolbar=1`;
+                    const embedSrc = pdfBlobUrl || `${API_BASE}/courses/${sessionId}/export/${embedFilename}?format=pdf&role=${activeRole.toLowerCase()}${activeLessonId ? `&lesson_id=${activeLessonId}` : ''}&disposition=inline#toolbar=1`;
                     
                     return (
                       <embed

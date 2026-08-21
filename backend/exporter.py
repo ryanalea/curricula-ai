@@ -803,12 +803,29 @@ def md_to_reportlab_html(text: str) -> str:
     if not text:
         return ""
     s = html_lib.escape(text)
+    
+    # Extract backtick code blocks and replace with safe placeholders
+    placeholders = []
+    def replace_code(match):
+        code_content = match.group(1)
+        placeholder = f"CODEBLOCKPLACEHOLDER{len(placeholders)}"
+        placeholders.append(f'<font name="Courier" color="#BE185D">{code_content}</font>')
+        return placeholder
+        
+    s = re.sub(r'`([^`]+?)`', replace_code, s)
+    
+    # Now run bold/italic replacements
     s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s)
     s = re.sub(r'__(.+?)__', r'<b>\1</b>', s)
     s = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', s)
     s = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', r'<i>\1</i>', s)
-    s = re.sub(r'`([^`]+?)`', r'<font name="Courier" color="#BE185D">\1</font>', s)
+    
+    # Restore the code blocks
+    for i, replacement in enumerate(placeholders):
+        s = s.replace(f"CODEBLOCKPLACEHOLDER{i}", replacement)
+        
     return s
+
 
 def _render_pdf_with_playwright(html_content: str) -> bytes:
     """Renders HTML to PDF bytes using headless Chromium. This supports the
@@ -941,12 +958,7 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             fontSize=18,
             leading=24,
             alignment=0,
-            textColor=colors.HexColor('#FFFFFF'),
-            backColor=colors.HexColor('#1A2040'),
-            borderColor=colors.HexColor('#E9B259'),
-            borderWidth=0,
-            borderPadding=(16, 16, 16, 16),
-            borderRadius=8,
+            textColor=colors.HexColor('#1A2040'),
             spaceAfter=14
         )
         h1_style = ParagraphStyle(
@@ -957,9 +969,6 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             leading=17,
             alignment=0,
             textColor=colors.HexColor('#2D3561'),
-            backColor=colors.HexColor('#FFF8EC'),
-            borderPadding=(8, 8, 10, 10),
-            borderRadius=5,
             spaceBefore=16,
             spaceAfter=10,
             keepWithNext=True
@@ -971,10 +980,7 @@ def export_to_pdf(course_data: dict, role: str) -> io.BytesIO:
             fontSize=11.5,
             leading=14,
             alignment=0,
-            textColor=colors.HexColor('#FFFFFF'),
-            backColor=colors.HexColor('#C8913A'),
-            borderPadding=(5, 5, 8, 8),
-            borderRadius=4,
+            textColor=colors.HexColor('#C8913A'),
             spaceBefore=12,
             spaceAfter=7,
             keepWithNext=True

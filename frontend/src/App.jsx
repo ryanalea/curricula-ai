@@ -28,20 +28,45 @@ export default function App() {
   // ── Auth Hook ──
   const auth = useAuthUser({ toast, setCurrentView });
 
-  // ── Course Wizard Controller ──
-  const wizard = useCourseWizard({ toast, setCurrentView, currentView, currentStep, setCurrentStep });
+  // ── Shared ref for setPptxDataByLesson (breaks circular dependency) ──
+  const setPptxDataByLessonRef = useRef(null);
 
   // ── Course Export, PPTX & History Controller ──
   const exports = useCourseExport({
-    sessionId: wizard.sessionId,
+    sessionId: null, // will be set via wizard after init
     currentStep,
-    activeRole: wizard.activeRole,
-    activeLessonId: wizard.activeLessonId,
-    courseData: wizard.courseData,
-    setCourseData: wizard.setCourseData,
+    activeRole: null,
+    activeLessonId: null,
+    courseData: null,
+    setCourseData: null,
     toast,
-    checkCanEdit: wizard.checkCanEdit
+    checkCanEdit: null,
+    setPptxDataByLessonRef,
   });
+
+  // ── Course Wizard Controller ──
+  const wizard = useCourseWizard({ 
+    toast, 
+    setCurrentView, 
+    currentView, 
+    currentStep, 
+    setCurrentStep, 
+    setPptxDataByLesson: setPptxDataByLessonRef,
+  });
+
+  // ── Sync wizard state to exports ──
+  useEffect(() => {
+    if (exports.setWizardState) {
+      exports.setWizardState({
+        sessionId: wizard.sessionId,
+        activeRole: wizard.activeRole,
+        activeLessonId: wizard.activeLessonId,
+        courseData: wizard.courseData,
+        setCourseData: wizard.setCourseData,
+        checkCanEdit: wizard.checkCanEdit,
+      });
+    }
+  }, [wizard.sessionId, wizard.activeRole, wizard.activeLessonId, wizard.courseData]);
 
   // ── Browser History Integration ──
   const isPopStateRef = useRef(false);
@@ -175,7 +200,7 @@ export default function App() {
           <HomePage
             greeting={auth.greeting}
             sessionsList={wizard.sessionsList}
-            handleResumeSession={(sess) => wizard.handleResumeSession(sess, exports.setPptxDataByLesson)}
+            handleResumeSession={(sess) => wizard.handleResumeSession(sess, setPptxDataByLessonRef)}
             selectedTopicCategory={wizard.selectedTopicCategory}
             setSelectedTopicCategory={wizard.setSelectedTopicCategory}
             setPromptText={wizard.setPromptText}
@@ -202,7 +227,7 @@ export default function App() {
             fetchSessions={wizard.fetchSessions}
             API_BASE={API_BASE}
             setDeleteTargetSession={wizard.setDeleteTargetSession}
-            handleResumeSession={(sess) => wizard.handleResumeSession(sess, exports.setPptxDataByLesson)}
+            handleResumeSession={(sess) => wizard.handleResumeSession(sess, setPptxDataByLessonRef)}
             resetWizardState={wizard.resetWizardState}
           />
         )}

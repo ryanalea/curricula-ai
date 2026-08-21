@@ -500,6 +500,7 @@ export function Step7Generating({
                 const lessonTitle = curLesson?.title || courseData?.title || 'Machine Learning Essentials';
 
                 const activeLessonContent = {
+                  ...curSecs,
                   // ── Creator ──
                   overview: curSecs.overview || curSecs.project_brief || `This lesson provides a comprehensive overview and practical foundation for ${lessonTitle}. Students will explore core concepts, industry use-cases, and implementation patterns necessary for real-world projects.`,
                   learning_outcomes: curSecs.learning_outcomes?.length > 0 ? curSecs.learning_outcomes : [

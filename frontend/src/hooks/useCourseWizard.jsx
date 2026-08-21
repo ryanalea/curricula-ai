@@ -4,8 +4,8 @@ import { AIActionBar, CustomSectionsList } from '../components/views/CourseEdito
 
 const API_BASE = '/api/v1';
 
-export function useCourseWizard({ toast, setCurrentView, currentView, currentStep, setCurrentStep }) {
-  const [sessionId, setSessionId] = useState(null);
+export function useCourseWizard({ toast, setCurrentView, currentView, currentStep, setCurrentStep, setPptxDataByLesson }) {
+  const [sessionId, setSessionId] = useState(() => sessionStorage.getItem('wizard_session_id') || null);
   const [isLoading, setIsLoading] = useState(false);
   const [agentProgressStage, setAgentProgressStage] = useState(1);
   const [activeSidebarNav, setActiveSidebarNav] = useState('create');
@@ -15,6 +15,15 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
   const [isAgentMode, setIsAgentMode] = useState('agent');
   const [sessionsList, setSessionsList] = useState([]);
   const [showMyCourses, setShowMyCourses] = useState(false);
+
+  // Persist sessionId to sessionStorage for refresh recovery
+  useEffect(() => {
+    if (sessionId) {
+      sessionStorage.setItem('wizard_session_id', sessionId);
+    } else {
+      sessionStorage.removeItem('wizard_session_id');
+    }
+  }, [sessionId]);
 
   // ── Course Library Filters & Pagination ──
   const [libraryFilterTab, setLibraryFilterTab] = useState('all');
@@ -297,6 +306,9 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
             if (sessData.lessons?.length > 0) setActiveLessonId(sessData.lessons[0].id);
             setGenerationProgress(100);
             setGenerationStatusText('Generation completed! Review and edit your content below.');
+            if (sessData.pptx_by_lesson && setPptxDataByLesson?.current) {
+              setPptxDataByLesson.current(sessData.pptx_by_lesson);
+            }
             if (completedToastSessionRef.current !== sessionId) {
               completedToastSessionRef.current = sessionId;
               toast.success("Generation completed! Review & edit your course material below, or click 'Proceed to Assets' when ready.");
@@ -877,8 +889,8 @@ export function useCourseWizard({ toast, setCurrentView, currentView, currentSte
         if (newStruct.length > 0) {
           setSelectedStructureLessonId(newStruct[0].id);
         }
-        if (data.pptx_by_lesson && setPptxDataByLesson) {
-          setPptxDataByLesson(data.pptx_by_lesson);
+        if (data.pptx_by_lesson && setPptxDataByLesson?.current) {
+          setPptxDataByLesson.current(data.pptx_by_lesson);
         }
         setLastSavedConfigHash(JSON.stringify({
           techTags: loadedTech,

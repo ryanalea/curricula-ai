@@ -344,6 +344,7 @@ export function WizardPage({ wizard, exports, currentStep, setCurrentStep, toast
               sessionId={wizard.sessionId}
               API_BASE={API_BASE}
               pdfZoom={exports.pdfZoom}
+              pdfBlobUrl={exports.pdfBlobUrl}
             />
           )}
 

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -7,11 +8,29 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, get_db
-from models import Session as DbSession, Course, Lesson, Section, Pptx
+from models import Session as DbSession, Course, Lesson, Section, Pptx, History
 import schemas
 import pipeline
 from services.progress_service import progress_publisher
 from services.generator_service import generate_course_content_task_async, cancel_session
+
+
+def parse_duration_to_minutes(duration_str) -> int:
+    """Parse duration string from AI to minutes integer.
+    Examples: "30 minutes" -> 30, "1 hour" -> 60, "2 weeks" -> 20160
+    """
+    if not duration_str:
+        return 60
+    match = re.search(r'(\d+)', str(duration_str))
+    if not match:
+        return 60
+    number = int(match.group(1))
+    duration_lower = str(duration_str).lower()
+    if 'hour' in duration_lower:
+        return number * 60
+    elif 'week' in duration_lower:
+        return number * 7 * 24 * 60
+    return number
 
 router = APIRouter(prefix="/api/v1/courses", tags=["courses"])
 
@@ -109,8 +128,7 @@ def create_session(input_data: schemas.KeywordInput, db: Session = Depends(get_d
 
     if lesson_count_override and isinstance(lesson_count_override, int):
         db_session.config_lessons = lesson_count_override
-    if duration_override and isinstance(duration_override, str):
-        db_session.config_duration = duration_override
+    db_session.config_duration = parse_duration_to_minutes(duration_override) if duration_override else 60
 
     db.add(db_session)
     db.commit()

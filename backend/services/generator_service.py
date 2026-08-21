@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import uuid
 from database import SessionLocal
 from models import Session as DbSession, Course, Lesson, Section
@@ -129,7 +130,7 @@ async def generate_course_content_task_async(session_id: str):
                 "target_audience": db_session.config_audience or "Student"
             })
             lesson_structure = db_session.structure or ""
-            lesson_duration = db_session.config_duration or "60 mins"
+            lesson_duration = f"{db_session.config_duration or 60} minutes"
 
             # 1. Creator Content
             try:
@@ -264,7 +265,13 @@ async def generate_course_content_task_async(session_id: str):
                                 
                                 # 3. Dedicated unique fallback per section (never steal from another section)
                                 if not content_val:
-                                    content_val = f"### {sec_title}\nThis section provides comprehensive details and actionable guidelines for **{sec_title}** within {lesson.title}."
+                                    try:
+                                        content_val = await asyncio.wait_for(
+                                            pipeline.generate_single_custom_section(lesson.title, s, grounding_data),
+                                            timeout=20.0
+                                        )
+                                    except Exception as e_single:
+                                        content_val = f"### {sec_title}\nThis section provides comprehensive details and actionable guidelines for **{sec_title}** within {lesson.title}."
 
                                 db.query(Section).filter(
                                     Section.lesson_id == lesson.id,

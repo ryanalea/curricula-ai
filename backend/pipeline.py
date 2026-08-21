@@ -646,19 +646,55 @@ async def generate_custom_sections_content(lesson_title: str, custom_sections: l
                 model=OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
-                max_tokens=2500,
+                max_tokens=4000,
                 temperature=0.7
             )
         )
-        return safe_load_json(response.choices[0].message.content)
+        raw = response.choices[0].message.content
+        parsed = safe_load_json(raw)
+        return parsed
     except Exception as e:
-        print(f"Error generating custom sections: {e}")
         res = {}
         for sec in custom_sections:
             sec_type = sec.get("type", "custom")
             title = sec.get("title", "Custom Section")
             res[sec_type] = f"### {title}\nDetailed curriculum notes and actionable instructions for {title} in {lesson_title}."
         return res
+
+async def generate_single_custom_section(lesson_title: str, section: dict, grounding_data: str = ""):
+    """Fallback: generate content for ONE section at a time with a simpler prompt."""
+    sec_type = section.get("type", "custom")
+    sec_title = section.get("title", "Custom Section")
+    sec_instruction = section.get("instruction", "Write curriculum content.")
+
+    if not client:
+        return f"### {sec_title}\nDetailed content for {sec_title} in {lesson_title}."
+
+    prompt = f"""You are a Curriculum Author. Generate professional Markdown content for ONE section.
+
+Lesson: "{lesson_title}"
+Section: "{sec_title}"
+Instruction: {sec_instruction}
+Context: {grounding_data}
+
+Write 300-500 words of detailed, actionable content. Use Markdown headers, lists, and code blocks where appropriate.
+
+Return ONLY the Markdown content as a plain string (NOT JSON)."""
+    try:
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1500,
+                temperature=0.7
+            )
+        )
+        content = response.choices[0].message.content.strip()
+        return content
+    except Exception as e:
+        return f"### {sec_title}\nDetailed curriculum content for {sec_title} in {lesson_title}."
 
 async def generate_student_content(lesson_title: str, creator_content: dict, lesson_duration: str = "60 mins", subject_context: str = ""):
     core_content_creator = creator_content.get("core_content", "")
