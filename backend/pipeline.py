@@ -999,28 +999,28 @@ async def generate_pptx_structure(course_data: dict, brand_colors: dict = None) 
 
     1. TITLE SLIDE (first slide):
        - title: Course title only
-       - subtitle: "" (empty — no subtitle)
+       - subtitle: "" (empty - no subtitle)
        - notes: Welcome greeting and course introduction script
 
     2. TABLE OF CONTENTS SLIDE:
        - Numbered list of all lessons
        - notes: Brief overview of what will be covered
 
-3. FOR EACH LESSON, generate these slides:
-        a. LESSON TITLE slide — lesson number and title
-        b. OVERVIEW slide — 4 key takeaway bullets from the lesson overview
-        c. LEARNING OUTCOMES slide — bullet list of specific, measurable outcomes
-        d. CORE CONTENT slides — extract ALL key concepts from core_content markdown:
-           - Split into multiple slides if content is rich (max 4 bullets per slide)
-           - Each bullet should be a clear, concise explanation (not just a keyword)
-           - Include sub-concepts and practical implications
-        e. CODE EXAMPLE slide(s) — extract code snippets from core_content or exercises:
-           - Include actual working code with comments
-           - Add language label
-           - Limit to ~12 lines of code
-        f. PRACTICE/EXERCISE slide — from student practice data:
-           - Exercise title, description, and starter code if available
-        g. KEY TAKEAWAYS slide — 3-5 summary bullets for the lesson
+    3. FOR EACH LESSON, generate these slides:
+       a. LESSON TITLE slide - lesson number and title
+       b. OVERVIEW slide - 4 key takeaway bullets from the lesson overview
+       c. LEARNING OUTCOMES slide - bullet list of specific, measurable outcomes
+       d. CORE CONTENT slides - extract ALL key concepts from core_content markdown:
+          - Split into multiple slides if content is rich (max 4 bullets per slide)
+          - Each bullet should be a clear, concise explanation (not just a keyword)
+          - Include sub-concepts and practical implications
+       e. CODE EXAMPLE slide(s) - extract code snippets from core_content or exercises:
+          - Include actual working code with comments
+          - Add language label
+          - Limit to ~12 lines of code
+       f. PRACTICE/EXERCISE slide - from student practice data:
+          - Exercise title, description, and starter code if available
+       g. KEY TAKEAWAYS slide - 3-5 summary bullets for the lesson
 
     4. END SLIDE:
        - title: "Thank You"
