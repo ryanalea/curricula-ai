@@ -532,8 +532,11 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     Grounding Parameters: {grounding_data}
     Lesson Structure Context: {lesson_structure}
  
-    [RULES]
-    - LANGUAGE: Write all standard curriculum content in professional, clear, and high-quality English.
+    [DYNAMIC LANGUAGE RULE]
+    - Detect the language of Lesson Title ("{lesson_title}") and Grounding Parameters.
+    - If the course prompt/topic is in Bahasa Indonesia (e.g. topic is in Indonesian or requests Indonesian), write ALL content (overview, learning_outcomes, core_content, exercises, quiz, prompt_templates) 100% in natural, professional Bahasa Indonesia.
+    - Otherwise, write in professional, clear, and high-quality English (default).
+    - NEVER mix languages in the same section.
     - NO FORCED CODING: Check the [DOMAIN: ...] in Grounding parameters. If the domain is NOT "Coding", you MUST NOT generate programming code snippets. Use structured frameworks, procedural steps, recipes, tables, or templates for non-coding topics.
     - Ensure the depth of core_content corresponds to reading/self-study material taking up 40% of the total {lesson_duration} lesson duration.
     - Provide in-depth, precise, and comprehensive content. Do not write brief summaries or bullet-point outlines only.
@@ -565,7 +568,6 @@ async def generate_creator_content(lesson_title: str, grounding_data: str, lesso
     }}
  
     [CONSTRAINT]
-    - Write in English.
     - Minimum 2 exercises and minimum 3 quiz questions.
     - Provide pure valid JSON with no introductory conversational text.
     """
@@ -614,8 +616,10 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
     Creator Core Content: {core_content_creator}
     Creator Exercises: {json.dumps(creator_exercises)}
  
-    [RULES]
-    - LANGUAGE: Write in natural, engaging, and clear English.
+    [DYNAMIC LANGUAGE RULE]
+    - Match the language of the Creator Core Content and Lesson Title ("{lesson_title}").
+    - If the Creator content is in Bahasa Indonesia, write ALL student content (why_this_matters, learning_journey, practice, debugging, ethics) 100% in natural, engaging Bahasa Indonesia.
+    - Otherwise, write in engaging, high-quality English (default).
     - Design interactive exercises that logically take ~40% of the {lesson_duration} for hands-on practice.
     - **CRITICAL DOMAIN ROUTING RULE**:
       * Check [DOMAIN: ...] in SUBJECT CONTEXT & DOMAIN METADATA above.
@@ -643,7 +647,6 @@ async def generate_student_content(lesson_title: str, creator_content: dict, les
     }}
  
     [CONSTRAINT]
-    - Write in English.
     - Provide pure valid JSON without conversational filler.
     """
     loop = asyncio.get_running_loop()
@@ -687,8 +690,10 @@ async def generate_educator_content(lesson_title: str, creator_content: dict, le
     Creator Core Content: {core_content_creator}
     Creator Exercises: {json.dumps(creator_exercises)}
  
-    [RULES]
-    - LANGUAGE: Write in professional, pedagogically sound English.
+    [DYNAMIC LANGUAGE RULE]
+    - Match the language of the Creator Core Content and Lesson Title ("{lesson_title}").
+    - If the Creator content is in Bahasa Indonesia, write ALL educator content (facilitator_guide, lesson_plan, rubric, teaching_tips, discussion_questions, assessment) 100% in professional Bahasa Indonesia.
+    - Otherwise, write in professional, pedagogically sound English (default).
     - Lesson plan timing breakdown MUST sum up EXACTLY to the target duration ({lesson_duration}).
     - Assessment rubric criteria MUST directly evaluate student work on the Creator Exercises: {json.dumps(creator_exercises)}.
     - Assessment guide must offer concrete evaluation/homework instructions directly tied to the practical exercises.
@@ -715,7 +720,6 @@ async def generate_educator_content(lesson_title: str, creator_content: dict, le
     }}
  
     [CONSTRAINT]
-    - Write in English.
     - Minimum 2 rubric criteria.
     - Pure valid JSON without conversational wrapper.
     """

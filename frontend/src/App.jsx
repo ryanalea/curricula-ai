@@ -5255,10 +5255,10 @@ export default function App() {
                       setGenerationProgress(0);
                       setGenerationStatusText('');
                       setCurrentStep('review');
-                      toast.info("Generasi materi dibatalkan. Kembali ke Step 6 Review.");
+                      toast.info("Generation canceled. Returned to Step 6 Review.");
                     }}
                   >
-                    <span>✕</span> Batal (Cancel)
+                    <span>✕</span> Cancel Generation
                   </button>
                 )}
               </div>
